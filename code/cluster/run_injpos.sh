@@ -9,7 +9,7 @@ STEPS="${2:-1000}"
 
 ROOT=/data3/guoshaoyang/ngram-gap-lab
 PY="$ROOT/.venv/bin/python"
-DATA_DIR=/data3/guoshaoyang/ngram-gap-exp/data
+DATA_DIR="$ROOT/data/tokenized"
 TRAIN_SHARDS=1
 VAL_SHARDS=2,3,4,5,6,7,8,9,10,6542
 
@@ -43,7 +43,7 @@ run_one() {
     --n_layer 8 \
     --n_head 6 \
     --n_embd 768 \
-    --vocab_size 32768 \
+    --vocab_size 8192 \
     --sequence_len 2048 \
     > "$RESULT_DIR/train.log" 2>&1
   local RC=$?

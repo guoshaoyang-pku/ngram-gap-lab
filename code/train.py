@@ -50,7 +50,7 @@ import torch.nn.functional as F
 @dataclass
 class Config:
     # model
-    vocab_size: int = 32768
+    vocab_size: int = 8192
     n_layer: int = 8
     n_head: int = 6
     n_embd: int = 768

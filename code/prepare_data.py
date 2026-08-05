@@ -1,0 +1,101 @@
+"""ngram-gap-lab · code/prepare_data.py
+
+Pre-tokenize parquet shards into packed .bin files using the SAME packing
+logic as OPHIS lib.py (BOS-aligned, best-fit packing). This ensures the
+token sequence is byte-identical to the old pipeline, so gap is reproducible.
+
+Output: data/tokenized/shard_<id>.bin  (uint16 token stream, packed rows of
+        sequence_len+1 each, BOS at start of each row)
+
+Usage (on ophis-gpu, with OPHIS lib.py accessible):
+  python code/prepare_data.py \
+    --ophis_dir /data3/guoshaoyang/ngram-gap-exp \
+    --cache_dir /data2/ncpl-pathA/work/vbird_autoresearch/cache \
+    --out_dir data/tokenized \
+    --shards 1,2,3,4,5,6,7,8,9,10,6542 \
+    --seq_len 2048
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import numpy as np
+import torch
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ophis_dir", required=True,
+                        help="Path to OPHIS repo (containing lib.py)")
+    parser.add_argument("--cache_dir", required=True,
+                        help="AUTORESEARCH_CACHE_DIR (parquet + tokenizer)")
+    parser.add_argument("--out_dir", required=True)
+    parser.add_argument("--shards", required=True,
+                        help="comma-separated shard ids to tokenize")
+    parser.add_argument("--seq_len", type=int, default=2048)
+    parser.add_argument("--batch_size", type=int, default=72,
+                        help="device batch size for packing (must match training)")
+    args = parser.parse_args()
+
+    os.makedirs(args.out_dir, exist_ok=True)
+
+    # Set env so OPHIS lib.py finds data
+    os.environ["AUTORESEARCH_CACHE_DIR"] = args.cache_dir
+    sys.path.insert(0, args.ophis_dir)
+
+    from lib import Tokenizer, TOKENIZER_DIR, make_dataloader, split_parquet_files
+
+    tok = Tokenizer.from_directory(TOKENIZER_DIR)
+    print(f"[prepare] vocab_size={tok.get_vocab_size()} BOS={tok.bos_token_id}")
+
+    shard_ids = [int(x) for x in args.shards.split(",") if x.strip()]
+    # OPHIS uses data_split.json to map train/val/test -> shard ids.
+    # We tokenize per-shard by temporarily overriding data_split.json.
+    data_split_path = os.path.join(args.ophis_dir, "data_split.json")
+    import json
+    with open(data_split_path) as f:
+        original_split = json.load(f)
+
+    T = args.seq_len
+    B = args.batch_size
+    row_capacity = T + 1
+
+    for sid in shard_ids:
+        # Write a temporary data_split.json that puts this single shard as "train"
+        # and a dummy different shard as "test" (required non-empty by lib.py)
+        dummy_test = [s for s in shard_ids if s != sid][:1] or [sid]
+        tmp_split = {"train": [sid], "test": dummy_test}
+        with open(data_split_path, "w") as f:
+            json.dump(tmp_split, f)
+        try:
+            dl = make_dataloader(tok, B=B, T=T, split="train",
+                                 data_mode="fixed", data_seed=42)
+            # Collect exactly one epoch of packed batches
+            all_rows = []
+            epoch = 1
+            while True:
+                inp, tgt, ep = next(dl)
+                if ep != epoch:
+                    break
+                # reconstruct full rows (T+1): input + last target token
+                # inp: (B, T), tgt: (B, T) where tgt = inp shifted by 1
+                # full row = [inp[b, 0], ..., inp[b, T-1], tgt[b, T-1]]
+                last_tgt = tgt[:, -1:].squeeze(-1)  # (B,)
+                full = torch.cat([inp, last_tgt.unsqueeze(-1)], dim=-1).cpu()  # (B, T+1)
+                for b in range(B):
+                    all_rows.append(full[b].numpy().astype(np.uint16))
+            arr = np.stack(all_rows)  # (n_rows, T+1)
+            out_path = os.path.join(args.out_dir, f"shard_{sid:05d}.bin")
+            arr.tofile(out_path)
+            print(f"[prepare] shard {sid}: {len(all_rows)} rows -> {out_path} "
+                  f"({os.path.getsize(out_path)/1e6:.1f} MB)")
+        finally:
+            # restore
+            with open(data_split_path, "w") as f:
+                json.dump(original_split, f)
+
+
+if __name__ == "__main__":
+    main()
