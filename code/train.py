@@ -671,6 +671,30 @@ def evaluate_val(model: NanoGPT, val_loader, val_batches: int) -> float:
     return float(np.mean(losses)) if losses else float("nan")
 
 
+def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
+                       vocab_size: int) -> dict:
+    """Run per-frequency-bin loss accumulation on n_batches from loader.
+
+    Returns dict with 'bigram' and 'trigram' keys, each mapping to
+    {bucket_label: {frac, mean_loss, total_contrib, token_count}}.
+    """
+    from ngram_freq import FreqBinLossAccumulator, compute_per_token_loss
+    model.eval()
+    accs = {
+        "bigram": FreqBinLossAccumulator(freq_index, vocab_size, "bigram"),
+        "trigram": FreqBinLossAccumulator(freq_index, vocab_size, "trigram"),
+    }
+    with torch.no_grad():
+        for i, (inp, tgt) in enumerate(loader):
+            if i >= n_batches:
+                break
+            ptl = compute_per_token_loss(model, inp, tgt)
+            for branch in accs:
+                accs[branch].update(inp, ptl)
+    model.train()
+    return {branch: acc.summary() for branch, acc in accs.items()}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_id", default="run")
@@ -696,8 +720,12 @@ def main():
     parser.add_argument("--n_layer", type=int, default=8)
     parser.add_argument("--n_head", type=int, default=6)
     parser.add_argument("--n_embd", type=int, default=768)
-    parser.add_argument("--vocab_size", type=int, default=32768)
+    parser.add_argument("--vocab_size", type=int, default=8192)
     parser.add_argument("--sequence_len", type=int, default=2048)
+    parser.add_argument("--freq_index", default="",
+                        help="path to freq_index.npz; if set, enables freq-bin eval")
+    parser.add_argument("--freq_eval_interval", type=int, default=50)
+    parser.add_argument("--freq_eval_batches", type=int, default=4)
     args = parser.parse_args()
 
     cfg = Config(
@@ -753,6 +781,13 @@ def main():
     # logs
     train_log = open(os.path.join(cfg.out_dir, "train_log.jsonl"), "w")
     table_log = open(os.path.join(cfg.out_dir, "table_norm.jsonl"), "w")
+    freq_bin_log = None
+    freq_index_obj = None
+    if args.freq_index and os.path.exists(args.freq_index):
+        from ngram_freq import GlobalFrequencyIndex
+        freq_index_obj = GlobalFrequencyIndex.load(args.freq_index)
+        freq_bin_log = open(os.path.join(cfg.out_dir, "freq_bin_loss.jsonl"), "w")
+        print(f"[nglab] freq-bin eval enabled (index: {args.freq_index})")
     last_val_loss = float("nan")
     last_train_loss = float("nan")
 
@@ -795,6 +830,23 @@ def main():
                   f"| gap {last_val_loss-train_loss:+.4f} | epoch {train_ds._epoch+1} | "
                   f"lr_m {lr_mult:.2f} | {(time.time()-t0):.0f}s")
 
+        # periodic freq-bin eval (train + val)
+        if freq_bin_log is not None and ((step + 1) % args.freq_eval_interval == 0 or step == cfg.max_steps - 1):
+            # train freq-bin (use fresh train batches, not the ones already consumed)
+            train_freq = evaluate_freq_bins(model, train_iter, freq_index_obj,
+                                            args.freq_eval_batches, cfg.vocab_size)
+            # val freq-bin
+            val_freq = evaluate_freq_bins(model, val_iter, freq_index_obj,
+                                          args.freq_eval_batches, cfg.vocab_size)
+            fb_entry = {
+                "step": step + 1,
+                "epoch": train_ds._epoch + 1,
+                "train": train_freq,
+                "val": val_freq,
+            }
+            freq_bin_log.write(json.dumps(fb_entry) + "\n")
+            freq_bin_log.flush()
+
         # periodic table norm
         if (step + 1) % cfg.table_norm_interval_steps == 0:
             tn = table_param_rms(model)
@@ -804,6 +856,8 @@ def main():
 
     train_log.close()
     table_log.close()
+    if freq_bin_log is not None:
+        freq_bin_log.close()
 
     # summary
     summary = {

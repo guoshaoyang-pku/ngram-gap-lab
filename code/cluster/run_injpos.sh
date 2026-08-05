@@ -45,6 +45,9 @@ run_one() {
     --n_embd 768 \
     --vocab_size 8192 \
     --sequence_len 2048 \
+    --freq_index "$ROOT/data/freq_index.npz" \
+    --freq_eval_interval 50 \
+    --freq_eval_batches 4 \
     > "$RESULT_DIR/train.log" 2>&1
   local RC=$?
   echo "=== $EXP finished (exit $RC) at $(date) ==="
