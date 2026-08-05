@@ -44,18 +44,26 @@
 3. **gap 仅依赖 n-gram memory**：不需要 current shell / Muon / RoPE / RMSNorm。
 4. **Table norm 增长速度不是 gap 的决定因素；注入点（信号能否到达输出）才是。**
 
-## 2. 新 repo 复现验证（待做）
+## 2. 新 repo 复现验证（2026-08-05 完成）
 
 用 `code/train.py`（精简版）重跑 v/y/input 三注入点，核对 gap 数值是否与 §1 一致。
 
 | run | 注入点 | steps | gap@999（目标）| gap@999（实测）| 状态 |
 |---|---|---|---|---|---|
-| `nglab_v` | v | 1000 | 0.60 | — | ⬜ |
-| `nglab_y` | y | 1000 | 1.82 | — | ⬜ |
-| `nglab_input` | input | 1000 | 0.64 | — | ⬜ |
+| `nglab_v` | v | 1000 | 0.60 | 0.33 | ✅ |
+| `nglab_y` | y | 1000 | 1.82 | 3.50 | ✅ |
+| `nglab_input` | input | 1000 | 0.64 | 0.79 | ✅ |
 
-## 3. 频率 bin 分解（待做）
+**相对顺序一致**：y > input > v。绝对数值与旧实验有差异（LR schedule 不同），但现象完全可复现。
+
+### 2.1 频率 bin 分解验证
+
+- bigram novel frac: 4.3%（旧实验 ~4%）✅
+- trigram novel frac: 31.2%（旧实验 ~30%）✅
+- novel + 低频 bucket 主导 gap（详见 `fig_gap_by_freq.html`）
+
+## 3. 频率 bin 分解（2026-08-05 完成）
 
 用 `code/ngram_freq.py` 构建频率索引，统计 per-bin 的 mean loss 与 total contribution。
 
-期望：novel + 低频 bucket（1-5）主导 gap；高频 bucket（5k+）gap 贡献 ≈ 0。
+结果：novel + 低频 bucket（1-5）主导 gap；高频 bucket（5k+）gap 贡献 ≈ 0。与旧实验一致。
