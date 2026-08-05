@@ -1,0 +1,29 @@
+# data directory (gitignored — large files, not tracked)
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Training outputs (already covered by data/ but just in case)
+runs/
+*.log
+*.bin
+*.pt
+*.ckpt
+
+# Plots (keep svg/html in docs/figs, ignore raw data dumps)
+*.npz
