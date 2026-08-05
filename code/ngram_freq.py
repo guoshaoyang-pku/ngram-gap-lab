@@ -93,47 +93,46 @@ def _all_bucket_labels() -> list:
 class GlobalFrequencyIndex:
     """Per-context (bigram/trigram) hit count from one train epoch.
 
-    Uses layer-0 hash primes to assign a scalar row id per context. The index
-    maps row_id -> hit_count. Because the model uses K=2 multi-hash, we index
-    by the *first* hash only (layer 0, table 0) — this is sufficient for
-    bucketing since all K hashes share the same hit-count distribution by
-    construction (they're applied to the same token context).
+    Uses the actual token tuple (not the hash table row) as the key, so that
+    novel contexts (never seen in train) are correctly identified. This is
+    critical: the hash table has only vocab*64 rows, but the true context
+    space is vocab^2 (bigram) or vocab^3 (trigram), so hash collisions would
+    mask novel contexts if we used row ids as keys.
+
+    Key encoding:
+      bigram:  prev * vocab_size + cur           (range: vocab^2)
+      trigram: prev2 * vocab^2 + prev * vocab + cur  (range: vocab^3)
 
     Stored format: npz with keys
-      bigram_rows (int64), bigram_counts (int32),
-      trigram_rows (int64), trigram_counts (int32)
+      bigram_keys (int64), bigram_counts (int32),
+      trigram_keys (int64), trigram_counts (int32),
+      vocab_size (int64)
     """
 
     def __init__(self, bigram: dict, trigram: dict, vocab_size: int):
-        self.bigram = bigram        # row -> count
+        self.bigram = bigram        # context_key -> count
         self.trigram = trigram
         self.vocab_size = vocab_size
-        self.bigram_table_size = vocab_size * 64
-        self.trigram_table_size = vocab_size * 64
 
     @classmethod
     def build(cls, train_tokens: np.ndarray, vocab_size: int) -> "GlobalFrequencyIndex":
         """Scan train tokens (1D uint16/uint32 array) once, count all bigram/trigram contexts."""
         tokens = train_tokens.astype(np.int64)
         N = len(tokens)
-        # bigram: (prev, cur) -> hash with layer-0 primes, table 0
-        bp = _BASE_BIGRAM_PRIMES[0][0]  # (p1, p2)
-        bts = vocab_size * 64
+        # bigram: (prev, cur) -> prev * vocab + cur
         prev = tokens[:-1]
         cur = tokens[1:]
-        b_rows = ((prev * bp[0]) ^ (cur * bp[1])) % bts
-        # trigram: (prev2, prev, cur) -> hash with layer-0 primes, table 0
-        tp = _BASE_TRIGRAM_PRIMES[0]  # (p0..p5)
-        tts = vocab_size * 64
+        b_keys = prev * vocab_size + cur
+        # trigram: (prev2, prev, cur) -> prev2 * vocab^2 + prev * vocab + cur
         prev2 = tokens[:-2]
         prev1 = tokens[1:-1]
         cur_t = tokens[2:]
-        t_rows = ((prev2 * tp[0]) ^ (prev1 * tp[1]) ^ (cur_t * tp[2])) % tts
-        # count unique rows
-        b_unique, b_counts = np.unique(b_rows, return_counts=True)
-        t_unique, t_counts = np.unique(t_rows, return_counts=True)
-        bigram = {int(r): int(c) for r, c in zip(b_unique, b_counts)}
-        trigram = {int(r): int(c) for r, c in zip(t_unique, t_counts)}
+        t_keys = prev2 * (vocab_size * vocab_size) + prev1 * vocab_size + cur_t
+        # count unique keys
+        b_unique, b_counts = np.unique(b_keys, return_counts=True)
+        t_unique, t_counts = np.unique(t_keys, return_counts=True)
+        bigram = {int(k): int(c) for k, c in zip(b_unique, b_counts)}
+        trigram = {int(k): int(c) for k, c in zip(t_unique, t_counts)}
         return cls(bigram, trigram, vocab_size)
 
     @classmethod
@@ -150,19 +149,19 @@ class GlobalFrequencyIndex:
         return cls.build(all_tokens, vocab_size)
 
     def save(self, path: str):
-        b_rows = np.array(list(self.bigram.keys()), dtype=np.int64)
+        b_keys = np.array(list(self.bigram.keys()), dtype=np.int64)
         b_counts = np.array(list(self.bigram.values()), dtype=np.int32)
-        t_rows = np.array(list(self.trigram.keys()), dtype=np.int64)
+        t_keys = np.array(list(self.trigram.keys()), dtype=np.int64)
         t_counts = np.array(list(self.trigram.values()), dtype=np.int32)
-        np.savez(path, bigram_rows=b_rows, bigram_counts=b_counts,
-                 trigram_rows=t_rows, trigram_counts=t_counts,
+        np.savez(path, bigram_keys=b_keys, bigram_counts=b_counts,
+                 trigram_keys=t_keys, trigram_counts=t_counts,
                  vocab_size=np.array([self.vocab_size]))
 
     @classmethod
     def load(cls, path: str) -> "GlobalFrequencyIndex":
         d = np.load(path)
-        bigram = {int(r): int(c) for r, c in zip(d["bigram_rows"], d["bigram_counts"])}
-        trigram = {int(r): int(c) for r, c in zip(d["trigram_rows"], d["trigram_counts"])}
+        bigram = {int(k): int(c) for k, c in zip(d["bigram_keys"], d["bigram_counts"])}
+        trigram = {int(k): int(c) for k, c in zip(d["trigram_keys"], d["trigram_counts"])}
         vocab_size = int(d["vocab_size"][0])
         return cls(bigram, trigram, vocab_size)
 
@@ -207,29 +206,32 @@ class FreqBinLossAccumulator:
         self.freq_index = freq_index
         self.vocab_size = vocab_size
         self.branch = branch  # "bigram" or "trigram"
-        self.table_size = (vocab_size * 64)
         self._loss_sum = {label: 0.0 for label in _all_bucket_labels()}
         self._token_count = {label: 0 for label in _all_bucket_labels()}
         self._total_tokens = 0
 
-    def _compute_rows(self, inp: torch.Tensor) -> torch.Tensor:
-        """Compute layer-0 table-0 hash rows for each position. Returns (B,T) long."""
+    def _compute_keys(self, inp: torch.Tensor) -> torch.Tensor:
+        """Compute context keys for each position. Returns (B,T) long.
+
+        Key encoding (must match GlobalFrequencyIndex.build):
+          bigram:  prev * vocab + cur
+          trigram: prev2 * vocab^2 + prev * vocab + cur
+        """
         B, T = inp.size()
         if self.branch == "bigram":
-            bp = _BASE_BIGRAM_PRIMES[0][0]
             prev = torch.cat([inp[:, :1], inp[:, :-1]], dim=1)
-            rows = ((prev.long() * bp[0]) ^ (inp.long() * bp[1])) % self.table_size
+            keys = prev.long() * self.vocab_size + inp.long()
         else:  # trigram
-            tp = _BASE_TRIGRAM_PRIMES[0]
             prev2 = torch.cat([inp[:, :2], inp[:, :-2]], dim=1)
             prev1 = torch.cat([inp[:, :1], inp[:, :-1]], dim=1)
-            rows = ((prev2.long() * tp[0]) ^ (prev1.long() * tp[1]) ^ (inp.long() * tp[2])) % self.table_size
-        return rows
+            keys = (prev2.long() * (self.vocab_size * self.vocab_size)
+                    + prev1.long() * self.vocab_size + inp.long())
+        return keys
 
     def update(self, inp: torch.Tensor, per_token_loss: torch.Tensor):
         """Accumulate one batch. inp: (B,T), per_token_loss: (B,T) float."""
-        rows = self._compute_rows(inp)  # (B,T) long
-        hits = self.freq_index.hit_count_tensor(self.branch, rows)  # (B,T) int32
+        keys = self._compute_keys(inp)  # (B,T) long
+        hits = self.freq_index.hit_count_tensor(self.branch, keys)  # (B,T) int32
         # map to bucket labels
         hits_np = hits.cpu().numpy().astype(np.int64)
         loss_np = per_token_loss.detach().cpu().numpy().astype(np.float64)
