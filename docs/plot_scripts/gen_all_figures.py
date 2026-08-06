@@ -119,24 +119,27 @@ def load_fallback_blog_data():
             for step, bigram, trigram in zip(norm_steps, norm_data[0]["y"], norm_data[1]["y"])
         ]
 
-    point = {"step": data["input"]["train_log"][-1]["step"], "train": {}, "val": {}}
-    for branch in ["bigram", "trigram"]:
-        point["train"][branch] = {}
-        point["val"][branch] = {}
-        for row in dist_data[branch]:
-            bucket = row["bucket"]
-            series_row = freq_data[branch][bucket]
-            train_loss = series_row["train_loss"][-1]
-            val_loss = series_row["val_loss"][-1]
-            point["train"][branch][bucket] = {
-                "frac": row["train_frac"], "mean_loss": train_loss,
-                "total_contrib": row["train_frac"] * train_loss, "token_count": 1,
-            }
-            point["val"][branch][bucket] = {
-                "frac": row["val_frac"], "mean_loss": val_loss,
-                "total_contrib": row["val_frac"] * val_loss, "token_count": 1,
-            }
-    input_data["freq_bin"] = [point]
+    input_data["freq_bin"] = []
+    for index, step in enumerate(freq_data["bigram"]["novel"]["steps"]):
+        point = {"step": step, "train": {}, "val": {}}
+        for branch in ["bigram", "trigram"]:
+            point["train"][branch] = {}
+            point["val"][branch] = {}
+            fractions = {row["bucket"]: row for row in dist_data[branch]}
+            for bucket in BUCKET_ORDER:
+                series_row = freq_data[branch][bucket]
+                fraction = fractions[bucket]
+                train_loss = series_row["train_loss"][index]
+                val_loss = series_row["val_loss"][index]
+                point["train"][branch][bucket] = {
+                    "frac": fraction["train_frac"], "mean_loss": train_loss,
+                    "total_contrib": fraction["train_frac"] * train_loss, "token_count": 1,
+                }
+                point["val"][branch][bucket] = {
+                    "frac": fraction["val_frac"], "mean_loss": val_loss,
+                    "total_contrib": fraction["val_frac"] * val_loss, "token_count": 1,
+                }
+        input_data["freq_bin"].append(point)
     return data
 
 
@@ -631,10 +634,7 @@ def gen_fig_gap_by_freq(data):
 
 
 def gen_fig_hitcount_dist(data):
-    """Figure 4: hit count distribution (bar + cumulative) from freq_index.
-
-    Uses the last freq_bin point to get token fractions per bucket.
-    """
+    """Figure 4: interactive hit count distribution for both branches."""
     out = os.path.join(FIGS_DIR, "fig_hitcount_dist.html")
     d = data.get("input", {})
     fb_pts = d.get("freq_bin", [])
@@ -643,7 +643,14 @@ def gen_fig_hitcount_dist(data):
         return
     last = fb_pts[-1]
 
-    body = '<div id="dist_chart" class="chart"></div>'
+    body = """
+    <div class="controls">
+      <b>context:</b>
+      <button class="active" onclick="plotDist('bigram', this)">bigram</button>
+      <button onclick="plotDist('trigram', this)">trigram</button>
+    </div>
+    <div id="dist_chart" class="chart"></div>
+    """
     bar_data = {"bigram": [], "trigram": []}
     for branch in ["bigram", "trigram"]:
         for b in BUCKET_ORDER:
@@ -656,7 +663,13 @@ def gen_fig_hitcount_dist(data):
     var bucketOrder = {json.dumps(BUCKET_ORDER)};
     var bucketColors = {json.dumps(BUCKET_COLORS)};
 
-    function plotDist(branch) {{
+    function plotDist(branch, button) {{
+      if (button) {{
+        document.querySelectorAll('.controls button').forEach(function(b) {{
+          b.classList.remove('active');
+        }});
+        button.classList.add('active');
+      }}
       var d = barData[branch];
       var trainTrace = {{x: d.map(function(x){{return x.bucket}}), y: d.map(function(x){{return x.train_frac}}), type: "bar", name: "train", marker: {{color: "#2196F3"}}}};
       var valTrace = {{x: d.map(function(x){{return x.bucket}}), y: d.map(function(x){{return x.val_frac}}), type: "bar", name: "val", marker: {{color: "#F44336"}}}};
@@ -667,12 +680,12 @@ def gen_fig_hitcount_dist(data):
       var cumValTrace = {{x: d.map(function(x){{return x.bucket}}), y: cumVal, mode: "lines+markers", name: "val (cumul)", line: {{color: "#F44336", dash: "dot"}}, yaxis: "y2"}};
       Plotly.newPlot("dist_chart", [trainTrace, valTrace, cumTrainTrace, cumValTrace], {{
         title: branch + " context 频次分布 (train vs val)", barmode: "group",
-        xaxis: {{title: "hit count bucket"}}, yaxis: {{title: "token fraction"}},
+        xaxis: {{title: "hit count bucket", tickangle: -42}}, yaxis: {{title: "token fraction"}},
         yaxis2: {{title: "cumulative", side: "right", overlaying: "y"}},
-        margin: {{l:60,r:60,t:50,b:50}}, legend: {{x: 0.02, y: 0.98}}
+        margin: {{l:60,r:60,t:50,b:80}}, legend: {{x: 0.02, y: 0.98}}
       }});
     }}
-    plotDist("bigram");
+    plotDist("bigram", document.querySelector('.controls button'));
     """
     html = HTML_WRAP.format(title="命中频次分布", note="train vs val 的 n-gram context 频次分布（bar = 占比，虚线 = 累积分布）",
                             body=body, plotly=PLOTLY_HEAD, script=script)
@@ -694,6 +707,15 @@ def main():
     gen_fig_loss_norm(data)
     gen_fig_gap_by_freq(data)
     gen_fig_hitcount_dist(data)
+    if MIRROR_FIGS_DIR:
+        os.makedirs(MIRROR_FIGS_DIR, exist_ok=True)
+        for name in ["fig_gap_loss.html", "fig_loss_norm.html",
+                     "fig_gap_by_freq.html", "fig_hitcount_dist.html"]:
+            source = os.path.join(FIGS_DIR, name)
+            target = os.path.join(MIRROR_FIGS_DIR, name)
+            if os.path.exists(source):
+                with open(source) as source_file, open(target, "w") as target_file:
+                    target_file.write(source_file.read())
     print("[done] all figures generated")
 
 
