@@ -75,6 +75,10 @@ python3 docs/plot_scripts/gen_all_figures.py
 4. HTML、SVG 引用是否存在；
 5. `git diff --check` 和浏览器 console 是否无错误。
 
+当前 canonical 主线使用 validation 与 frequency evaluation 每 10 步（v10）。
+早期 `nglab_{v,y,input}` 记录使用每 50 步，仅作为已完成的历史基线，不应
+与 v10 曲线混称。
+
 ## 可复现性约束
 
 - 不要从旧宽 bucket 插值或伪拆出更细的 exact hit-count loss。

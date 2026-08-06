@@ -46,8 +46,8 @@ cd ngram-gap-lab
 # 2. setup env (reuses torch from existing venv)
 bash code/cluster/setup_env.sh
 
-# 3. run v/y/input ablation (serial, ~6 min/run on 1 H200)
-bash code/cluster/run_injpos.sh 0 1000
+# 3. run v/y/input/nogram ablation (v10: validation every 10 steps, 2000 steps)
+bash code/cluster/run_injpos.sh 0 2000
 
 # 4. doubled training-size replay experiment (three GPUs, 2000 steps)
 bash code/cluster/run_train2x.sh 5,6,7 2000
@@ -75,7 +75,7 @@ See `docs/plan.md` for full spec. Core config:
 - injection point: `input` (over-encoding to wte)
 - optimizer: mixed (RMSProp for table, AdamW for backbone)
 - table betas: (0.0, 0.999) — no momentum, β₂ persists across epochs
-- fixed-order epoch replay, seed 42, 1000 steps
+- fixed-order epoch replay, seed 42, 2000 steps, validation and frequency evaluation every 10 steps (v10)
 
 The doubled-training-size experiment uses train shards `1,2`, runs for 2000
 steps, and writes complete `train_log.jsonl`, `table_norm.jsonl`,

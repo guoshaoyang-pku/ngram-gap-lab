@@ -67,6 +67,9 @@ class Config:
     # optimizer
     nanogpt_adam_lr: float = 0.004
     ngram_table_betas: tuple = (0.0, 0.999)
+    table_optimizer: str = "rmsprop"  # rmsprop | adamw | sgd
+    table_lr_scale: float = 1.0       # multiplier on the n-gram table LR
+    table_betas: tuple = (0.0, 0.999)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     adam_betas: tuple = (0.8, 0.95)
     weight_decay: float = 0.1
     # training
@@ -74,7 +77,7 @@ class Config:
     max_steps: int = 1000
     device_batch_size: int = 72
     total_batch_size: int = 147456
-    val_interval_steps: int = 50
+    val_interval_steps: int = 10
     val_batches: int = 4
     table_norm_interval_steps: int = 10
     warmdown_ratio: float = 0.65  # last 65% of steps decays LR
@@ -451,15 +454,20 @@ class MixedOptimizer:
     """Minimal AdamW + RMSProp optimizer (no Muon).
 
     n-gram table params (value_embeds / bigram_ves / trigram_ves / *_gate)
-    -> RMSProp with betas=(0.0, 0.999), no momentum, bias-corrected.
+    -> table_optimizer: RMSProp betas=(0.0, 0.999) bias-corrected (default),
+       AdamW with table_betas, or SGD with momentum=table_betas[0].
     Everything else -> AdamW with betas=(0.8, 0.95), weight_decay=0.1 (matrices only).
     """
 
     def __init__(self, model: nn.Module, lr: float, ngram_betas, adam_betas,
-                 weight_decay: float):
+                 weight_decay: float, table_optimizer: str = "rmsprop",
+                 table_lr_scale: float = 1.0, table_betas=None):
         self.model = model
         self.lr = lr
         self.ngram_beta2 = ngram_betas[1]
+        self.table_optimizer = table_optimizer
+        self.table_lr_scale = table_lr_scale
+        self.table_betas = tuple(table_betas) if table_betas is not None else tuple(ngram_betas)
         self.adam_betas = adam_betas
         self.weight_decay = weight_decay
         self.adam_steps = {}
@@ -467,6 +475,7 @@ class MixedOptimizer:
         self.adam_exp_avg_sq = {}
         self.rms_steps = {}
         self.rms_exp_avg_sq = {}
+        self.table_exp_avg = {}  # adamw first moment / sgd momentum buffer
         ngram_markers = ("value_embeds", "bigram_ves", "trigram_ves",
                          "ve_gate", "bigram_gate", "trigram_gate")
         self.ngram_params = []
@@ -513,7 +522,7 @@ class MixedOptimizer:
         step_size = lr_t / bias1
         p.add_(exp_avg / denom, alpha=-step_size)
 
-    def _rmsprop_step(self, name, p, lr_t):
+    def _table_rmsprop_step(self, name, p, lr_t):
         g = p.grad
         if g is None:
             return
@@ -530,13 +539,51 @@ class MixedOptimizer:
         denom = (exp_avg_sq / bias2).sqrt() + 1e-10
         p.add_(g / denom, alpha=-lr_t)
 
+    def _table_adamw_step(self, name, p, lr_t):
+        g = p.grad
+        if g is None:
+            return
+        if name not in self.rms_steps:
+            self.rms_steps[name] = 0
+            self.rms_exp_avg_sq[name] = torch.zeros_like(p)
+            self.table_exp_avg[name] = torch.zeros_like(p)
+        self.rms_steps[name] += 1
+        step = self.rms_steps[name]
+        b1, b2 = self.table_betas
+        exp_avg = self.table_exp_avg[name]
+        exp_avg_sq = self.rms_exp_avg_sq[name]
+        exp_avg.lerp_(g, 1 - b1)
+        exp_avg_sq.lerp_(g.square(), 1 - b2)
+        bias1 = 1 - b1 ** step
+        bias2 = 1 - b2 ** step
+        denom = (exp_avg_sq / bias2).sqrt() + 1e-8
+        p.add_(exp_avg / denom, alpha=-lr_t / bias1)
+
+    def _table_sgd_step(self, name, p, lr_t):
+        g = p.grad
+        if g is None:
+            return
+        momentum = self.table_betas[0]
+        buf = self.table_exp_avg.get(name)
+        if buf is None:
+            buf = torch.zeros_like(p)
+            self.table_exp_avg[name] = buf
+        buf.mul_(momentum).add_(g)
+        p.add_(buf, alpha=-lr_t)
+
     def step(self, lr_mult: float = 1.0):
         lr_t = self.lr * lr_mult
+        table_lr_t = lr_t * self.table_lr_scale
         with torch.no_grad():
             for name, p in self.adam_params:
                 self._adamw_step(name, p, lr_t)
             for name, p in self.ngram_params:
-                self._rmsprop_step(name, p, lr_t)
+                if self.table_optimizer == "adamw":
+                    self._table_adamw_step(name, p, table_lr_t)
+                elif self.table_optimizer == "sgd":
+                    self._table_sgd_step(name, p, table_lr_t)
+                else:
+                    self._table_rmsprop_step(name, p, table_lr_t)
 
     def state_dict(self):
         return {
@@ -658,13 +705,13 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
-def evaluate_val(model: NanoGPT, val_loader, val_batches: int) -> float:
+def evaluate_val(model: NanoGPT, fixed_val_batches) -> float:
+    """Val loss on a FIXED batch set captured once at startup and reused for
+    every evaluation, so the val-loss curve always measures the same val data."""
     model.eval()
     losses = []
     with torch.no_grad():
-        for i, (inp, tgt) in enumerate(val_loader):
-            if i >= val_batches:
-                break
+        for inp, tgt in fixed_val_batches:
             loss = model(inp, targets=tgt)
             losses.append(loss.item())
     model.train()
@@ -710,10 +757,17 @@ def main():
                         help="comma-separated shard ids for val")
     parser.add_argument("--device_batch_size", type=int, default=72)
     parser.add_argument("--total_batch_size", type=int, default=147456)
-    parser.add_argument("--val_interval", type=int, default=50)
+    parser.add_argument("--val_interval", type=int, default=10)
     parser.add_argument("--val_batches", type=int, default=4)
     parser.add_argument("--table_norm_interval", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.004)
+    parser.add_argument("--table_optimizer", default="rmsprop",
+                        choices=["rmsprop", "adamw", "sgd"],
+                        help="optimizer for n-gram table params (default rmsprop)")
+    parser.add_argument("--table_lr_scale", type=float, default=1.0,
+                        help="multiplier on the n-gram table LR (default 1.0)")
+    parser.add_argument("--table_betas", default=None,
+                        help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.999")
     parser.add_argument("--enable_unigram", type=int, default=0)
     parser.add_argument("--enable_bigram", type=int, default=1)
     parser.add_argument("--enable_trigram", type=int, default=1)
@@ -724,7 +778,7 @@ def main():
     parser.add_argument("--sequence_len", type=int, default=2048)
     parser.add_argument("--freq_index", default="",
                         help="path to freq_index.npz; if set, enables freq-bin eval")
-    parser.add_argument("--freq_eval_interval", type=int, default=50)
+    parser.add_argument("--freq_eval_interval", type=int, default=10)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
     args = parser.parse_args()
 
@@ -746,11 +800,21 @@ def main():
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
         nanogpt_adam_lr=args.lr,
+        table_optimizer=args.table_optimizer,
+        table_lr_scale=args.table_lr_scale,
         data_dir=args.data_dir,
         train_shards=[int(x) for x in args.train_shards.split(",") if x.strip()],
         val_shards=[int(x) for x in args.val_shards.split(",") if x.strip()],
         out_dir=os.path.join(args.out_dir, args.run_id),
     )
+
+    if args.table_betas:
+        parts = [float(x) for x in args.table_betas.replace(";", ",").split(",") if x.strip()]
+        assert len(parts) == 2 and all(0.0 <= b < 1.0 for b in parts), \
+            "table_betas must be two values in [0, 1)"
+        cfg.table_betas = tuple(parts)
+    else:
+        cfg.table_betas = (0.0, 0.999)
 
     set_seed(cfg.seed)
     os.makedirs(cfg.out_dir, exist_ok=True)
@@ -764,6 +828,17 @@ def main():
                                    cfg.device_batch_size, cfg.data_seed)
     train_iter = train_ds.iter_batches(device)
     val_iter = val_ds.iter_batches(device)
+    # Fixed validation batches: captured once and reused for every val eval, so
+    # the val-loss curve always measures the same val data.  The val-side
+    # freq-bin eval uses its own moving window on val_iter; train is the main
+    # queue consumed by training + train-side freq eval.
+    fixed_val_batches = [next(val_iter) for _ in range(cfg.val_batches)]
+    # Fixed freq-bin val batches: the per-bucket val eval also measures the SAME
+    # fixed val data on every eval (no moving window), so both val curves are
+    # directly comparable across steps. Train remains the only moving queue.
+    fixed_freq_val_batches = [next(val_iter) for _ in range(args.freq_eval_batches)]
+    print(f"[nglab] fixed val batches: {len(fixed_val_batches)} x shape {tuple(fixed_val_batches[0][0].shape)} "
+          f"+ {len(fixed_freq_val_batches)} freq-val batches")
     grad_accum = max(1, cfg.total_batch_size // (cfg.device_batch_size * cfg.sequence_len))
     print(f"[nglab] grad_accum={grad_accum} train_chunks={train_ds.total_chunks()} "
           f"val_chunks={val_ds.total_chunks()}")
@@ -776,7 +851,10 @@ def main():
     optimizer = MixedOptimizer(model, lr=cfg.nanogpt_adam_lr,
                                ngram_betas=cfg.ngram_table_betas,
                                adam_betas=cfg.adam_betas,
-                               weight_decay=cfg.weight_decay)
+                               weight_decay=cfg.weight_decay,
+                               table_optimizer=cfg.table_optimizer,
+                               table_lr_scale=cfg.table_lr_scale,
+                               table_betas=cfg.table_betas)
 
     # logs
     train_log = open(os.path.join(cfg.out_dir, "train_log.jsonl"), "w")
@@ -813,7 +891,7 @@ def main():
 
         # periodic val
         if (step + 1) % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
-            last_val_loss = evaluate_val(model, val_iter, cfg.val_batches)
+            last_val_loss = evaluate_val(model, fixed_val_batches)
             last_train_loss = train_loss
             entry = {
                 "step": step + 1,
@@ -835,8 +913,8 @@ def main():
             # train freq-bin (use fresh train batches, not the ones already consumed)
             train_freq = evaluate_freq_bins(model, train_iter, freq_index_obj,
                                             args.freq_eval_batches, cfg.vocab_size)
-            # val freq-bin
-            val_freq = evaluate_freq_bins(model, val_iter, freq_index_obj,
+            # val freq-bin (same fixed val data every eval)
+            val_freq = evaluate_freq_bins(model, fixed_freq_val_batches, freq_index_obj,
                                           args.freq_eval_batches, cfg.vocab_size)
             fb_entry = {
                 "step": step + 1,

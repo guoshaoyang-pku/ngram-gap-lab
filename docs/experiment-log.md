@@ -173,6 +173,10 @@ The novel fractions decrease relative to the one-shard index because the doubled
 可复用的干净基线。该 section 不启动新训练，不覆盖其他 Agent 的 running
 实验。
 
+> 口径说明：早期 `nglab_v/y/input` 是 validation/freq eval 每 50 步的历史
+> 基线；后续 canonical 主线统一为每 10 步（v10），以获得更密集、更清晰的
+> epoch replay 曲线。代码默认值、`run_injpos.sh` 和 `docs/plan.md` 均采用 v10。
+
 ### 数据与统计口径
 
 基础图表使用 `nglab_v`、`nglab_y`、`nglab_input` 的完整日志：

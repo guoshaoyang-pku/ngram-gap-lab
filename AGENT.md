@@ -93,7 +93,7 @@
 
 ## 4. 关键 setting
 
-见 `docs/plan.md`。核心：vanilla nanoGPT + bigram/trigram + input 注入 + mixed optimizer + seed42 + 1000 步。
+见 `docs/plan.md`。核心：vanilla nanoGPT + bigram/trigram + input 注入 + mixed optimizer + seed42 + 2000 步；validation 与 freq-bin eval 每 10 步。
 
 ## 5. 与 OPHIS 的关系
 
