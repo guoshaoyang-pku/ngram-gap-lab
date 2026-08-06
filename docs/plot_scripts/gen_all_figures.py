@@ -85,8 +85,19 @@ def load_fallback_blog_data():
                                  "series")
     dist_data = extract_js_value(os.path.join(FALLBACK_BLOG_DIR, "fig_hitcount_dist.html"),
                                  "barData")
-    if not gap_data or not loss_data or not freq_data or not dist_data:
+    if not gap_data or not loss_data or not freq_data:
         return {}
+    if not dist_data:
+        dist_data = {}
+        for branch in ["bigram", "trigram"]:
+            dist_data[branch] = [
+                {
+                    "bucket": bucket,
+                    "train_frac": freq_data[branch][bucket]["train_frac"][-1],
+                    "val_frac": freq_data[branch][bucket]["val_frac"][-1],
+                }
+                for bucket in BUCKET_ORDER
+            ]
 
     data = {}
     for key in RUNS:
@@ -634,7 +645,7 @@ def gen_fig_gap_by_freq(data):
 
 
 def gen_fig_hitcount_dist(data):
-    """Figure 4: interactive hit count distribution for both branches."""
+    """Figure 4: final per-frequency-bin gap for both branches."""
     out = os.path.join(FIGS_DIR, "fig_hitcount_dist.html")
     d = data.get("input", {})
     fb_pts = d.get("freq_bin", [])
@@ -651,17 +662,25 @@ def gen_fig_hitcount_dist(data):
     </div>
     <div id="dist_chart" class="chart"></div>
     """
-    bar_data = {"bigram": [], "trigram": []}
+    gap_data = {"bigram": [], "trigram": []}
     for branch in ["bigram", "trigram"]:
         for b in BUCKET_ORDER:
-            vd = last["val"][branch].get(b, {"frac": 0})
-            td = last["train"][branch].get(b, {"frac": 0})
-            bar_data[branch].append({"bucket": b, "train_frac": td["frac"], "val_frac": vd["frac"]})
+            vd = last["val"][branch].get(b, {})
+            td = last["train"][branch].get(b, {})
+            train_loss = td.get("mean_loss", 0)
+            val_loss = vd.get("mean_loss", 0)
+            gap_data[branch].append({
+                "bucket": b,
+                "gap": val_loss - train_loss,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "train_frac": td.get("frac", 0),
+                "val_frac": vd.get("frac", 0),
+            })
 
     script = f"""
-    var barData = {json.dumps(bar_data)};
+    var gapData = {json.dumps(gap_data)};
     var bucketOrder = {json.dumps(BUCKET_ORDER)};
-    var bucketColors = {json.dumps(BUCKET_COLORS)};
 
     function plotDist(branch, button) {{
       if (button) {{
@@ -670,25 +689,28 @@ def gen_fig_hitcount_dist(data):
         }});
         button.classList.add('active');
       }}
-      var d = barData[branch];
-      var trainTrace = {{x: d.map(function(x){{return x.bucket}}), y: d.map(function(x){{return x.train_frac}}), type: "bar", name: "train", marker: {{color: "#2196F3"}}}};
-      var valTrace = {{x: d.map(function(x){{return x.bucket}}), y: d.map(function(x){{return x.val_frac}}), type: "bar", name: "val", marker: {{color: "#F44336"}}}};
-      // cumulative
-      var cumTrain = []; var cumVal = []; var s1=0; var s2=0;
-      for (var i=0; i<d.length; i++) {{ s1 += d[i].train_frac; s2 += d[i].val_frac; cumTrain.push(s1); cumVal.push(s2); }}
-      var cumTrainTrace = {{x: d.map(function(x){{return x.bucket}}), y: cumTrain, mode: "lines+markers", name: "train (cumul)", line: {{color: "#2196F3", dash: "dot"}}, yaxis: "y2"}};
-      var cumValTrace = {{x: d.map(function(x){{return x.bucket}}), y: cumVal, mode: "lines+markers", name: "val (cumul)", line: {{color: "#F44336", dash: "dot"}}, yaxis: "y2"}};
-      Plotly.newPlot("dist_chart", [trainTrace, valTrace, cumTrainTrace, cumValTrace], {{
-        title: branch + " context 频次分布 (train vs val)", barmode: "group",
+      var d = gapData[branch];
+      var trace = {{
+        x: d.map(function(x){{return x.bucket}}),
+        y: d.map(function(x){{return x.gap}}),
+        customdata: d.map(function(x){{return [x.train_loss, x.val_loss, x.train_frac, x.val_frac]}}),
+        type: "bar",
+        name: branch,
+        marker: {{color: branch === "bigram" ? "#353d79" : "#c4493d"}},
+        hovertemplate: "bucket=%{{x}}<br>gap=%{{y:.3f}}<br>train loss=%{{customdata[0]:.3f}}<br>val loss=%{{customdata[1]:.3f}}<br>train fraction=%{{customdata[2]:.2%}}<br>val fraction=%{{customdata[3]:.2%}}<extra></extra>"
+      }};
+      Plotly.newPlot("dist_chart", [trace], {{
+        title: "末态频率桶 gap · " + branch,
         xaxis: {{title: "hit count bucket", type: "category", categoryorder: "array",
-                categoryarray: bucketOrder, tickangle: -42}}, yaxis: {{title: "token fraction"}},
-        yaxis2: {{title: "cumulative", side: "right", overlaying: "y"}},
-        margin: {{l:60,r:60,t:50,b:80}}, legend: {{x: 0.02, y: 0.98}}
+                categoryarray: bucketOrder, tickangle: -42}},
+        yaxis: {{title: "final gap = val loss − train loss", zeroline: true,
+                 zerolinecolor: "#232426", zerolinewidth: 1}},
+        margin: {{l:70,r:30,t:50,b:80}}, showlegend: true
       }});
     }}
     plotDist("bigram", document.querySelector('.controls button'));
     """
-    html = HTML_WRAP.format(title="命中频次分布", note="train vs val 的 n-gram context 频次分布（bar = 占比，虚线 = 累积分布）",
+    html = HTML_WRAP.format(title="各命中频次桶的末态 gap", note="最后一个评估 checkpoint 的 per-bucket gap：val loss − train loss。悬停可查看桶占比和 train/val loss。",
                             body=body, plotly=PLOTLY_HEAD, script=script)
     with open(out, "w") as f:
         f.write(html)
