@@ -49,7 +49,10 @@ bash code/cluster/setup_env.sh
 # 3. run v/y/input ablation (serial, ~6 min/run on 1 H200)
 bash code/cluster/run_injpos.sh 0 1000
 
-# 4. build frequency index + per-bin loss stats
+# 4. doubled training-size replay experiment (three GPUs, 2000 steps)
+bash code/cluster/run_train2x.sh 5,6,7 2000
+
+# 5. build frequency index + per-bin loss stats
 .venv/bin/python code/ngram_freq.py \
   --data_dir /data3/guoshaoyang/ngram-gap-exp/data \
   --train_shards 1 --vocab_size 32768 \
@@ -73,6 +76,11 @@ See `docs/plan.md` for full spec. Core config:
 - optimizer: mixed (RMSProp for table, AdamW for backbone)
 - table betas: (0.0, 0.999) — no momentum, β₂ persists across epochs
 - fixed-order epoch replay, seed 42, 1000 steps
+
+The doubled-training-size experiment uses train shards `1,2`, runs for 2000
+steps, and writes complete `train_log.jsonl`, `table_norm.jsonl`,
+`freq_bin_loss.jsonl`, `summary.json`, and `train.log` files under
+`data/runs/nglab2x_{v,y,input}/`.
 
 ## Relationship to OPHIS
 

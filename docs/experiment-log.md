@@ -67,3 +67,71 @@
 用 `code/ngram_freq.py` 构建频率索引，统计 per-bin 的 mean loss 与 total contribution。
 
 结果：novel + 低频 bucket（1-5）主导 gap；高频 bucket（5k+）gap 贡献 ≈ 0。与旧实验一致。
+
+## 4. 双倍 training size 延长实验（2026-08-06，ophis-gpu）
+
+目的：把 fixed replay 的 train 数据从 shard 1 扩大到 shard 1+2，观察更长的 epoch 平台是否能让 replay gap 更清楚。三种注入点使用完全相同的 setting，并行跑到 2000 steps。
+
+### 4.1 Setting
+
+| 项目 | setting |
+|---|---|
+| train shards | `1,2`（约 2x，约 600 steps / epoch） |
+| validation shards | `3,4,5,6,7,8,9,10,6542` |
+| model | vanilla nanoGPT, 8L / 6H / 768D |
+| n-gram | trainable bigram + trigram |
+| optimizer | backbone AdamW + table RMSProp (`beta1=0`, `beta2=0.999`) |
+| learning rate | `0.004`，沿用原 warmup / warmdown schedule |
+| seed | `42` |
+| steps | `2000` |
+| validation / freq eval | 每 50 steps，4 batches |
+| table norm | 每 10 steps |
+| runs | `nglab2x_v`, `nglab2x_y`, `nglab2x_input` |
+
+双倍训练集对应的 exact-context frequency index 为 `data/freq_index_train2x.npz`。每个 run 均保留 `train_log.jsonl`、`table_norm.jsonl`、`freq_bin_loss.jsonl`、`summary.json` 和原始 `train.log`；本地备用归档为 `data/nglab2x_runs.tar.gz`。
+
+### 4.2 Gap 结果
+
+| run | 注入点 | gap@1000 | gap@1200 | gap@1500 | gap@2000 |
+|---|---:|---:|---:|---:|---:|
+| `nglab2x_v` | v | 0.001 | 0.068 | 0.482 | **1.169** |
+| `nglab2x_y` | y | 0.220 | 0.752 | 2.174 | **3.101** |
+| `nglab2x_input` | input | 0.152 | 0.213 | 0.460 | **0.687** |
+
+### 4.3 Epoch 平台统计
+
+| run | epoch | step range | gap mean | gap min–max | final gap |
+|---|---:|---:|---:|---:|---:|
+| v | 1 | 50–600 | -0.005 | -0.053–0.069 | 0.003 |
+| v | 2 | 650–1200 | 0.032 | -0.015–0.068 | 0.068 |
+| v | 3 | 1250–1800 | 0.434 | 0.199–0.654 | 0.614 |
+| v | 4 | 1850–2000 | 0.950 | 0.787–1.169 | 1.169 |
+| y | 1 | 50–600 | 0.001 | -0.044–0.053 | -0.009 |
+| y | 2 | 650–1200 | 0.394 | 0.018–0.752 | 0.752 |
+| y | 3 | 1250–1800 | 1.872 | 0.993–2.345 | 2.308 |
+| y | 4 | 1850–2000 | 2.903 | 2.603–3.101 | 3.101 |
+| input | 1 | 50–600 | -0.008 | -0.045–0.021 | 0.006 |
+| input | 2 | 650–1200 | 0.140 | -0.015–0.220 | 0.213 |
+| input | 3 | 1250–1800 | 0.416 | 0.255–0.582 | 0.507 |
+| input | 4 | 1850–2000 | 0.618 | 0.538–0.687 | 0.687 |
+
+Epoch boundaries occur around steps 600, 1200, 1800. The platform effect is substantially clearer than in the original one-shard run: y shows a stepwise progression `~0 → 0.75 → 2.3 → 3.1`, input shows `~0 → 0.21 → 0.51 → 0.69`, and v only becomes visibly positive after the third replay.
+
+### 4.4 Final table norm and frequency coverage
+
+Final table RMS:
+
+| run | representative bigram RMS | representative trigram RMS | all norm rows |
+|---|---:|---:|---:|
+| v | 0.1202 (`layer_01`) | 0.1371 (`layer_01`) | 200 |
+| y | 0.1449 (`layer_01`) | 0.1611 (`layer_01`) | 200 |
+| input | 0.0860 (`layer_01`) | 0.0876 (`layer_01`) | 200 |
+
+At step 2000, every frequency file has 40 checkpoints and every checkpoint covers all 15 buckets for both bigram and trigram. Bucket fractions sum to exactly 1.0 for train and validation, with 589,824 evaluated tokens per split.
+
+| branch | train novel | val novel | train hit=1 | val hit=1 |
+|---|---:|---:|---:|---:|
+| bigram | 0.0% | 2.85% | 2.34% | 1.61% |
+| trigram | 0.07% | 25.58% | 22.38% | 7.57% |
+
+The novel fractions decrease relative to the one-shard index because the doubled training set covers more contexts, while the low-frequency trigram mass remains substantial. The full raw outputs are retained for future plots and alternative optimizer comparisons.
