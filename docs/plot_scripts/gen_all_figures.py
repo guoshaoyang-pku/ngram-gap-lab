@@ -645,7 +645,7 @@ def gen_fig_gap_by_freq(data):
 
 
 def gen_fig_hitcount_dist(data):
-    """Figure 4: final per-frequency-bin gap for both branches."""
+    """Figure 4: frequency histogram with final gap on the line axis."""
     out = os.path.join(FIGS_DIR, "fig_hitcount_dist.html")
     d = data.get("input", {})
     fb_pts = d.get("freq_bin", [])
@@ -690,28 +690,150 @@ def gen_fig_hitcount_dist(data):
         button.classList.add('active');
       }}
       var d = gapData[branch];
-      var trace = {{
+      var trainTrace = {{
+        x: d.map(function(x){{return x.bucket}}),
+        y: d.map(function(x){{return x.train_frac}}),
+        customdata: d.map(function(x){{return [x.train_loss, x.val_loss, x.gap]}}),
+        type: "bar",
+        name: "train fraction",
+        marker: {{color: "#2d6f9f"}},
+        hovertemplate: "bucket=%{{x}}<br>train fraction=%{{y:.2%}}<br>train loss=%{{customdata[0]:.3f}}<br>val loss=%{{customdata[1]:.3f}}<br>gap=%{{customdata[2]:.3f}}<extra></extra>"
+      }};
+      var valTrace = {{
+        x: d.map(function(x){{return x.bucket}}),
+        y: d.map(function(x){{return x.val_frac}}),
+        customdata: d.map(function(x){{return [x.train_loss, x.val_loss, x.gap]}}),
+        type: "bar",
+        name: "val fraction",
+        marker: {{color: "#c4493d"}},
+        hovertemplate: "bucket=%{{x}}<br>val fraction=%{{y:.2%}}<br>train loss=%{{customdata[0]:.3f}}<br>val loss=%{{customdata[1]:.3f}}<br>gap=%{{customdata[2]:.3f}}<extra></extra>"
+      }};
+      var gapTrace = {{
         x: d.map(function(x){{return x.bucket}}),
         y: d.map(function(x){{return x.gap}}),
-        customdata: d.map(function(x){{return [x.train_loss, x.val_loss, x.train_frac, x.val_frac]}}),
-        type: "bar",
-        name: branch,
-        marker: {{color: branch === "bigram" ? "#353d79" : "#c4493d"}},
-        hovertemplate: "bucket=%{{x}}<br>gap=%{{y:.3f}}<br>train loss=%{{customdata[0]:.3f}}<br>val loss=%{{customdata[1]:.3f}}<br>train fraction=%{{customdata[2]:.2%}}<br>val fraction=%{{customdata[3]:.2%}}<extra></extra>"
+        customdata: d.map(function(x){{return [x.train_frac, x.val_frac, x.train_loss, x.val_loss]}}),
+        mode: "lines+markers",
+        name: "final gap",
+        line: {{color: "#353d79", width: 3}},
+        marker: {{color: "#353d79", size: 7}},
+        yaxis: "y2",
+        hovertemplate: "bucket=%{{x}}<br>final gap=%{{y:.3f}}<br>train fraction=%{{customdata[0]:.2%}}<br>val fraction=%{{customdata[1]:.2%}}<br>train loss=%{{customdata[2]:.3f}}<br>val loss=%{{customdata[3]:.3f}}<extra></extra>"
       }};
-      Plotly.newPlot("dist_chart", [trace], {{
-        title: "末态频率桶 gap · " + branch,
+      Plotly.newPlot("dist_chart", [trainTrace, valTrace, gapTrace], {{
+        title: "命中频次分布 + 末态 gap · " + branch,
+        barmode: "group",
         xaxis: {{title: "hit count bucket", type: "category", categoryorder: "array",
                 categoryarray: bucketOrder, tickangle: -42}},
-        yaxis: {{title: "final gap = val loss − train loss", zeroline: true,
-                 zerolinecolor: "#232426", zerolinewidth: 1}},
-        margin: {{l:70,r:30,t:50,b:80}}, showlegend: true
+        yaxis: {{title: "token fraction", rangemode: "tozero"}},
+        yaxis2: {{title: "final gap = val loss − train loss", side: "right",
+                 overlaying: "y", zeroline: true, zerolinecolor: "#232426",
+                 zerolinewidth: 1}},
+        margin: {{l:70,r:85,t:50,b:90}}, showlegend: true
       }});
     }}
     plotDist("bigram", document.querySelector('.controls button'));
     """
-    html = HTML_WRAP.format(title="各命中频次桶的末态 gap", note="最后一个评估 checkpoint 的 per-bucket gap：val loss − train loss。悬停可查看桶占比和 train/val loss。",
+    html = HTML_WRAP.format(title="命中频次分布 + 末态 gap", note="柱：train/val token fraction；曲线：最后一个 checkpoint 的 per-bucket gap = val loss − train loss。",
                             body=body, plotly=PLOTLY_HEAD, script=script)
+    with open(out, "w") as f:
+        f.write(html)
+    print(f"[fig] {out}")
+
+
+def gen_fig_gap_log(data):
+    """Figure 5: final gap against hit count on a logarithmic x-axis."""
+    out = os.path.join(FIGS_DIR, "fig_gap_vs_frequency_log.html")
+    d = data.get("input", {})
+    fb_pts = d.get("freq_bin", [])
+    if not fb_pts:
+        print("[fig] fig_gap_vs_frequency_log: no freq_bin data, skipping")
+        return
+    last = fb_pts[-1]
+    bounds = {
+        "novel": (0.5, 0.5), "1": (1, 1), "2": (2, 2), "3": (3, 3),
+        "4": (4, 4), "5": (5, 5), "6-10": (6, 10), "11-20": (11, 20),
+        "21-50": (21, 50), "51-100": (51, 100), "101-200": (101, 200),
+        "201-500": (201, 500), "501-1k": (501, 1000),
+        "1k-5k": (1000, 5000), "5k+": (5000, 10000),
+    }
+    log_data = {}
+    for branch in ["bigram", "trigram"]:
+        rows = []
+        for bucket in BUCKET_ORDER:
+            low, high = bounds[bucket]
+            td = last["train"][branch].get(bucket, {})
+            vd = last["val"][branch].get(bucket, {})
+            train_loss = td.get("mean_loss", 0)
+            val_loss = vd.get("mean_loss", 0)
+            rows.append({
+                "bucket": bucket,
+                "x": (low * high) ** 0.5,
+                "x_low": low,
+                "x_high": high,
+                "gap": val_loss - train_loss,
+                "train_frac": td.get("frac", 0),
+                "val_frac": vd.get("frac", 0),
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+            })
+        log_data[branch] = rows
+
+    body = """
+    <div class="controls">
+      <b>context:</b>
+      <button class="active" onclick="setVisible('both', this)">both</button>
+      <button onclick="setVisible('bigram', this)">bigram</button>
+      <button onclick="setVisible('trigram', this)">trigram</button>
+    </div>
+    <div id="log_gap_chart" class="chart"></div>
+    """
+    script = f"""
+    var logData = {json.dumps(log_data)};
+    var colors = {{bigram: "#353d79", trigram: "#c4493d"}};
+    function makeTrace(branch) {{
+      var d = logData[branch];
+      return {{
+        x: d.map(function(x){{return x.x}}),
+        y: d.map(function(x){{return x.gap}}),
+        customdata: d.map(function(x){{return [x.bucket, x.x_low, x.x_high, x.train_frac, x.val_frac, x.train_loss, x.val_loss]}}),
+        mode: "lines+markers",
+        name: branch,
+        line: {{color: colors[branch], width: 2.5}},
+        marker: {{color: colors[branch], size: 8}},
+        error_x: {{
+          type: "data",
+          symmetric: false,
+          array: d.map(function(x){{return x.x_high - x.x}}),
+          arrayminus: d.map(function(x){{return x.x - x.x_low}}),
+          color: colors[branch],
+          thickness: 1.2,
+          width: 4
+        }},
+        hovertemplate: "bucket=%{{customdata[0]}}<br>frequency range=%{{customdata[1]}}–%{{customdata[2]}}<br>gap=%{{y:.3f}}<br>train fraction=%{{customdata[3]:.2%}}<br>val fraction=%{{customdata[4]:.2%}}<br>train loss=%{{customdata[5]:.3f}}<br>val loss=%{{customdata[6]:.3f}}<extra></extra>"
+      }};
+    }}
+    function setVisible(which, button) {{
+      if (button) {{
+        document.querySelectorAll('.controls button').forEach(function(b){{b.classList.remove('active')}});
+        button.classList.add('active');
+      }}
+      var visibility = which === "both" ? [true, true] :
+        (which === "bigram" ? [true, "legendonly"] : ["legendonly", true]);
+      Plotly.restyle("log_gap_chart", {{visible: visibility}});
+    }}
+    Plotly.newPlot("log_gap_chart", [makeTrace("bigram"), makeTrace("trigram")], {{
+      title: "Final per-bucket gap vs training hit count",
+      xaxis: {{title: "training hit count (log scale)", type: "log", dtick: 1}},
+      yaxis: {{title: "final gap = val loss − train loss", zeroline: true,
+               zerolinecolor: "#232426", zerolinewidth: 1}},
+      margin: {{l:70,r:30,t:50,b:65}}, showlegend: true,
+      legend: {{x: 0.02, y: 0.98}}
+    }});
+    """
+    html = HTML_WRAP.format(
+        title="Log-scale frequency → gap",
+        note="每个点是一个频率桶的末态 gap；横坐标为训练命中次数的对数尺度，误差线表示该 bucket 的频率范围。",
+        body=body, plotly=PLOTLY_HEAD, script=script)
     with open(out, "w") as f:
         f.write(html)
     print(f"[fig] {out}")
@@ -730,10 +852,12 @@ def main():
     gen_fig_loss_norm(data)
     gen_fig_gap_by_freq(data)
     gen_fig_hitcount_dist(data)
+    gen_fig_gap_log(data)
     if MIRROR_FIGS_DIR:
         os.makedirs(MIRROR_FIGS_DIR, exist_ok=True)
         for name in ["fig_gap_loss.html", "fig_loss_norm.html",
-                     "fig_gap_by_freq.html", "fig_hitcount_dist.html"]:
+                     "fig_gap_by_freq.html", "fig_hitcount_dist.html",
+                     "fig_gap_vs_frequency_log.html"]:
             source = os.path.join(FIGS_DIR, name)
             target = os.path.join(MIRROR_FIGS_DIR, name)
             if os.path.exists(source):
