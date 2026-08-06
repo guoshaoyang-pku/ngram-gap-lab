@@ -740,9 +740,9 @@ def gen_fig_hitcount_dist(data):
     print(f"[fig] {out}")
 
 
-def gen_fig_gap_log(data):
+def gen_fig_gap_log(data, output_name="fig_gap_vs_frequency_log.html", y_log=True):
     """Figure 5: final gap against hit count on a logarithmic x-axis."""
-    out = os.path.join(FIGS_DIR, "fig_gap_vs_frequency_log.html")
+    out = os.path.join(FIGS_DIR, output_name)
     d = data.get("input", {})
     fb_pts = d.get("freq_bin", [])
     if not fb_pts:
@@ -750,9 +750,9 @@ def gen_fig_gap_log(data):
         return
     last = fb_pts[-1]
     bounds = {
-        "novel": (0.5, 0.5), "1": (1, 1), "2": (2, 2), "3": (3, 3),
-        "4": (4, 4), "5": (5, 5), "6-10": (6, 10), "11-20": (11, 20),
-        "21-50": (21, 50), "51-100": (51, 100), "101-200": (101, 200),
+        "1": (1, 1), "2": (2, 2), "3": (3, 3), "4": (4, 4), "5": (5, 5),
+        "6-10": (6, 10), "11-20": (11, 20), "21-50": (21, 50),
+        "51-100": (51, 100), "101-200": (101, 200),
         "201-500": (201, 500), "501-1k": (501, 1000),
         "1k-5k": (1000, 5000), "5k+": (5000, 10000),
     }
@@ -760,23 +760,31 @@ def gen_fig_gap_log(data):
     for branch in ["bigram", "trigram"]:
         rows = []
         for bucket in BUCKET_ORDER:
+            if bucket == "novel":
+                continue
             low, high = bounds[bucket]
             td = last["train"][branch].get(bucket, {})
             vd = last["val"][branch].get(bucket, {})
             train_loss = td.get("mean_loss", 0)
             val_loss = vd.get("mean_loss", 0)
+            train_count = td.get("token_count", 0)
+            val_count = vd.get("token_count", 0)
             rows.append({
                 "bucket": bucket,
                 "x": (low * high) ** 0.5,
                 "x_low": low,
                 "x_high": high,
-                "gap": val_loss - train_loss,
+                "gap": val_loss - train_loss if train_count > 0 and val_count > 0 else None,
+                "train_count": train_count,
+                "val_count": val_count,
                 "train_frac": td.get("frac", 0),
                 "val_frac": vd.get("frac", 0),
                 "train_loss": train_loss,
                 "val_loss": val_loss,
             })
-        log_data[branch] = rows
+        log_data[branch] = [
+            row for row in rows if row["gap"] is not None and row["gap"] > 0
+        ]
 
     body = """
     <div class="controls">
@@ -787,6 +795,8 @@ def gen_fig_gap_log(data):
     </div>
     <div id="log_gap_chart" class="chart"></div>
     """
+    y_title = "final gap = val loss − train loss" + (" (log scale)" if y_log else "")
+    y_axis_config = 'type: "log"' if y_log else "zeroline: true"
     script = f"""
     var logData = {json.dumps(log_data)};
     var colors = {{bigram: "#353d79", trigram: "#c4493d"}};
@@ -795,7 +805,7 @@ def gen_fig_gap_log(data):
       return {{
         x: d.map(function(x){{return x.x}}),
         y: d.map(function(x){{return x.gap}}),
-        customdata: d.map(function(x){{return [x.bucket, x.x_low, x.x_high, x.train_frac, x.val_frac, x.train_loss, x.val_loss]}}),
+        customdata: d.map(function(x){{return [x.bucket, x.x_low, x.x_high, x.train_count, x.val_count, x.train_frac, x.val_frac, x.train_loss, x.val_loss]}}),
         mode: "lines+markers",
         name: branch,
         line: {{color: colors[branch], width: 2.5}},
@@ -809,7 +819,7 @@ def gen_fig_gap_log(data):
           thickness: 1.2,
           width: 4
         }},
-        hovertemplate: "bucket=%{{customdata[0]}}<br>frequency range=%{{customdata[1]}}–%{{customdata[2]}}<br>gap=%{{y:.3f}}<br>train fraction=%{{customdata[3]:.2%}}<br>val fraction=%{{customdata[4]:.2%}}<br>train loss=%{{customdata[5]:.3f}}<br>val loss=%{{customdata[6]:.3f}}<extra></extra>"
+        hovertemplate: "bucket=%{{customdata[0]}}<br>frequency range=%{{customdata[1]}}–%{{customdata[2]}}<br>gap=%{{y:.3f}}<br>train tokens=%{{customdata[3]:,}}<br>val tokens=%{{customdata[4]:,}}<br>train fraction=%{{customdata[5]:.2%}}<br>val fraction=%{{customdata[6]:.2%}}<br>train mean token loss=%{{customdata[7]:.3f}}<br>val mean token loss=%{{customdata[8]:.3f}}<extra></extra>"
       }};
     }}
     function setVisible(which, button) {{
@@ -824,15 +834,22 @@ def gen_fig_gap_log(data):
     Plotly.newPlot("log_gap_chart", [makeTrace("bigram"), makeTrace("trigram")], {{
       title: "Final per-bucket gap vs training hit count",
       xaxis: {{title: "training hit count (log scale)", type: "log", dtick: 1}},
-      yaxis: {{title: "final gap = val loss − train loss", zeroline: true,
-               zerolinecolor: "#232426", zerolinewidth: 1}},
+      yaxis: {{title: "{y_title}", {y_axis_config}}},
       margin: {{l:70,r:30,t:50,b:65}}, showlegend: true,
       legend: {{x: 0.02, y: 0.98}}
     }});
     """
+    title = "Log–log frequency → gap" if y_log else "Log-x frequency → gap"
+    note = (
+        "使用原始 15 个真实频率桶；novel 被排除，因为 train hit count=0 时没有 train token loss，"
+        "无法定义同桶 gap。x、y 两轴均为对数尺度，仅显示正 gap。"
+        if y_log else
+        "使用原始 15 个真实频率桶；novel 被排除，因为 train hit count=0 时没有 train token loss，"
+        "无法定义同桶 gap。x 轴为对数尺度，y 轴为线性尺度。"
+    )
     html = HTML_WRAP.format(
-        title="Log-scale frequency → gap",
-        note="每个点是一个频率桶的末态 gap；横坐标为训练命中次数的对数尺度，误差线表示该 bucket 的频率范围。",
+        title=title,
+        note=note,
         body=body, plotly=PLOTLY_HEAD, script=script)
     with open(out, "w") as f:
         f.write(html)
@@ -852,12 +869,14 @@ def main():
     gen_fig_loss_norm(data)
     gen_fig_gap_by_freq(data)
     gen_fig_hitcount_dist(data)
-    gen_fig_gap_log(data)
+    gen_fig_gap_log(data, "fig_gap_vs_frequency_log.html", y_log=True)
+    gen_fig_gap_log(data, "fig_gap_vs_frequency_logx.html", y_log=False)
     if MIRROR_FIGS_DIR:
         os.makedirs(MIRROR_FIGS_DIR, exist_ok=True)
         for name in ["fig_gap_loss.html", "fig_loss_norm.html",
                      "fig_gap_by_freq.html", "fig_hitcount_dist.html",
-                     "fig_gap_vs_frequency_log.html"]:
+                     "fig_gap_vs_frequency_log.html",
+                     "fig_gap_vs_frequency_logx.html"]:
             source = os.path.join(FIGS_DIR, name)
             target = os.path.join(MIRROR_FIGS_DIR, name)
             if os.path.exists(source):
