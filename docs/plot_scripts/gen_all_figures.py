@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """ngram-gap-lab · docs/plot_scripts/gen_all_figures.py
 
-Generate all figures for the blog from training outputs:
+Generate the canonical figures for the blog from training outputs:
   1. fig_gap.svg / fig_loss.svg — v/y/input gap and loss curves
   2. fig_table_norm.svg / fig_input_alignment.svg — norm and loss alignment
-  3. fig_freq_*.svg — per-frequency-bin loss, gap, and contribution
-  4. fig_hitcount_dist.svg — full bigram/trigram hit-count distribution
+  3. fig_freq_*.svg — dual-y-axis figure: train/val token fraction bars (left) + train/val mean loss & final gap curves (right)
+  4. fig_loss_norm.html — one combined loss/gap/table-RMS Plotly figure
+  5. fig_gap_by_freq.html plus Log-x and Log-log frequency-to-gap views
+
+The hit-count distribution generator remains available as a standalone
+diagnostic, but is not part of the canonical public-guide output.
 
 Reads from data/runs/<run_id>/train_log.jsonl, table_norm.jsonl, freq_bin_loss.jsonl.
 Outputs to docs/figs/*.svg and docs/figs/*.html.
@@ -181,7 +185,7 @@ HTML_WRAP = """<!doctype html>
 <style>
   body {{ font-family: -apple-system, sans-serif; margin: 12px; background: #fafafa; }}
   h2 {{ font-size: 1.1em; }}
-  .chart {{ width: 100%; max-width: 900px; height: 480px; margin: 12px 0; }}
+  .chart {{ width: 100%; max-width: 900px; height: 320px; margin: 10px 0; }}
   .controls {{ margin: 8px 0; font-size: 0.9em; }}
   .controls button {{ padding: 4px 10px; margin: 2px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff; }}
   .controls button.active {{ background: #333; color: #fff; }}
@@ -264,30 +268,26 @@ def gen_fig_loss_norm(data):
     bg_rms = [p.get("bigram.layer_01.table_0.rms", 0) for p in norm_pts]
     tg_rms = [p.get("trigram.layer_01.table_0.rms", 0) for p in norm_pts]
 
-    body = '<div id="norm_chart" class="chart"></div><div id="align_chart" class="chart"></div>'
+    body = '<div id="norm_chart" class="chart" style="height: 320px"></div>'
     script = f"""
-    var normTraces = [
-      {{x: {json.dumps(x_norm)}, y: {json.dumps(bg_rms)}, mode: "lines", name: "bigram table RMS", line: {{color: "#2196F3", width: 2}}}},
-      {{x: {json.dumps(x_norm)}, y: {json.dumps(tg_rms)}, mode: "lines", name: "trigram table RMS", line: {{color: "#F44336", width: 2}}}}
-    ];
-    var lossTraces = [
-      {{x: {json.dumps(x_loss)}, y: {json.dumps(train_loss)}, mode: "lines", name: "train loss", line: {{color: "#4CAF50", width: 1.5, dash: "dash"}}}},
-      {{x: {json.dumps(x_loss)}, y: {json.dumps(val_loss)}, mode: "lines", name: "val loss", line: {{color: "#FF9800", width: 2}}}},
-      {{x: {json.dumps(x_loss)}, y: {json.dumps(gap)}, mode: "lines", name: "gap", line: {{color: "#9C27B0", width: 2}}, yaxis: "y2"}}
+    var traces = [
+      {{x: {json.dumps(x_loss)}, y: {json.dumps(train_loss)}, mode: "lines", name: "train loss", line: {{color: "#4CAF50", width: 1.8, dash: "dash"}}, yaxis: "y"}},
+      {{x: {json.dumps(x_loss)}, y: {json.dumps(val_loss)}, mode: "lines", name: "val loss", line: {{color: "#FF9800", width: 2}}, yaxis: "y"}},
+      {{x: {json.dumps(x_loss)}, y: {json.dumps(gap)}, mode: "lines", name: "gap", line: {{color: "#9C27B0", width: 2}}, yaxis: "y2"}},
+      {{x: {json.dumps(x_norm)}, y: {json.dumps(bg_rms)}, mode: "lines", name: "bigram table RMS", line: {{color: "#2196F3", width: 2}}, yaxis: "y3"}},
+      {{x: {json.dumps(x_norm)}, y: {json.dumps(tg_rms)}, mode: "lines", name: "trigram table RMS", line: {{color: "#F44336", width: 2}}, yaxis: "y3"}}
     ];
     var shapes = [
       {{type: "line", x0: 337, x1: 337, y0: 0, y1: 1, yref: "paper", line: {{color: "#ccc", dash: "dot"}}}},
       {{type: "line", x0: 686, x1: 686, y0: 0, y1: 1, yref: "paper", line: {{color: "#ccc", dash: "dot"}}}}
     ];
-    Plotly.newPlot("norm_chart", normTraces, {{
-        title: "N-gram Table Param RMS (input run)", xaxis: {{title: "step"}}, yaxis: {{title: "RMS"}},
-        margin: {{l:60,r:30,t:50,b:50}}, shapes: shapes
-    }});
-    Plotly.newPlot("align_chart", lossTraces, {{
-        title: "Loss + Gap (input run, dual axis)", xaxis: {{title: "step"}},
-        yaxis: {{title: "loss", side: "left"}},
-        yaxis2: {{title: "gap", side: "right", overlaying: "y"}},
-        margin: {{l:60,r:60,t:50,b:50}}, shapes: shapes, legend: {{x: 0.02, y: 0.98}}
+    Plotly.newPlot("norm_chart", traces, {{
+        title: "Loss, Gap, and N-gram Table RMS (input run)",
+        xaxis: {{title: "step"}},
+        yaxis: {{title: "loss", side: "left", domain: [0, 1]}},
+        yaxis2: {{title: "gap", side: "right", overlaying: "y", position: 1}},
+        yaxis3: {{title: "table RMS", side: "right", overlaying: "y", position: 0.94, anchor: "free"}},
+        height: 320, margin: {{l:65,r:105,t:42,b:45}}, shapes: shapes, legend: {{x: 0.02, y: 0.98}}
     }});
     """
     html = HTML_WRAP.format(title="Table Norm × Loss 对齐 (input 注入)", note="table RMS 增长与 gap 出现的时间对齐关系",
@@ -433,6 +433,141 @@ def gen_static_norm_figures(data):
     save_svg(fig, "fig_input_alignment.svg")
 
 
+def gen_static_combined_norm_figure(data):
+    d = data.get("input", {})
+    if not d.get("train_log"):
+        return
+    train_pts = d["train_log"]
+    norm_pts = d.get("table_norm", [])
+    x_loss = [p["step"] for p in train_pts]
+    train_loss = [p["train_loss"] for p in train_pts]
+    val_loss = [p["val_loss"] for p in train_pts]
+    gap = [p["gap"] for p in train_pts]
+    fig, ax = plt.subplots(figsize=(10.8, 5.0), facecolor=PAPER)
+    style_axis(ax)
+    ax.plot(x_loss, train_loss, color="#3c8d5a", linewidth=1.7,
+            linestyle="--", label="train loss")
+    ax.plot(x_loss, val_loss, color="#d97932", linewidth=2.1,
+            label="val loss")
+    ax.set_xlabel("step")
+    ax.set_ylabel("loss")
+    ax2 = ax.twinx()
+    ax2.plot(x_loss, gap, color=ANCHOR, linewidth=2.0, label="gap")
+    ax2.set_ylabel("gap", color=ANCHOR)
+    ax2.tick_params(colors=ANCHOR, labelsize=9)
+    ax2.spines["right"].set_color(ANCHOR)
+    if norm_pts:
+        x_norm = [p["step"] for p in norm_pts]
+        for prefix, label, color in [
+            ("bigram", "bigram table RMS", "#2d6f9f"),
+            ("trigram", "trigram table RMS", "#c4493d"),
+        ]:
+            key = next((k for k in norm_pts[0]
+                        if k.startswith(prefix) and k.endswith("table_0.rms")), None)
+            if key:
+                ax3 = ax.twinx()
+                ax3.spines["right"].set_position(("axes", 1.10 if prefix == "bigram" else 1.18))
+                ax3.plot(x_norm, [p.get(key, 0) for p in norm_pts],
+                         color=color, linewidth=2.0, label=label)
+                ax3.set_ylabel("table RMS", color=color)
+                ax3.tick_params(colors=color, labelsize=8)
+                ax3.spines["right"].set_color(color)
+    add_epoch_lines(ax)
+    ax.set_title("Input run: loss, gap, and n-gram table RMS",
+                 loc="left", fontsize=15, fontweight="bold")
+    handles, labels = ax.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    handles += handles2
+    labels += labels2
+    for axis in fig.axes[2:]:
+        h, l = axis.get_legend_handles_labels()
+        handles += h
+        labels += l
+    ax.legend(handles, labels, frameon=False, ncol=3,
+              loc="upper left", fontsize=8.5)
+    fig.tight_layout()
+    save_svg(fig, "fig_loss_norm.svg")
+
+
+def gen_static_log_figures(data):
+    points = data.get("input", {}).get("freq_bin", [])
+    if not points:
+        return
+    last = points[-1]
+    bounds = {
+        "novel": (0, 0), "1": (1, 1), "2": (2, 2), "3": (3, 3),
+        "4": (4, 4), "5": (5, 5), "6-10": (6, 10), "11-20": (11, 20),
+        "21-50": (21, 50), "51-100": (51, 100), "101-200": (101, 200),
+        "201-500": (201, 500), "501-1k": (501, 1000),
+        "1k-5k": (1000, 5000), "5k+": (5000, 10000),
+    }
+    fig, axes = plt.subplots(1, 2, figsize=(12.0, 4.5), facecolor=PAPER)
+    for ax, y_log, title in [
+        (axes[0], False, "Final gap vs frequency · log-x"),
+        (axes[1], True, "Final gap vs frequency · log-log"),
+    ]:
+        style_axis(ax)
+        for branch, color in [("bigram", "#353d79"), ("trigram", "#c4493d")]:
+            xs, ys = [], []
+            for bucket in BUCKET_ORDER:
+                if bucket == "novel":
+                    continue
+                low, high = bounds[bucket]
+                train = last["train"][branch].get(bucket, {})
+                val = last["val"][branch].get(bucket, {})
+                if not train.get("token_count") or not val.get("token_count"):
+                    continue
+                gap = val.get("mean_loss", 0) - train.get("mean_loss", 0)
+                if gap <= 0:
+                    continue
+                xs.append((low * high) ** 0.5)
+                ys.append(gap)
+            ax.plot(xs, ys, "o-", color=color, linewidth=1.8,
+                    markersize=4, label=branch)
+        ax.set_xscale("log")
+        if y_log:
+            ax.set_yscale("log")
+        ax.set_xlabel("training hit count")
+        ax.set_ylabel("final gap")
+        ax.set_title(title, loc="left", fontsize=13, fontweight="bold")
+        ax.legend(frameon=False, fontsize=9)
+    fig.tight_layout(w_pad=2.0)
+    save_svg(fig, "fig_gap_vs_frequency.svg")
+
+    for y_log, name, title in [
+        (False, "fig_gap_vs_frequency_logx.svg", "Final gap vs frequency · log-x"),
+        (True, "fig_gap_vs_frequency_loglog.svg", "Final gap vs frequency · log-log"),
+    ]:
+        fig, ax = plt.subplots(figsize=(10.8, 4.8), facecolor=PAPER)
+        style_axis(ax)
+        for branch, color in [("bigram", "#353d79"), ("trigram", "#c4493d")]:
+            xs, ys = [], []
+            for bucket in BUCKET_ORDER:
+                if bucket == "novel":
+                    continue
+                low, high = bounds[bucket]
+                train = last["train"][branch].get(bucket, {})
+                val = last["val"][branch].get(bucket, {})
+                if not train.get("token_count") or not val.get("token_count"):
+                    continue
+                gap = val.get("mean_loss", 0) - train.get("mean_loss", 0)
+                if gap <= 0:
+                    continue
+                xs.append((low * high) ** 0.5)
+                ys.append(gap)
+            ax.plot(xs, ys, "o-", color=color, linewidth=1.9,
+                    markersize=4, label=branch)
+        ax.set_xscale("log")
+        if y_log:
+            ax.set_yscale("log")
+        ax.set_xlabel("training hit count")
+        ax.set_ylabel("final gap")
+        ax.set_title(title, loc="left", fontsize=15, fontweight="bold")
+        ax.legend(frameon=False, loc="best", fontsize=9)
+        fig.tight_layout()
+        save_svg(fig, name)
+
+
 def final_bucket_values(point, branch):
     values = {}
     for bucket in BUCKET_ORDER:
@@ -459,39 +594,49 @@ def gen_static_frequency_figures(data):
     width = 0.38
     for branch in ["bigram", "trigram"]:
         values = final_bucket_values(last, branch)
+        train_frac = [values[b]["train_frac"] for b in BUCKET_ORDER]
+        val_frac = [values[b]["val_frac"] for b in BUCKET_ORDER]
         train_loss = [values[b]["train_loss"] for b in BUCKET_ORDER]
         val_loss = [values[b]["val_loss"] for b in BUCKET_ORDER]
         gap = [values[b]["gap"] for b in BUCKET_ORDER]
-        train_contrib = [values[b]["train_contrib"] for b in BUCKET_ORDER]
-        val_contrib = [values[b]["val_contrib"] for b in BUCKET_ORDER]
+        # train side has no tokens in "novel" => no train loss / gap there
+        no_train = [
+            last["train"][branch].get(b, {}).get("token_count", 0) == 0
+            for b in BUCKET_ORDER
+        ]
+        train_loss = [np.nan if missing else v
+                      for missing, v in zip(no_train, train_loss)]
+        gap = [np.nan if missing else v
+               for missing, v in zip(no_train, gap)]
 
-        fig, axes = plt.subplots(3, 1, figsize=(12, 9.2), sharex=True,
-                                 facecolor=PAPER,
-                                 gridspec_kw={"height_ratios": [1.3, 1, 1]})
-        for ax in axes:
-            style_axis(ax)
-        axes[0].bar(positions - width / 2, train_loss, width, color="#2d6f9f",
-                    alpha=0.82, label="train mean loss")
-        axes[0].bar(positions + width / 2, val_loss, width, color="#c4493d",
-                    alpha=0.82, label="val mean loss")
-        axes[0].set_ylabel("mean loss")
-        axes[0].set_title(f"{branch.capitalize()} frequency decomposition · step {last['step']}",
-                          loc="left", fontsize=15, fontweight="bold")
-        axes[0].legend(frameon=False, loc="upper right", fontsize=9)
-        axes[1].bar(positions, gap, color=[BUCKET_COLORS[b] for b in BUCKET_ORDER],
-                    alpha=0.88)
-        axes[1].axhline(0, color=LINE, linewidth=1)
-        axes[1].set_ylabel("val − train")
-        axes[2].bar(positions - width / 2, train_contrib, width, color="#2d6f9f",
-                    alpha=0.82, label="train frac × loss")
-        axes[2].bar(positions + width / 2, val_contrib, width, color="#c4493d",
-                    alpha=0.82, label="val frac × loss")
-        axes[2].set_ylabel("total contribution")
-        axes[2].legend(frameon=False, loc="upper right", fontsize=9)
-        axes[2].set_xticks(positions)
-        axes[2].set_xticklabels(BUCKET_ORDER, rotation=42, ha="right")
-        axes[2].set_xlabel("training hit-count bucket")
-        fig.tight_layout(h_pad=1.1)
+        fig, ax = plt.subplots(figsize=(12, 4.5), facecolor=PAPER)
+        style_axis(ax)
+        ax.bar(positions - width / 2, train_frac, width, color="#2d6f9f",
+               alpha=0.82, label="train fraction")
+        ax.bar(positions + width / 2, val_frac, width, color="#c4493d",
+               alpha=0.82, label="val fraction")
+        ax.set_ylabel("token fraction")
+        ax.set_title(f"{branch.capitalize()} frequency decomposition · step {last['step']}",
+                     loc="left", fontsize=15, fontweight="bold")
+        ax2 = ax.twinx()
+        ax2.plot(positions, train_loss, color="#2d6f9f", linewidth=1.5,
+                 linestyle="--", label="train mean loss")
+        ax2.plot(positions, val_loss, color="#c4493d", linewidth=2.1,
+                 label="val mean loss")
+        ax2.plot(positions, gap, "o-", color=ANCHOR, linewidth=1.9,
+                 markersize=4, label="final gap")
+        ax2.axhline(0, color=LINE, linewidth=1)
+        ax2.set_ylabel("mean loss / gap", color=ANCHOR)
+        ax2.tick_params(colors=ANCHOR, labelsize=9)
+        ax2.spines["right"].set_color(ANCHOR)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(BUCKET_ORDER, rotation=42, ha="right")
+        ax.set_xlabel("training hit-count bucket")
+        handles, labels = ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(handles + handles2, labels + labels2, frameon=False,
+                  loc="upper right", fontsize=9)
+        fig.tight_layout()
         save_svg(fig, f"fig_freq_{branch}.svg")
 
 
@@ -502,7 +647,7 @@ def gen_static_distribution_figure(data):
     last = points[-1]
     positions = np.arange(len(BUCKET_ORDER))
     width = 0.38
-    fig, axes = plt.subplots(2, 1, figsize=(12, 7.8), sharex=True,
+    fig, axes = plt.subplots(2, 1, figsize=(12, 5.8), sharex=True,
                              facecolor=PAPER)
     for ax, branch in zip(axes, ["bigram", "trigram"]):
         style_axis(ax)
@@ -863,19 +1008,19 @@ def main():
         print(f"{key}: train_log={len(d['train_log'])} table_norm={len(d['table_norm'])} freq_bin={len(d['freq_bin'])}")
     gen_static_loss_figures(data)
     gen_static_norm_figures(data)
+    gen_static_combined_norm_figure(data)
     gen_static_frequency_figures(data)
-    gen_static_distribution_figure(data)
+    gen_static_log_figures(data)
     gen_fig_gap_loss(data)
     gen_fig_loss_norm(data)
     gen_fig_gap_by_freq(data)
-    gen_fig_hitcount_dist(data)
-    gen_fig_gap_log(data, "fig_gap_vs_frequency_log.html", y_log=True)
+    gen_fig_gap_log(data, "fig_gap_vs_frequency_loglog.html", y_log=True)
     gen_fig_gap_log(data, "fig_gap_vs_frequency_logx.html", y_log=False)
     if MIRROR_FIGS_DIR:
         os.makedirs(MIRROR_FIGS_DIR, exist_ok=True)
         for name in ["fig_gap_loss.html", "fig_loss_norm.html",
-                     "fig_gap_by_freq.html", "fig_hitcount_dist.html",
-                     "fig_gap_vs_frequency_log.html",
+                     "fig_gap_by_freq.html",
+                     "fig_gap_vs_frequency_loglog.html",
                      "fig_gap_vs_frequency_logx.html"]:
             source = os.path.join(FIGS_DIR, name)
             target = os.path.join(MIRROR_FIGS_DIR, name)

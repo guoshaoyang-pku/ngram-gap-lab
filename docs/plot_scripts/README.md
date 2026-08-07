@@ -1,7 +1,9 @@
 # n-gram Gap Plotting Guide
 
-本目录是 `ngram-gap-lab` 的作图代码区。所有图都从
-`data/runs/<run_id>/` 的 JSONL 统计读取，不在 HTML 中手写实验数值。
+本目录是 `ngram-gap-lab` 的唯一 canonical 作图代码区。所有图都从
+`data/runs/<run_id>/` 的 JSONL 统计读取，不在 HTML 中手写实验数值；
+源码留在 `docs/plot_scripts/`，生成的 HTML/SVG 写入 `docs/figs/`，
+不写回 `code/` 或本目录。
 
 ## 数据源
 
@@ -33,10 +35,15 @@ bucket total contribution = bucket fraction × bucket mean loss
 | 函数 | 输出 | 作图思想 |
 |---|---|---|
 | `gen_fig_gap_loss` | `fig_gap_loss.html` | v/y/input 的 global train/val loss 与 gap；用 Plotly 图例控制曲线 |
-| `gen_fig_loss_norm` | `fig_loss_norm.html` | loss、gap 与 table RMS 共用 step 轴，观察 memory growth 与 replay gap 的时间关系 |
+| `gen_fig_loss_norm` | `fig_loss_norm.html` | 在一张 Plotly 图中用多个 y 轴同时显示 loss、gap 与 bigram/trigram table RMS |
 | `gen_fig_gap_by_freq` | `fig_gap_by_freq.html` | 每个 frequency bucket 的时间序列；可切换 per-token loss、gap、total contribution，以及 bigram/trigram |
-| `gen_fig_hitcount_dist` | `fig_hitcount_dist.html` | train/val bucket fraction 用柱表示，最后 checkpoint 的 per-bin gap 用右轴曲线表示 |
-| `gen_fig_gap_log` | `fig_gap_vs_frequency_log.html`、`fig_gap_vs_frequency_logx.html` | 以 bucket hit-count 几何中点作 x；log-log 版本观察定量幂律关系，log-x/linear-y 版本直接读取 gap 大小 |
+| `gen_fig_gap_log` | `fig_gap_vs_frequency_loglog.html`、`fig_gap_vs_frequency_logx.html` | 以 bucket hit-count 几何中点作 x；log-log 版本观察定量关系，log-x/linear-y 版本直接读取 gap 大小 |
+| `gen_static_frequency_figures` | `fig_freq_bigram.svg`、`fig_freq_trigram.svg` | 静态 SVG 单图双 y 轴：左轴 train/val token fraction 双柱，右轴 train/val mean loss 与 final gap 曲线（train 无 token 的 novel 桶断线）；不画 total contribution 柱图 |
+
+`gen_fig_hitcount_dist` 仍可用于 standalone 分布诊断，但不属于当前
+主博客的 frequency → gap 三图。正确画法是：train/val token fraction
+用 bar，最终 checkpoint 的 per-bin gap 用 secondary-axis line；不能把
+fraction 或 cumulative fraction 柱图称为 gap 图。
 
 log 图只使用 train 和 validation 都有 token 且 gap 为正的 bucket。
 `novel` 表示 train hit count 为 0；由于 train 侧没有对应 token loss，
@@ -73,7 +80,33 @@ python3 docs/plot_scripts/gen_all_figures.py
 2. Plotly 图例点击是否能隐藏/恢复曲线；
 3. log 图是否排除了 novel、undefined gap 和非正 gap；
 4. HTML、SVG 引用是否存在；
-5. `git diff --check` 和浏览器 console 是否无错误。
+5. `fig_loss_norm.html` 是否只有一个 Plotly figure，并同时包含 loss、gap、table RMS；
+6. `git diff --check` 和浏览器 console 是否无错误。
+
+### Blog embedding: no scrolling
+
+博客中的所有图必须完整展开，不允许 iframe 内部滚动或裁切：
+
+```html
+<iframe class="chart-frame loss-norm"
+        src="fig_loss_norm.html"
+        scrolling="no"
+        title="Loss、gap 与 table RMS 的时间对齐"></iframe>
+```
+
+为每一种图设置明确的 CSS 高度，并以浏览器实际测量值为准：
+
+```javascript
+Array.from(document.querySelectorAll("iframe")).map((frame) => ({
+  src: frame.src,
+  frameHeight: frame.clientHeight,
+  contentHeight: frame.contentDocument?.documentElement?.scrollHeight ?? null
+}));
+```
+
+只有在 `contentHeight <= frameHeight` 时才算通过。移动端 media query
+也必须保留足够高度；不能用统一的 `480px` 覆盖多面板图，也不能为了
+消除滚动条而删除 Plotly 图例、控制按钮或数据面板。
 
 当前 canonical 主线使用 validation 与 frequency evaluation 每 10 步（v10）。
 早期 `nglab_{v,y,input}` 记录使用每 50 步，仅作为已完成的历史基线，不应
@@ -86,3 +119,7 @@ python3 docs/plot_scripts/gen_all_figures.py
   用 unreduced token loss 做在线或离线聚合。
 - 不要把 generated HTML/SVG 写回 `code/`；源码留在本目录，生成物留在
   `docs/figs/`，原始统计留在 gitignored `data/`。
+- 主博客当前只嵌入 `fig_gap_loss.html`、`fig_loss_norm.html`、
+  `fig_gap_by_freq.html`、`fig_gap_vs_frequency_logx.html` 和
+  `fig_gap_vs_frequency_loglog.html`；`fig_hitcount_dist.html` 仅作可选
+  standalone diagnostic，不应重新加入主 frequency → gap 章节。
