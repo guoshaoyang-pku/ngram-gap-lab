@@ -210,15 +210,30 @@ def gen_fig_gap_loss(data):
         if not pts:
             continue
         x = [p["step"] for p in pts]
-        gap = smooth([p["gap"] for p in pts])
-        train_loss = smooth([p["train_loss"] for p in pts])
-        val_loss = smooth([p["val_loss"] for p in pts])
-        traces_gap.append({"x": x, "y": gap, "mode": "lines+markers", "name": info["label"],
-                            "line": {"color": info["color"], "width": 2}})
-        traces_loss.append({"x": x, "y": train_loss, "mode": "lines",
-                            "name": info["label"] + " (train)", "line": {"color": info["color"], "width": 1.5, "dash": "dash"}})
-        traces_loss.append({"x": x, "y": val_loss, "mode": "lines",
-                            "name": info["label"] + " (val)", "line": {"color": info["color"], "width": 2}})
+        color = info["color"]
+        gap_clean, gap_bad = clean_series([p["gap"] for p in pts])
+        train_clean, train_bad = clean_series([p["train_loss"] for p in pts])
+        val_clean, val_bad = clean_series([p["val_loss"] for p in pts])
+        gap_raw = [p["gap"] for p in pts]
+        train_raw = [p["train_loss"] for p in pts]
+        val_raw = [p["val_loss"] for p in pts]
+        traces_gap.append({"x": x, "y": smooth(gap_clean), "mode": "lines",
+                           "name": info["label"], "line": {"color": color, "width": 2}})
+        traces_gap.append({"x": x, "y": raw_scatter(gap_raw, gap_bad), "mode": "markers",
+                           "name": info["label"] + " (raw)", "showlegend": False,
+                           "marker": {"color": color, "size": 3.5, "opacity": 0.35}})
+        traces_loss.append({"x": x, "y": smooth(train_clean), "mode": "lines",
+                            "name": info["label"] + " (train)",
+                            "line": {"color": color, "width": 1.5, "dash": "dash"}})
+        traces_loss.append({"x": x, "y": raw_scatter(train_raw, train_bad), "mode": "markers",
+                            "name": info["label"] + " (train raw)", "showlegend": False,
+                            "marker": {"color": color, "size": 3.5, "opacity": 0.35}})
+        traces_loss.append({"x": x, "y": smooth(val_clean), "mode": "lines",
+                            "name": info["label"] + " (val)",
+                            "line": {"color": color, "width": 2}})
+        traces_loss.append({"x": x, "y": raw_scatter(val_raw, val_bad), "mode": "markers",
+                            "name": info["label"] + " (val raw)", "showlegend": False,
+                            "marker": {"color": color, "size": 3.5, "opacity": 0.35}})
 
     eb = epoch_boundary_pairs(next(iter(data.values()))["train_log"])
     epoch_shapes = [
@@ -265,29 +280,60 @@ def gen_fig_loss_norm(data):
     info = d["info"]
 
     x_loss = [p["step"] for p in train_pts]
-    gap = smooth([p["gap"] for p in train_pts])
-    train_loss = smooth([p["train_loss"] for p in train_pts])
-    val_loss = smooth([p["val_loss"] for p in train_pts])
+    gap_raw = [p["gap"] for p in train_pts]
+    train_raw = [p["train_loss"] for p in train_pts]
+    val_raw = [p["val_loss"] for p in train_pts]
+    gap_clean, gap_bad = clean_series(gap_raw)
+    train_clean, train_bad = clean_series(train_raw)
+    val_clean, val_bad = clean_series(val_raw)
+    gap = smooth(gap_clean)
+    train_loss = smooth(train_clean)
+    val_loss = smooth(val_clean)
 
     x_norm = [p["step"] for p in norm_pts]
     # use bigram layer_01 table_0 rms
-    bg_rms = smooth([p.get("bigram.layer_01.table_0.rms", 0) for p in norm_pts])
-    tg_rms = smooth([p.get("trigram.layer_01.table_0.rms", 0) for p in norm_pts])
+    bg_raw = [p.get("bigram.layer_01.table_0.rms", 0) for p in norm_pts]
+    tg_raw = [p.get("trigram.layer_01.table_0.rms", 0) for p in norm_pts]
+    bg_clean, bg_bad = clean_series(bg_raw)
+    tg_clean, tg_bad = clean_series(tg_raw)
+    bg_rms = smooth(bg_clean)
+    tg_rms = smooth(tg_clean)
 
     epoch_shapes = [
         {"type": "line", "x0": step, "x1": step, "y0": 0, "y1": 1,
          "yref": "paper", "line": {"color": "#ccc", "dash": "dot"}}
         for step, _ in epoch_boundary_pairs(train_pts)
     ]
+    traces = [
+        {"x": x_loss, "y": train_loss, "mode": "lines", "name": "train loss",
+         "line": {"color": "#4CAF50", "width": 1.8, "dash": "dash"}, "yaxis": "y"},
+        {"x": x_loss, "y": raw_scatter(train_raw, train_bad), "mode": "markers",
+         "name": "train loss (raw)", "showlegend": False,
+         "marker": {"color": "#4CAF50", "size": 3.5, "opacity": 0.35}, "yaxis": "y"},
+        {"x": x_loss, "y": val_loss, "mode": "lines", "name": "val loss",
+         "line": {"color": "#FF9800", "width": 2}, "yaxis": "y"},
+        {"x": x_loss, "y": raw_scatter(val_raw, val_bad), "mode": "markers",
+         "name": "val loss (raw)", "showlegend": False,
+         "marker": {"color": "#FF9800", "size": 3.5, "opacity": 0.35}, "yaxis": "y"},
+        {"x": x_loss, "y": gap, "mode": "lines", "name": "gap",
+         "line": {"color": "#9C27B0", "width": 2}, "yaxis": "y2"},
+        {"x": x_loss, "y": raw_scatter(gap_raw, gap_bad), "mode": "markers",
+         "name": "gap (raw)", "showlegend": False,
+         "marker": {"color": "#9C27B0", "size": 3.5, "opacity": 0.35}, "yaxis": "y2"},
+        {"x": x_norm, "y": bg_rms, "mode": "lines", "name": "bigram table RMS",
+         "line": {"color": "#2196F3", "width": 2}, "yaxis": "y3"},
+        {"x": x_norm, "y": raw_scatter(bg_raw, bg_bad), "mode": "markers",
+         "name": "bigram table RMS (raw)", "showlegend": False,
+         "marker": {"color": "#2196F3", "size": 3.5, "opacity": 0.35}, "yaxis": "y3"},
+        {"x": x_norm, "y": tg_rms, "mode": "lines", "name": "trigram table RMS",
+         "line": {"color": "#F44336", "width": 2}, "yaxis": "y3"},
+        {"x": x_norm, "y": raw_scatter(tg_raw, tg_bad), "mode": "markers",
+         "name": "trigram table RMS (raw)", "showlegend": False,
+         "marker": {"color": "#F44336", "size": 3.5, "opacity": 0.35}, "yaxis": "y3"},
+    ]
     body = '<div id="norm_chart" class="chart" style="height: 320px"></div>'
     script = f"""
-    var traces = [
-      {{x: {json.dumps(x_loss)}, y: {json.dumps(train_loss)}, mode: "lines", name: "train loss", line: {{color: "#4CAF50", width: 1.8, dash: "dash"}}, yaxis: "y"}},
-      {{x: {json.dumps(x_loss)}, y: {json.dumps(val_loss)}, mode: "lines", name: "val loss", line: {{color: "#FF9800", width: 2}}, yaxis: "y"}},
-      {{x: {json.dumps(x_loss)}, y: {json.dumps(gap)}, mode: "lines", name: "gap", line: {{color: "#9C27B0", width: 2}}, yaxis: "y2"}},
-      {{x: {json.dumps(x_norm)}, y: {json.dumps(bg_rms)}, mode: "lines", name: "bigram table RMS", line: {{color: "#2196F3", width: 2}}, yaxis: "y3"}},
-      {{x: {json.dumps(x_norm)}, y: {json.dumps(tg_rms)}, mode: "lines", name: "trigram table RMS", line: {{color: "#F44336", width: 2}}, yaxis: "y3"}}
-    ];
+    var traces = {json.dumps(traces)};
     var shapes = {json.dumps(epoch_shapes)};
     Plotly.newPlot("norm_chart", traces, {{
         title: "Loss, Gap, and N-gram Table RMS (input run)",
@@ -359,6 +405,30 @@ def smooth(pts, window=7):
     return out
 
 
+def clean_series(values, window=7, max_dev=1.0):
+    """Replace isolated outliers (deviation from local median > max_dev) with
+    the local median, so single-step spikes do not distort smoothing or the
+    axis range. Returns (cleaned, outlier_indices)."""
+    n = len(values)
+    half = window // 2
+    cleaned = list(values)
+    bad = []
+    for i, v in enumerate(values):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        win = values[lo:hi]
+        med = sorted(win)[len(win) // 2]
+        if abs(v - med) > max_dev:
+            cleaned[i] = med
+            bad.append(i)
+    return cleaned, bad
+
+
+def raw_scatter(values, bad):
+    """Raw values with outlier slots replaced by None (skipped by Plotly)."""
+    return [None if i in bad else v for i, v in enumerate(values)]
+
+
 def add_epoch_lines(ax, boundaries=None):
     boundaries = boundaries or [(337, "epoch 2"), (686, "epoch 3")]
     for step, label in boundaries:
@@ -385,7 +455,11 @@ def gen_static_loss_figures(data):
         if not pts:
             continue
         x = [p["step"] for p in pts]
-        ax.plot(x, smooth([p["gap"] for p in pts]), color=RUN_COLORS[key], linewidth=2.2,
+        raw = [p["gap"] for p in pts]
+        cleaned, bad = clean_series(raw)
+        ax.scatter(x, [np.nan if i in bad else v for i, v in enumerate(raw)],
+                   s=8, color=RUN_COLORS[key], alpha=0.3, linewidths=0, zorder=2)
+        ax.plot(x, smooth(cleaned), color=RUN_COLORS[key], linewidth=2.2,
                 marker="o", markersize=2.8, label=info["label"])
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation gap", loc="left", fontsize=15, fontweight="bold")
@@ -403,9 +477,17 @@ def gen_static_loss_figures(data):
             continue
         x = [p["step"] for p in pts]
         color = RUN_COLORS[key]
-        ax.plot(x, smooth([p["train_loss"] for p in pts]), color=color, linewidth=1.5,
+        tr_raw = [p["train_loss"] for p in pts]
+        val_raw = [p["val_loss"] for p in pts]
+        tr_clean, tr_bad = clean_series(tr_raw)
+        val_clean, val_bad = clean_series(val_raw)
+        ax.scatter(x, [np.nan if i in tr_bad else v for i, v in enumerate(tr_raw)],
+                   s=6, color=color, alpha=0.22, linewidths=0, zorder=2)
+        ax.scatter(x, [np.nan if i in val_bad else v for i, v in enumerate(val_raw)],
+                   s=6, color=color, alpha=0.22, linewidths=0, zorder=2)
+        ax.plot(x, smooth(tr_clean), color=color, linewidth=1.5,
                 linestyle="--", alpha=0.72, label=f"{key} train")
-        ax.plot(x, smooth([p["val_loss"] for p in pts]), color=color, linewidth=2.1,
+        ax.plot(x, smooth(val_clean), color=color, linewidth=2.1,
                 label=f"{key} val")
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation loss", loc="left", fontsize=15, fontweight="bold")
@@ -431,7 +513,11 @@ def gen_static_norm_figures(data):
         ]:
             key = next((k for k in norm_pts[0] if k.startswith(prefix) and k.endswith("table_0.rms")), None)
             if key:
-                ax.plot(x, smooth([p.get(key, 0) for p in norm_pts]), color=color,
+                raw = [p.get(key, 0) for p in norm_pts]
+                cleaned, bad = clean_series(raw)
+                ax.scatter(x, [np.nan if i in bad else v for i, v in enumerate(raw)],
+                           s=6, color=color, alpha=0.22, linewidths=0, zorder=2)
+                ax.plot(x, smooth(cleaned), color=color,
                         linewidth=2.2, label=label)
     add_epoch_lines(ax, epoch_boundary_pairs(d["train_log"]))
     ax.set_title("N-gram table norm", loc="left", fontsize=15, fontweight="bold")
@@ -445,13 +531,25 @@ def gen_static_norm_figures(data):
     x = [p["step"] for p in pts]
     fig, ax = plt.subplots(figsize=(10.8, 4.8), facecolor=PAPER)
     style_axis(ax)
-    ax.plot(x, smooth([p["train_loss"] for p in pts]), color="#2d6f9f", linewidth=1.6,
+    tr_raw = [p["train_loss"] for p in pts]
+    val_raw = [p["val_loss"] for p in pts]
+    gap_raw = [p["gap"] for p in pts]
+    tr_clean, tr_bad = clean_series(tr_raw)
+    val_clean, val_bad = clean_series(val_raw)
+    gap_clean, gap_bad = clean_series(gap_raw)
+    ax.scatter(x, [np.nan if i in tr_bad else v for i, v in enumerate(tr_raw)],
+               s=6, color="#2d6f9f", alpha=0.22, linewidths=0, zorder=2)
+    ax.scatter(x, [np.nan if i in val_bad else v for i, v in enumerate(val_raw)],
+               s=6, color="#c4493d", alpha=0.22, linewidths=0, zorder=2)
+    ax.plot(x, smooth(tr_clean), color="#2d6f9f", linewidth=1.6,
             linestyle="--", label="train loss")
-    ax.plot(x, smooth([p["val_loss"] for p in pts]), color="#c4493d", linewidth=2.1,
+    ax.plot(x, smooth(val_clean), color="#c4493d", linewidth=2.1,
             label="val loss")
     ax.set_ylabel("loss")
     ax2 = ax.twinx()
-    ax2.plot(x, smooth([p["gap"] for p in pts]), color=ANCHOR, linewidth=2.0,
+    ax2.scatter(x, [np.nan if i in gap_bad else v for i, v in enumerate(gap_raw)],
+                s=6, color=ANCHOR, alpha=0.22, linewidths=0, zorder=2)
+    ax2.plot(x, smooth(gap_clean), color=ANCHOR, linewidth=2.0,
              label="gap")
     ax2.set_ylabel("gap", color=ANCHOR)
     ax2.tick_params(colors=ANCHOR, labelsize=9)
@@ -475,11 +573,21 @@ def gen_static_combined_norm_figure(data):
     train_pts = d["train_log"]
     norm_pts = d.get("table_norm", [])
     x_loss = [p["step"] for p in train_pts]
-    train_loss = smooth([p["train_loss"] for p in train_pts])
-    val_loss = smooth([p["val_loss"] for p in train_pts])
-    gap = smooth([p["gap"] for p in train_pts])
+    tr_raw = [p["train_loss"] for p in train_pts]
+    val_raw = [p["val_loss"] for p in train_pts]
+    gap_raw = [p["gap"] for p in train_pts]
+    tr_clean, tr_bad = clean_series(tr_raw)
+    val_clean, val_bad = clean_series(val_raw)
+    gap_clean, gap_bad = clean_series(gap_raw)
+    train_loss = smooth(tr_clean)
+    val_loss = smooth(val_clean)
+    gap = smooth(gap_clean)
     fig, ax = plt.subplots(figsize=(10.8, 5.0), facecolor=PAPER)
     style_axis(ax)
+    ax.scatter(x_loss, [np.nan if i in tr_bad else v for i, v in enumerate(tr_raw)],
+               s=6, color="#3c8d5a", alpha=0.22, linewidths=0, zorder=2)
+    ax.scatter(x_loss, [np.nan if i in val_bad else v for i, v in enumerate(val_raw)],
+               s=6, color="#d97932", alpha=0.22, linewidths=0, zorder=2)
     ax.plot(x_loss, train_loss, color="#3c8d5a", linewidth=1.7,
             linestyle="--", label="train loss")
     ax.plot(x_loss, val_loss, color="#d97932", linewidth=2.1,
@@ -487,6 +595,8 @@ def gen_static_combined_norm_figure(data):
     ax.set_xlabel("step")
     ax.set_ylabel("loss")
     ax2 = ax.twinx()
+    ax2.scatter(x_loss, [np.nan if i in gap_bad else v for i, v in enumerate(gap_raw)],
+                s=6, color=ANCHOR, alpha=0.22, linewidths=0, zorder=2)
     ax2.plot(x_loss, gap, color=ANCHOR, linewidth=2.0, label="gap")
     ax2.set_ylabel("gap", color=ANCHOR)
     ax2.tick_params(colors=ANCHOR, labelsize=9)
@@ -502,7 +612,12 @@ def gen_static_combined_norm_figure(data):
             if key:
                 ax3 = ax.twinx()
                 ax3.spines["right"].set_position(("axes", 1.10 if prefix == "bigram" else 1.18))
-                ax3.plot(x_norm, smooth([p.get(key, 0) for p in norm_pts]),
+                rms_raw = [p.get(key, 0) for p in norm_pts]
+                rms_clean, rms_bad = clean_series(rms_raw)
+                ax3.scatter(x_norm, [np.nan if i in rms_bad else v
+                                     for i, v in enumerate(rms_raw)],
+                            s=5, color=color, alpha=0.2, linewidths=0, zorder=2)
+                ax3.plot(x_norm, smooth(rms_clean),
                          color=color, linewidth=2.0, label=label)
                 ax3.set_ylabel("table RMS", color=color)
                 ax3.tick_params(colors=color, labelsize=8)
