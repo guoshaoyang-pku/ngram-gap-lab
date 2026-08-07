@@ -51,12 +51,21 @@ def build_stationary_distribution(vocab_size, pi_1, delta):
     For i >= 1: π_i = (1 - pi_1)/(d-1) + c_i * delta
     where c_i are perturbation coefficients that sum to 0.
 
-    This creates one dominant token (index 0) and many rare tokens
-    with slight frequency differences among them (useful for studying
-    how models differentiate between rare patterns).
+    If delta is None, it's auto-set to base/10 to ensure a small but
+    meaningful perturbation that won't make any token probability negative.
     """
     d = vocab_size
-    base = (1.0 - pi_1) / (d - 1)  # uniform share for low-freq tokens
+    base = (1.0 - pi_1) / (d - 1)
+
+    if delta is None:
+        delta = base / 10.0
+        print(f"  delta auto-set to base/10 = {delta:.2e} (base={base:.2e})")
+
+    if delta >= base:
+        print(f"  WARNING: delta ({delta:.2e}) >= base ({base:.2e}), "
+              f"negative-perturbation tokens will be clamped to ~0!")
+        print(f"  This means ~half the vocab will never appear. "
+              f"Consider delta < {base:.2e}")
 
     # Perturbation coefficients that sum to 0 (alternating +1/-1)
     half = (d - 1) // 2
@@ -80,8 +89,15 @@ def build_stationary_distribution(vocab_size, pi_1, delta):
         pi[i] = base + c[i] * delta
 
     # Clamp to ensure all probabilities are positive
+    num_clamped = int(np.sum(pi[1:] < 1e-12))
+    if num_clamped > 0:
+        print(f"  WARNING: {num_clamped}/{d-1} low-freq tokens clamped to ~0 (delta too large)")
+
     pi = np.maximum(pi, 1e-12)
     pi = pi / np.sum(pi)  # re-normalize
+    actual_pi1 = pi[0]
+    if abs(actual_pi1 - pi_1) > 0.01:
+        print(f"  NOTE: π[0] adjusted from {pi_1:.4f} to {actual_pi1:.4f} due to renormalization")
 
     return pi
 
@@ -211,13 +227,14 @@ def main():
                         help="Vocabulary size d")
     parser.add_argument("--sequence_len", type=int, default=2048,
                         help="Sequence length s (context window)")
-    parser.add_argument("--lambda_val", type=float, default=0.9,
+    parser.add_argument("--lambda_val", type=float, default=0.8,
                         help="λ: stay-on-same-token probability (0-1). "
                              "Higher = stronger bigram dependency = more memorizable")
     parser.add_argument("--pi_1", type=float, default=0.3,
                         help="π₁: probability mass of the high-frequency token (0-1)")
-    parser.add_argument("--delta", type=float, default=0.001,
-                        help="δ: frequency perturbation among low-freq tokens")
+    parser.add_argument("--delta", type=float, default=None,
+                        help="δ: frequency perturbation among low-freq tokens. "
+                             "Default: auto-set to base/10 for safety")
 
     # Shard parameters
     parser.add_argument("--num_seqs_per_shard", type=int, default=5000,
@@ -251,7 +268,7 @@ def main():
     print(f"  Sequence length: {args.sequence_len}")
     print(f"  λ (stay prob):   {args.lambda_val}")
     print(f"  π₁ (high-freq):  {args.pi_1}")
-    print(f"  δ (perturbation):{args.delta}")
+    print(f"  δ (perturbation):{args.delta if args.delta is not None else 'auto'}")
     print(f"  Train shards:    {args.num_train_shards}")
     print(f"  Val shards:      {args.num_val_shards}")
     print(f"  Seqs per shard:  {args.num_seqs_per_shard}")
