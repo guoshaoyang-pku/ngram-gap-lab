@@ -74,7 +74,7 @@ class Config:
     max_steps: int = 1000
     device_batch_size: int = 72
     total_batch_size: int = 147456
-    val_interval_steps: int = 50
+    val_interval_steps: int = 5
     val_batches: int = 4
     table_norm_interval_steps: int = 10
     warmdown_ratio: float = 0.65  # last 65% of steps decays LR
@@ -710,7 +710,7 @@ def main():
                         help="comma-separated shard ids for val")
     parser.add_argument("--device_batch_size", type=int, default=72)
     parser.add_argument("--total_batch_size", type=int, default=147456)
-    parser.add_argument("--val_interval", type=int, default=50)
+    parser.add_argument("--val_interval", type=int, default=5)
     parser.add_argument("--val_batches", type=int, default=4)
     parser.add_argument("--table_norm_interval", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.004)
