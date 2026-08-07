@@ -57,11 +57,11 @@ class Config:
     sequence_len: int = 2048
     dropout: float = 0.0
     bias: bool = True
-    # n-gram value table
+    # n-gram value table (all off by default = pure nanoGPT)
     enable_nanogpt_ngram_ve: bool = True
     enable_unigram_ve: bool = False
-    enable_bigram_ve: bool = True
-    enable_trigram_ve: bool = True
+    enable_bigram_ve: bool = False
+    enable_trigram_ve: bool = False
     enable_fourgram_ve: bool = False
     nanogpt_ngram_injection_position: str = "input"  # v | y | input
     # optimizer
@@ -715,8 +715,8 @@ def main():
     parser.add_argument("--table_norm_interval", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.004)
     parser.add_argument("--enable_unigram", type=int, default=0)
-    parser.add_argument("--enable_bigram", type=int, default=1)
-    parser.add_argument("--enable_trigram", type=int, default=1)
+    parser.add_argument("--enable_bigram", type=int, default=0)
+    parser.add_argument("--enable_trigram", type=int, default=0)
     parser.add_argument("--n_layer", type=int, default=8)
     parser.add_argument("--n_head", type=int, default=6)
     parser.add_argument("--n_embd", type=int, default=768)
