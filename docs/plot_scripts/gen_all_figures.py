@@ -210,12 +210,14 @@ def gen_fig_gap_loss(data):
         if not pts:
             continue
         x = [p["step"] for p in pts]
-        gap = [p["gap"] for p in pts]
+        gap = smooth([p["gap"] for p in pts])
+        train_loss = smooth([p["train_loss"] for p in pts])
+        val_loss = smooth([p["val_loss"] for p in pts])
         traces_gap.append({"x": x, "y": gap, "mode": "lines+markers", "name": info["label"],
                             "line": {"color": info["color"], "width": 2}})
-        traces_loss.append({"x": x, "y": [p["train_loss"] for p in pts], "mode": "lines",
+        traces_loss.append({"x": x, "y": train_loss, "mode": "lines",
                             "name": info["label"] + " (train)", "line": {"color": info["color"], "width": 1.5, "dash": "dash"}})
-        traces_loss.append({"x": x, "y": [p["val_loss"] for p in pts], "mode": "lines",
+        traces_loss.append({"x": x, "y": val_loss, "mode": "lines",
                             "name": info["label"] + " (val)", "line": {"color": info["color"], "width": 2}})
 
     eb = epoch_boundary_pairs(next(iter(data.values()))["train_log"])
@@ -263,14 +265,14 @@ def gen_fig_loss_norm(data):
     info = d["info"]
 
     x_loss = [p["step"] for p in train_pts]
-    gap = [p["gap"] for p in train_pts]
-    train_loss = [p["train_loss"] for p in train_pts]
-    val_loss = [p["val_loss"] for p in train_pts]
+    gap = smooth([p["gap"] for p in train_pts])
+    train_loss = smooth([p["train_loss"] for p in train_pts])
+    val_loss = smooth([p["val_loss"] for p in train_pts])
 
     x_norm = [p["step"] for p in norm_pts]
     # use bigram layer_01 table_0 rms
-    bg_rms = [p.get("bigram.layer_01.table_0.rms", 0) for p in norm_pts]
-    tg_rms = [p.get("trigram.layer_01.table_0.rms", 0) for p in norm_pts]
+    bg_rms = smooth([p.get("bigram.layer_01.table_0.rms", 0) for p in norm_pts])
+    tg_rms = smooth([p.get("trigram.layer_01.table_0.rms", 0) for p in norm_pts])
 
     epoch_shapes = [
         {"type": "line", "x0": step, "x1": step, "y0": 0, "y1": 1,
@@ -343,6 +345,20 @@ def epoch_boundary_pairs(train_log):
     return pairs
 
 
+def smooth(pts, window=7):
+    """Centered moving average to soften single-step noise / early spikes."""
+    n = len(pts)
+    if n == 0:
+        return pts
+    half = window // 2
+    out = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        out.append(sum(pts[lo:hi]) / (hi - lo))
+    return out
+
+
 def add_epoch_lines(ax, boundaries=None):
     boundaries = boundaries or [(337, "epoch 2"), (686, "epoch 3")]
     for step, label in boundaries:
@@ -369,7 +385,7 @@ def gen_static_loss_figures(data):
         if not pts:
             continue
         x = [p["step"] for p in pts]
-        ax.plot(x, [p["gap"] for p in pts], color=RUN_COLORS[key], linewidth=2.2,
+        ax.plot(x, smooth([p["gap"] for p in pts]), color=RUN_COLORS[key], linewidth=2.2,
                 marker="o", markersize=2.8, label=info["label"])
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation gap", loc="left", fontsize=15, fontweight="bold")
@@ -387,9 +403,9 @@ def gen_static_loss_figures(data):
             continue
         x = [p["step"] for p in pts]
         color = RUN_COLORS[key]
-        ax.plot(x, [p["train_loss"] for p in pts], color=color, linewidth=1.5,
+        ax.plot(x, smooth([p["train_loss"] for p in pts]), color=color, linewidth=1.5,
                 linestyle="--", alpha=0.72, label=f"{key} train")
-        ax.plot(x, [p["val_loss"] for p in pts], color=color, linewidth=2.1,
+        ax.plot(x, smooth([p["val_loss"] for p in pts]), color=color, linewidth=2.1,
                 label=f"{key} val")
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation loss", loc="left", fontsize=15, fontweight="bold")
@@ -415,7 +431,7 @@ def gen_static_norm_figures(data):
         ]:
             key = next((k for k in norm_pts[0] if k.startswith(prefix) and k.endswith("table_0.rms")), None)
             if key:
-                ax.plot(x, [p.get(key, 0) for p in norm_pts], color=color,
+                ax.plot(x, smooth([p.get(key, 0) for p in norm_pts]), color=color,
                         linewidth=2.2, label=label)
     add_epoch_lines(ax, epoch_boundary_pairs(d["train_log"]))
     ax.set_title("N-gram table norm", loc="left", fontsize=15, fontweight="bold")
@@ -429,13 +445,13 @@ def gen_static_norm_figures(data):
     x = [p["step"] for p in pts]
     fig, ax = plt.subplots(figsize=(10.8, 4.8), facecolor=PAPER)
     style_axis(ax)
-    ax.plot(x, [p["train_loss"] for p in pts], color="#2d6f9f", linewidth=1.6,
+    ax.plot(x, smooth([p["train_loss"] for p in pts]), color="#2d6f9f", linewidth=1.6,
             linestyle="--", label="train loss")
-    ax.plot(x, [p["val_loss"] for p in pts], color="#c4493d", linewidth=2.1,
+    ax.plot(x, smooth([p["val_loss"] for p in pts]), color="#c4493d", linewidth=2.1,
             label="val loss")
     ax.set_ylabel("loss")
     ax2 = ax.twinx()
-    ax2.plot(x, [p["gap"] for p in pts], color=ANCHOR, linewidth=2.0,
+    ax2.plot(x, smooth([p["gap"] for p in pts]), color=ANCHOR, linewidth=2.0,
              label="gap")
     ax2.set_ylabel("gap", color=ANCHOR)
     ax2.tick_params(colors=ANCHOR, labelsize=9)
@@ -459,9 +475,9 @@ def gen_static_combined_norm_figure(data):
     train_pts = d["train_log"]
     norm_pts = d.get("table_norm", [])
     x_loss = [p["step"] for p in train_pts]
-    train_loss = [p["train_loss"] for p in train_pts]
-    val_loss = [p["val_loss"] for p in train_pts]
-    gap = [p["gap"] for p in train_pts]
+    train_loss = smooth([p["train_loss"] for p in train_pts])
+    val_loss = smooth([p["val_loss"] for p in train_pts])
+    gap = smooth([p["gap"] for p in train_pts])
     fig, ax = plt.subplots(figsize=(10.8, 5.0), facecolor=PAPER)
     style_axis(ax)
     ax.plot(x_loss, train_loss, color="#3c8d5a", linewidth=1.7,
@@ -486,7 +502,7 @@ def gen_static_combined_norm_figure(data):
             if key:
                 ax3 = ax.twinx()
                 ax3.spines["right"].set_position(("axes", 1.10 if prefix == "bigram" else 1.18))
-                ax3.plot(x_norm, [p.get(key, 0) for p in norm_pts],
+                ax3.plot(x_norm, smooth([p.get(key, 0) for p in norm_pts]),
                          color=color, linewidth=2.0, label=label)
                 ax3.set_ylabel("table RMS", color=color)
                 ax3.tick_params(colors=color, labelsize=8)
