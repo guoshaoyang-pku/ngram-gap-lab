@@ -118,23 +118,38 @@ def generate_sequences(num_seqs, sequence_len, pi, lambda_val, seed=None):
       x_1 ~ Uniform(V)
       x_{j+1} ~ P_{x_j}  for j = 1, ..., sequence_len
 
+    Semi-vectorized: loops over positions (2049 iterations) but vectorized
+    across all sequences (num_seqs in one numpy operation per position).
+    Much faster than per-sequence loops for typical sequence lengths.
+
     Returns an array of shape (num_seqs, sequence_len + 1) of token IDs.
-    The first sequence_len columns are input, the last column is target.
     """
     if seed is not None:
-        np.random.seed(seed)
+        rng = np.random.default_rng(seed)
+    else:
+        rng = np.random.default_rng()
 
     d = len(pi)
-    data = np.zeros((num_seqs, sequence_len + 1), dtype=np.uint16)
+    total_len = sequence_len + 1
 
-    for i in range(num_seqs):
-        # Uniform first token
-        data[i, 0] = np.random.randint(0, d)
-        # Sample remaining tokens from Markov chain
-        for j in range(1, sequence_len + 1):
-            data[i, j] = sample_next_token(data[i, j-1], pi, lambda_val)
+    data = np.zeros((num_seqs, total_len), dtype=np.int32)
 
-    return data
+    # Position 0: uniform random over vocab
+    data[:, 0] = rng.integers(0, d, size=num_seqs)
+
+    # Pre-generate "jump values" for all positions (sampled from pi)
+    jump_values = rng.choice(d, size=(num_seqs, total_len), p=pi)
+
+    # Pre-generate random thresholds for stay/jump decision at each position
+    rand_vals = rng.random(size=(num_seqs, total_len))
+
+    # Fill each position: if random < lambda_val, stay (copy previous);
+    # otherwise, jump (use the pre-sampled value from pi)
+    for j in range(1, total_len):
+        stay = rand_vals[:, j] < lambda_val
+        data[:, j] = np.where(stay, data[:, j-1], jump_values[:, j])
+
+    return data.astype(np.uint16)
 
 
 # ---------------------------------------------------------------------------
