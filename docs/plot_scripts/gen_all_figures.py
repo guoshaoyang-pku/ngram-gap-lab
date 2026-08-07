@@ -35,9 +35,9 @@ FALLBACK_BLOG_DIR = os.environ.get(
 )
 
 RUNS = {
-    "v": {"label": "v (ResFormer, add to V)", "color": "#2196F3", "dir": "nglab_v"},
-    "y": {"label": "y (post-attn residual)", "color": "#F44336", "dir": "nglab_y"},
-    "input": {"label": "input (over-encoding)", "color": "#4CAF50", "dir": "nglab_input"},
+    "v": {"label": "v (ResFormer, add to V)", "color": "#2196F3", "dir": "nglab1x_v10_v"},
+    "y": {"label": "y (post-attn residual)", "color": "#F44336", "dir": "nglab1x_v10_y"},
+    "input": {"label": "input (over-encoding)", "color": "#4CAF50", "dir": "nglab1x_v10_input"},
 }
 
 
@@ -218,19 +218,23 @@ def gen_fig_gap_loss(data):
         traces_loss.append({"x": x, "y": [p["val_loss"] for p in pts], "mode": "lines",
                             "name": info["label"] + " (val)", "line": {"color": info["color"], "width": 2}})
 
+    eb = epoch_boundary_pairs(next(iter(data.values()))["train_log"])
     epoch_shapes = [
-        {"type": "line", "x0": 337, "x1": 337, "y0": 0, "y1": 1, "yref": "paper", "line": {"color": "#ccc", "dash": "dot"}},
-        {"type": "line", "x0": 686, "x1": 686, "y0": 0, "y1": 1, "yref": "paper", "line": {"color": "#ccc", "dash": "dot"}},
+        {"type": "line", "x0": step, "x1": step, "y0": 0, "y1": 1,
+         "yref": "paper", "line": {"color": "#ccc", "dash": "dot"}}
+        for step, _ in eb
+    ]
+    epoch_annots = [
+        {"x": step, "y": 0.95, "yref": "paper", "text": label,
+         "showarrow": False, "font": {"size": 10, "color": "#999"}}
+        for step, label in eb
     ]
     body = '<div id="gap_chart" class="chart"></div><div id="loss_chart" class="chart"></div>'
     script = f"""
     var gapData = {json.dumps(traces_gap)};
     var lossData = {json.dumps(traces_loss)};
     var shapes = {json.dumps(epoch_shapes)};
-    var annots = [
-      {{x: 337, y: 0.95, yref: "paper", text: "epoch2", showarrow: false, font: {{size: 10, color: "#999"}}}},
-      {{x: 686, y: 0.95, yref: "paper", text: "epoch3", showarrow: false, font: {{size: 10, color: "#999"}}}}
-    ];
+    var annots = {json.dumps(epoch_annots)};
     Plotly.newPlot("gap_chart", gapData, {{
         title: "Train/Val Gap (val - train)", xaxis: {{title: "step"}}, yaxis: {{title: "gap"}},
         margin: {{l:60,r:30,t:50,b:50}}, shapes: shapes, annotations: annots
@@ -268,6 +272,11 @@ def gen_fig_loss_norm(data):
     bg_rms = [p.get("bigram.layer_01.table_0.rms", 0) for p in norm_pts]
     tg_rms = [p.get("trigram.layer_01.table_0.rms", 0) for p in norm_pts]
 
+    epoch_shapes = [
+        {"type": "line", "x0": step, "x1": step, "y0": 0, "y1": 1,
+         "yref": "paper", "line": {"color": "#ccc", "dash": "dot"}}
+        for step, _ in epoch_boundary_pairs(train_pts)
+    ]
     body = '<div id="norm_chart" class="chart" style="height: 320px"></div>'
     script = f"""
     var traces = [
@@ -277,10 +286,7 @@ def gen_fig_loss_norm(data):
       {{x: {json.dumps(x_norm)}, y: {json.dumps(bg_rms)}, mode: "lines", name: "bigram table RMS", line: {{color: "#2196F3", width: 2}}, yaxis: "y3"}},
       {{x: {json.dumps(x_norm)}, y: {json.dumps(tg_rms)}, mode: "lines", name: "trigram table RMS", line: {{color: "#F44336", width: 2}}, yaxis: "y3"}}
     ];
-    var shapes = [
-      {{type: "line", x0: 337, x1: 337, y0: 0, y1: 1, yref: "paper", line: {{color: "#ccc", dash: "dot"}}}},
-      {{type: "line", x0: 686, x1: 686, y0: 0, y1: 1, yref: "paper", line: {{color: "#ccc", dash: "dot"}}}}
-    ];
+    var shapes = {json.dumps(epoch_shapes)};
     Plotly.newPlot("norm_chart", traces, {{
         title: "Loss, Gap, and N-gram Table RMS (input run)",
         xaxis: {{title: "step"}},
@@ -325,8 +331,21 @@ def style_axis(ax):
     ax.title.set_color(INK)
 
 
-def add_epoch_lines(ax):
-    for step, label in [(337, "epoch 2"), (686, "epoch 3")]:
+def epoch_boundary_pairs(train_log):
+    """(step, label) pairs where a new training epoch starts, from the epoch field."""
+    pairs = []
+    prev = None
+    for p in train_log:
+        ep = p.get("epoch")
+        if prev is not None and ep is not None and ep != prev:
+            pairs.append((p["step"], f"epoch {ep}"))
+        prev = ep
+    return pairs
+
+
+def add_epoch_lines(ax, boundaries=None):
+    boundaries = boundaries or [(337, "epoch 2"), (686, "epoch 3")]
+    for step, label in boundaries:
         ax.axvline(step, color=LINE, linestyle=":", linewidth=1.2)
         ax.text(step + 8, 0.96, label, transform=ax.get_xaxis_transform(),
                 color=MUTED, fontsize=8, va="top")
@@ -352,7 +371,7 @@ def gen_static_loss_figures(data):
         x = [p["step"] for p in pts]
         ax.plot(x, [p["gap"] for p in pts], color=RUN_COLORS[key], linewidth=2.2,
                 marker="o", markersize=2.8, label=info["label"])
-    add_epoch_lines(ax)
+    add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation gap", loc="left", fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
     ax.set_ylabel("val loss − train loss")
@@ -372,7 +391,7 @@ def gen_static_loss_figures(data):
                 linestyle="--", alpha=0.72, label=f"{key} train")
         ax.plot(x, [p["val_loss"] for p in pts], color=color, linewidth=2.1,
                 label=f"{key} val")
-    add_epoch_lines(ax)
+    add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation loss", loc="left", fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
     ax.set_ylabel("cross-entropy loss")
@@ -398,7 +417,7 @@ def gen_static_norm_figures(data):
             if key:
                 ax.plot(x, [p.get(key, 0) for p in norm_pts], color=color,
                         linewidth=2.2, label=label)
-    add_epoch_lines(ax)
+    add_epoch_lines(ax, epoch_boundary_pairs(d["train_log"]))
     ax.set_title("N-gram table norm", loc="left", fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
     ax.set_ylabel("RMS")
@@ -421,7 +440,7 @@ def gen_static_norm_figures(data):
     ax2.set_ylabel("gap", color=ANCHOR)
     ax2.tick_params(colors=ANCHOR, labelsize=9)
     ax2.spines["right"].set_color(ANCHOR)
-    add_epoch_lines(ax)
+    add_epoch_lines(ax, epoch_boundary_pairs(d["train_log"]))
     ax.set_title("Input run: loss and gap alignment", loc="left",
                  fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
@@ -472,7 +491,7 @@ def gen_static_combined_norm_figure(data):
                 ax3.set_ylabel("table RMS", color=color)
                 ax3.tick_params(colors=color, labelsize=8)
                 ax3.spines["right"].set_color(color)
-    add_epoch_lines(ax)
+    add_epoch_lines(ax, epoch_boundary_pairs(train_pts))
     ax.set_title("Input run: loss, gap, and n-gram table RMS",
                  loc="left", fontsize=15, fontweight="bold")
     handles, labels = ax.get_legend_handles_labels()
@@ -713,6 +732,11 @@ def gen_fig_gap_by_freq(data):
                 s["train_frac"].append(td["frac"])
                 s["val_frac"].append(vd["frac"])
 
+    epoch_shapes = [
+        {"type": "line", "x0": step, "x1": step, "y0": 0, "y1": 1,
+         "yref": "paper", "line": {"color": "#ccc", "dash": "dot"}}
+        for step, _ in epoch_boundary_pairs(next(iter(data.values()))["train_log"])
+    ]
     body = """
     <div class="controls">
       <b>曲线:</b> <button class="active" onclick="setCurve('both')">train+val</button>
@@ -766,10 +790,7 @@ def gen_fig_gap_by_freq(data):
 
     function plot() {{
       var traces = getTraces();
-      var shapes = [
-        {{type: "line", x0: 337, x1: 337, y0: 0, y1: 1, yref: "paper", line: {{color: "#ccc", dash: "dot"}}}},
-        {{type: "line", x0: 686, x1: 686, y0: 0, y1: 1, yref: "paper", line: {{color: "#ccc", dash: "dot"}}}}
-      ];
+      var shapes = {json.dumps(epoch_shapes)};
       var title = curBranch + " | " + (curCurve === "gap" ? "gap (val-train)" : (curMetric === "per_token" ? "val loss (per-token)" : "val total contrib"));
       Plotly.newPlot("freq_chart", traces, {{
         title: title, xaxis: {{title: "step"}}, yaxis: {{title: curMetric === "total" ? "frac × loss" : "loss"}},
@@ -782,7 +803,10 @@ def gen_fig_gap_by_freq(data):
     function setBranch(b) {{ curBranch = b; plot(); }}
     plot();
     """
-    html = HTML_WRAP.format(title="频率 bin 分解：train / val / gap", note="input 注入 run。每条线 = 一个频率桶。novel = train 中未出现的 context（仅 val）。epoch2@337, epoch3@686。",
+    eb_note = "、".join(f"epoch{label.replace('epoch ', '')}@{step}"
+                        for step, label in epoch_boundary_pairs(
+                            next(iter(data.values()))["train_log"]))
+    html = HTML_WRAP.format(title="频率 bin 分解：train / val / gap", note="input 注入 run。每条线 = 一个频率桶。novel = train 中未出现的 context（仅 val）。" + eb_note + "。",
                             body=body, plotly=PLOTLY_HEAD, script=script)
     with open(out, "w") as f:
         f.write(html)
