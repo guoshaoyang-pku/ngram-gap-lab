@@ -60,7 +60,7 @@ class Config:
     # n-gram value table (all off by default = pure nanoGPT)
     enable_nanogpt_ngram_ve: bool = True
     enable_unigram_ve: bool = False
-    enable_bigram_ve: bool = False
+    enable_bigram_ve: bool = True
     enable_trigram_ve: bool = False
     enable_fourgram_ve: bool = False
     nanogpt_ngram_injection_position: str = "input"  # v | y | input
@@ -71,7 +71,7 @@ class Config:
     weight_decay: float = 0.1
     # training
     seed: int = 42
-    max_steps: int = 1000
+    max_steps: int = 3000
     device_batch_size: int = 72
     total_batch_size: int = 147456
     val_interval_steps: int = 5
@@ -700,7 +700,7 @@ def main():
     parser.add_argument("--run_id", default="run")
     parser.add_argument("--injection_position", default="input",
                         choices=["v", "y", "input"])
-    parser.add_argument("--steps", type=int, default=1000)
+    parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--data_dir", default=os.environ.get("NGLAB_DATA_DIR", ""))
     parser.add_argument("--out_dir", default=os.environ.get("NGLAB_OUT_DIR", "data/runs"))
@@ -715,7 +715,7 @@ def main():
     parser.add_argument("--table_norm_interval", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.004)
     parser.add_argument("--enable_unigram", type=int, default=0)
-    parser.add_argument("--enable_bigram", type=int, default=0)
+    parser.add_argument("--enable_bigram", type=int, default=1)
     parser.add_argument("--enable_trigram", type=int, default=0)
     parser.add_argument("--n_layer", type=int, default=8)
     parser.add_argument("--n_head", type=int, default=6)
