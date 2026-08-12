@@ -6,20 +6,17 @@
 2. **遇到大困难先问用户**：不要擅自大改 setting。
 3. **训练代码与文档解耦**：`code/` 只放可运行代码，`docs/` 只放计划/日志/图。
 
-## 1. 集群资源（ophis-gpu，主集群）
+## 1. 集群资源（h200-1，主集群）
 
-- **SSH**: `ssh ophis-gpu`（别名 `ophis_gpu`, `fcloud-223`）
-- **连接**: `guoshaoyang@223.167.85.180:50002`，密钥 `~/.ssh/id_rsa`
+- **SSH**: `ssh h200-1`
+- **连接**: `yushanbin@10.234.161.2:22`，密钥 `C:/Users/vbird/.ssh/id_rsa`
 - **GPU**: 8×NVIDIA H200 (141 GB × 8)，OS Ubuntu 22.04.5，公网 ✅
 - **存储**:
-  - `/data3/guoshaoyang` — 7.0 TB NVMe（个人持久存储，配额 500G soft / 600G hard）
-  - `/data4/guoshaoyang` — 7.0 TB NVMe（空闲，配额 500G/600G）
-  - `/scratch/guoshaoyang` / `/tmp` — 438 GB（临时，**配额 15G soft / 20G hard**，勿写大文件）
-  - **⚠️ 注意**：`/tmp` 和 `/` 在同一分区，guoshaoyang 根分区配额已超，**不要往 `/tmp` 写**
-- **环境**: 系统 python3 + `uv`（`/data3/guoshaoyang/.local/bin/uv`），`torch==2.9.1`
-  - 本 repo venv: `/data3/guoshaoyang/ngram-gap-lab/.venv/bin/python`
-- **运行**: `cd /data3/guoshaoyang/ngram-gap-lab && .venv/bin/python code/train.py`
-- **数据**: 复用 `/data3/guoshaoyang/ngram-gap-exp/data/`（tokenized shards）
+  - `/data/home/yushanbin/ngram-gap-shaoyang-2` — 当前最小仓库运行目录
+  - `/data/home/yushanbin/ngram-gap-shaoyang-2/data/runs` — 当前实验结果目录
+- **环境**: `/usr/bin/python3`（系统 Torch CUDA 环境）
+- **运行**: `cd /data/home/yushanbin/ngram-gap-shaoyang-2 && /usr/bin/python3 -u code/train.py`
+- **数据**: 放在运行目录下的 `data/tokenized/` 和 `data/freq_index.npz`
 
 ## 2. 本 repo 路径
 

@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import zlib
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -85,6 +86,219 @@ def _all_bucket_labels() -> list:
     return [label for _, _, label in BUCKET_EDGES]
 
 
+def _context_key(tokens: np.ndarray, position: int, branch: str,
+                 vocab_size: int) -> int:
+    """Return the raw-corpus context key at one input/loss position."""
+    if branch == "bigram":
+        return int(tokens[position - 1]) * vocab_size + int(tokens[position])
+    if branch == "trigram":
+        v2 = vocab_size * vocab_size
+        return (int(tokens[position - 2]) * v2
+                + int(tokens[position - 1]) * vocab_size
+                + int(tokens[position]))
+    raise ValueError(f"unknown n-gram branch: {branch}")
+
+
+def _stable_group_seed(seed: int, source: str, branch: str, bucket: str) -> int:
+    """Derive a reproducible independent reservoir RNG for one sample group."""
+    label = f"{seed}:{source}:{branch}:{bucket}".encode("utf-8")
+    return (int(seed) + zlib.crc32(label)) % (2 ** 32)
+
+
+def _merge_priority_reservoir(reservoir: list, priorities: np.ndarray,
+                             candidates: list, limit: int) -> None:
+    """Merge local candidates chosen by iid random priority into a top-k reservoir.
+
+    Retaining the globally smallest iid priorities is an exact uniform sample
+    without replacement.  Each shard block contributes only its local top-k,
+    because no other candidate ranked below those k can enter the global top-k.
+    """
+    if limit <= 0 or not candidates:
+        return
+    reservoir.extend((float(priority), candidate)
+                     for priority, candidate in zip(priorities, candidates))
+    reservoir.sort(key=lambda item: item[0])
+    del reservoir[limit:]
+
+
+def build_fixed_gram_manifest(
+    data_dir: str,
+    train_shards: list,
+    val_shards: list,
+    freq_index: "GlobalFrequencyIndex",
+    vocab_size: int,
+    sequence_len: int,
+    samples_per_bucket: int = 100,
+    seed: int = 42,
+    scan_chunks_per_block: int = 256,
+) -> dict:
+    """Build a reproducible bucket-stratified occurrence manifest.
+
+    The scan deliberately bypasses ``TokenizedShardDataset.iter_batches``.
+    Each candidate is a real loss position in a complete raw shard chunk;
+    only the first ``branch`` context positions are excluded because the
+    model would otherwise use its synthetic left padding context.
+    """
+    if samples_per_bucket < 0:
+        raise ValueError("samples_per_bucket must be non-negative")
+    chunk_size = sequence_len + 1
+    groups = {
+        source: {
+            branch: {
+                bucket: {
+                    "candidate_count": 0,
+                    "selected_count": 0,
+                    "samples": [],
+                }
+                for bucket in _all_bucket_labels()
+            }
+            for branch in ("bigram", "trigram")
+        }
+        for source in ("train", "val")
+    }
+    if scan_chunks_per_block <= 0:
+        raise ValueError("scan_chunks_per_block must be positive")
+    rngs = {
+        (source, branch, bucket): np.random.default_rng(
+            _stable_group_seed(seed, source, branch, bucket))
+        for source in groups
+        for branch in ("bigram", "trigram")
+        for bucket in _all_bucket_labels()
+    }
+    reservoirs = {key: [] for key in rngs}
+    bucket_upper_bounds = np.array([hi for _, hi, _ in BUCKET_EDGES], dtype=np.int64)
+
+    shard_map = {
+        "train": [int(x) for x in train_shards],
+        "val": [int(x) for x in val_shards],
+    }
+    for source, shard_ids in shard_map.items():
+        for shard_id in shard_ids:
+            path = os.path.join(data_dir, f"shard_{shard_id:05d}.bin")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Missing shard: {path}")
+            buf = np.memmap(path, dtype=np.uint16, mode="r")
+            n_chunks = len(buf) // chunk_size
+            for block_first_chunk in range(0, n_chunks, scan_chunks_per_block):
+                block_chunk_count = min(scan_chunks_per_block, n_chunks - block_first_chunk)
+                raw = buf[
+                    block_first_chunk * chunk_size:
+                    (block_first_chunk + block_chunk_count) * chunk_size
+                ].reshape(block_chunk_count, chunk_size)
+                inp = np.asarray(raw[:, :-1], dtype=np.int64)
+                for branch, first_position in (("bigram", 1), ("trigram", 2)):
+                    if branch == "bigram":
+                        keys = inp[:, :-1] * vocab_size + inp[:, 1:]
+                    else:
+                        keys = (
+                            inp[:, :-2] * (vocab_size * vocab_size)
+                            + inp[:, 1:-1] * vocab_size
+                            + inp[:, 2:]
+                        )
+                    hits = freq_index.hit_count_array(branch, keys)
+                    bucket_ids = np.searchsorted(
+                        bucket_upper_bounds, hits, side="left")
+                    bucket_ids = np.minimum(bucket_ids, len(BUCKET_EDGES) - 1)
+                    flat_keys = keys.ravel()
+                    flat_hits = hits.ravel()
+                    flat_bucket_ids = bucket_ids.ravel()
+                    positions_per_chunk = keys.shape[1]
+                    for bucket_id, (_, _, bucket) in enumerate(BUCKET_EDGES):
+                        local_indices = np.flatnonzero(flat_bucket_ids == bucket_id)
+                        if not len(local_indices):
+                            continue
+                        group = groups[source][branch][bucket]
+                        group["candidate_count"] += int(len(local_indices))
+                        local_limit = min(samples_per_bucket, len(local_indices))
+                        if not local_limit:
+                            continue
+                        local_priorities = rngs[(source, branch, bucket)].random(
+                            len(local_indices))
+                        if local_limit < len(local_indices):
+                            selected = np.argpartition(
+                                local_priorities, local_limit - 1)[:local_limit]
+                        else:
+                            selected = np.arange(len(local_indices))
+                        selected_indices = local_indices[selected]
+                        candidate_rows = selected_indices // positions_per_chunk
+                        candidate_positions = (
+                            selected_indices % positions_per_chunk + first_position)
+                        candidates = [
+                            {
+                                "source": source,
+                                "branch": branch,
+                                "bucket": bucket,
+                                "shard": shard_id,
+                                "chunk_start": int(
+                                    (block_first_chunk + row) * chunk_size),
+                                "position": int(position),
+                                "context_key": int(flat_keys[index]),
+                                "hit_count": int(flat_hits[index]),
+                            }
+                            for index, row, position in zip(
+                                selected_indices, candidate_rows, candidate_positions)
+                        ]
+                        _merge_priority_reservoir(
+                            reservoirs[(source, branch, bucket)],
+                            local_priorities[selected], candidates, samples_per_bucket)
+
+    for source in groups:
+        for branch in groups[source]:
+            for bucket in groups[source][branch]:
+                group = groups[source][branch][bucket]
+                group["samples"] = [candidate for _, candidate in
+                                    reservoirs[(source, branch, bucket)]]
+                group["samples"].sort(
+                    key=lambda x: (x["shard"], x["chunk_start"], x["position"]))
+                group["selected_count"] = len(group["samples"])
+    return {
+        "format_version": 1,
+        "seed": int(seed),
+        "samples_per_bucket": int(samples_per_bucket),
+        "sequence_len": int(sequence_len),
+        "vocab_size": int(vocab_size),
+        "train_shards": [int(x) for x in train_shards],
+        "val_shards": [int(x) for x in val_shards],
+        "selection": (
+            "reservoir-sampled token occurrences from complete shard chunks; "
+            "bucket lookup uses the train frequency index"),
+        "groups": groups,
+    }
+
+
+def save_fixed_gram_manifest(manifest: dict, path: str) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def load_fixed_gram_manifest(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def fixed_gram_manifest_matches(
+    manifest: dict,
+    train_shards: list,
+    val_shards: list,
+    vocab_size: int,
+    sequence_len: int,
+    samples_per_bucket: int,
+    seed: int,
+) -> bool:
+    """Check the run-defining fields before reusing a manifest."""
+    return (
+        manifest.get("format_version") == 1
+        and int(manifest.get("seed", -1)) == int(seed)
+        and int(manifest.get("samples_per_bucket", -1)) == int(samples_per_bucket)
+        and int(manifest.get("sequence_len", -1)) == int(sequence_len)
+        and int(manifest.get("vocab_size", -1)) == int(vocab_size)
+        and [int(x) for x in manifest.get("train_shards", [])] == [int(x) for x in train_shards]
+        and [int(x) for x in manifest.get("val_shards", [])] == [int(x) for x in val_shards]
+        and isinstance(manifest.get("groups"), dict)
+    )
+
+
 # ---------------------------------------------------------------------------
 # 1. Global frequency index (offline scan of train tokens)
 # ---------------------------------------------------------------------------
@@ -113,6 +327,7 @@ class GlobalFrequencyIndex:
         self.bigram = bigram        # context_key -> count
         self.trigram = trigram
         self.vocab_size = vocab_size
+        self._lookup_cache = {}
 
     @classmethod
     def build(cls, train_tokens: np.ndarray, vocab_size: int) -> "GlobalFrequencyIndex":
@@ -170,14 +385,39 @@ class GlobalFrequencyIndex:
         tbl = self.bigram if branch == "bigram" else self.trigram
         return tbl.get(int(row), 0)
 
+    def _sorted_lookup(self, branch: str) -> tuple[np.ndarray, np.ndarray]:
+        """Build a sorted raw-key lookup once for vectorized manifest scans."""
+        cached = self._lookup_cache.get(branch)
+        if cached is not None:
+            return cached
+        table = self.bigram if branch == "bigram" else self.trigram
+        keys = np.fromiter(table.keys(), dtype=np.int64, count=len(table))
+        counts = np.fromiter(table.values(), dtype=np.int32, count=len(table))
+        if len(keys) > 1 and np.any(keys[1:] < keys[:-1]):
+            order = np.argsort(keys)
+            keys = keys[order]
+            counts = counts[order]
+        self._lookup_cache[branch] = (keys, counts)
+        return keys, counts
+
+    def hit_count_array(self, branch: str, rows: np.ndarray) -> np.ndarray:
+        """Lookup an ndarray of raw context keys without a torch round trip."""
+        flat = rows.astype(np.int64, copy=False).ravel()
+        keys, counts = self._sorted_lookup(branch)
+        if not len(keys):
+            return np.zeros(rows.shape, dtype=np.int32)
+        locations = np.searchsorted(keys, flat)
+        valid = locations < len(keys)
+        matched = np.zeros(flat.shape, dtype=np.int32)
+        matched[valid] = counts[locations[valid]]
+        valid[valid] &= keys[locations[valid]] == flat[valid]
+        matched[~valid] = 0
+        return matched.reshape(rows.shape)
+
     def hit_count_tensor(self, branch: str, rows: torch.Tensor) -> torch.Tensor:
         """Vectorized hit count lookup. rows: (B,T) long tensor -> (B,T) int32."""
-        tbl = self.bigram if branch == "bigram" else self.trigram
         rows_np = rows.detach().cpu().numpy().astype(np.int64)
-        # build lookup array (sparse -> dense via dict)
-        # for speed, use np.vectorize with dict.get
-        get = np.vectorize(lambda r: tbl.get(int(r), 0))
-        counts = get(rows_np).astype(np.int32)
+        counts = self.hit_count_array(branch, rows_np)
         return torch.from_numpy(counts).to(rows.device)
 
 
@@ -285,6 +525,152 @@ def compute_per_token_loss(model, inp: torch.Tensor, tgt: torch.Tensor) -> torch
         logits.float().view(-1, logits.size(-1)),
         tgt.view(-1), ignore_index=-1, reduction="none").view(tgt.size())
     return loss
+
+
+def fixed_gram_gap_summary(evaluation: dict) -> dict:
+    """Combine independent train/val fixed-gram means into the requested gap."""
+    train = evaluation.get("train", {})
+    val = evaluation.get("val", {})
+    out = {}
+    for branch in ("bigram", "trigram"):
+        out[branch] = {}
+        for bucket in _all_bucket_labels():
+            tr = train.get(branch, {}).get(bucket, {})
+            va = val.get(branch, {}).get(bucket, {})
+            tr_count = int(tr.get("sample_count", 0))
+            va_count = int(va.get("sample_count", 0))
+            tr_mean = tr.get("mean_loss")
+            va_mean = va.get("mean_loss")
+            gap = None if tr_mean is None or va_mean is None else float(va_mean - tr_mean)
+            out[branch][bucket] = {
+                "sample_count": min(tr_count, va_count),
+                "train_sample_count": tr_count,
+                "val_sample_count": va_count,
+                "train_mean_loss": tr_mean,
+                "val_mean_loss": va_mean,
+                "gap_contribution": gap,
+            }
+    return out
+
+
+def fixed_gram_overall_loss(source_summary: dict) -> Optional[float]:
+    """Average the selected occurrences across both branches for audit only."""
+    total = 0.0
+    count = 0
+    for branch in ("bigram", "trigram"):
+        for bucket in _all_bucket_labels():
+            stats = source_summary.get(branch, {}).get(bucket, {})
+            n = int(stats.get("sample_count", 0))
+            mean = stats.get("mean_loss")
+            if n and mean is not None:
+                total += n * float(mean)
+                count += n
+    return total / count if count else None
+
+
+class FixedGramProbe:
+    """Evaluate the same manifest-selected token occurrences at each checkpoint."""
+
+    def __init__(self, manifest: dict, data_dir: str, sequence_len: int,
+                 device: torch.device, device_batch_size: int = 4):
+        self.manifest = manifest
+        self.data_dir = data_dir
+        self.sequence_len = int(sequence_len)
+        self.chunk_size = self.sequence_len + 1
+        self.device = device
+        self.device_batch_size = max(1, int(device_batch_size))
+        self._chunks = {}
+        self._refs = {}
+        self._prepare()
+
+    def _prepare(self) -> None:
+        groups = self.manifest.get("groups", {})
+        for source in ("train", "val"):
+            for branch in ("bigram", "trigram"):
+                for bucket in _all_bucket_labels():
+                    group = groups.get(source, {}).get(branch, {}).get(bucket, {})
+                    samples = group.get("samples", [])
+                    for sample in samples:
+                        chunk_key = (
+                            source, int(sample["shard"]), int(sample["chunk_start"]))
+                        self._refs.setdefault(chunk_key, []).append(
+                            (branch, bucket, int(sample["position"])))
+        for source, shard, chunk_start in self._refs:
+            path = os.path.join(self.data_dir, f"shard_{shard:05d}.bin")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Missing shard: {path}")
+            buf = np.memmap(path, dtype=np.uint16, mode="r")
+            raw = np.asarray(buf[chunk_start:chunk_start + self.chunk_size], dtype=np.uint16)
+            if len(raw) != self.chunk_size:
+                raise ValueError(
+                    f"incomplete fixed-gram chunk: {path}:{chunk_start}")
+            self._chunks[(source, shard, chunk_start)] = np.array(raw, copy=True)
+
+    def manifest_stats(self) -> dict:
+        return {
+            "unique_chunks": len(self._chunks),
+            "sample_count": {
+                source: {
+                    branch: {
+                        bucket: int(self.manifest["groups"][source][branch][bucket]
+                                   .get("selected_count", 0))
+                        for bucket in _all_bucket_labels()
+                    }
+                    for branch in ("bigram", "trigram")
+                }
+                for source in ("train", "val")
+            },
+        }
+
+    def evaluate(self, model) -> dict:
+        """Return source-separated selected-token means; never touches a train iterator."""
+        sums = {
+            source: {
+                branch: {bucket: 0.0 for bucket in _all_bucket_labels()}
+                for branch in ("bigram", "trigram")
+            }
+            for source in ("train", "val")
+        }
+        counts = {
+            source: {
+                branch: {bucket: 0 for bucket in _all_bucket_labels()}
+                for branch in ("bigram", "trigram")
+            }
+            for source in ("train", "val")
+        }
+        was_training = model.training
+        model.eval()
+        chunk_items = list(self._chunks.items())
+        with torch.no_grad():
+            for offset in range(0, len(chunk_items), self.device_batch_size):
+                batch_items = chunk_items[offset:offset + self.device_batch_size]
+                raw = np.stack([item[1] for item in batch_items], axis=0)
+                inp = torch.from_numpy(raw[:, :-1].astype(np.int64)).to(self.device)
+                tgt = torch.from_numpy(raw[:, 1:].astype(np.int64)).to(self.device)
+                losses = compute_per_token_loss(model, inp, tgt).detach().cpu().numpy()
+                for row, (chunk_key, _) in enumerate(batch_items):
+                    source = chunk_key[0]
+                    for branch, bucket, position in self._refs[chunk_key]:
+                        sums[source][branch][bucket] += float(losses[row, position])
+                        counts[source][branch][bucket] += 1
+        if was_training:
+            model.train()
+        result = {
+            source: {
+                branch: {
+                    bucket: {
+                        "sample_count": counts[source][branch][bucket],
+                        "mean_loss": (
+                            sums[source][branch][bucket] / counts[source][branch][bucket]
+                            if counts[source][branch][bucket] else None),
+                    }
+                    for bucket in _all_bucket_labels()
+                }
+                for branch in ("bigram", "trigram")
+            }
+            for source in ("train", "val")
+        }
+        return result
 
 
 # ---------------------------------------------------------------------------

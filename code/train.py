@@ -19,6 +19,10 @@ Outputs JSONL logs under data/runs/<run_id>/:
   - train_log.jsonl   : one line per step {step, train_loss, val_loss, epoch, ...}
   - summary.json      : final gap + config snapshot
   - table_norm.jsonl  : periodic table param RMS (every TABLE_NORM_INTERVAL steps)
+  - online_loss.jsonl : actual writer-batch loss at every optimizer step
+  - online_frequency_gap_contribution.jsonl : moving train/val bucket contribution
+  - fixed_probe_frequency_gap_contribution.jsonl : fixed train/val probe contribution
+  - fixed_gram_frequency_gap_contribution.jsonl : fixed bucket-stratified occurrence gap
 
 Usage:
   python train.py --run_id myrun --injection_position input --steps 1000
@@ -393,7 +397,7 @@ class NanoGPT(nn.Module):
                                    device=idx.device, dtype=self.transformer.wte.weight.dtype)
         return residual
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, reduction: str = "mean"):
         B, T = idx.size()
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device).unsqueeze(0)
         x = self.transformer.wte(idx)
@@ -437,7 +441,9 @@ class NanoGPT(nn.Module):
         if targets is not None:
             loss = F.cross_entropy(
                 logits.float().view(-1, logits.size(-1)),
-                targets.view(-1), ignore_index=-1, reduction="mean")
+                targets.view(-1), ignore_index=-1, reduction=reduction)
+            if reduction == "none":
+                loss = loss.view_as(targets)
             return loss
         return logits.float()
 
@@ -662,9 +668,8 @@ def evaluate_val(model: NanoGPT, val_loader, val_batches: int) -> float:
     model.eval()
     losses = []
     with torch.no_grad():
-        for i, (inp, tgt) in enumerate(val_loader):
-            if i >= val_batches:
-                break
+        for _ in range(val_batches):
+            inp, tgt = next(val_loader)
             loss = model(inp, targets=tgt)
             losses.append(loss.item())
     model.train()
@@ -685,14 +690,108 @@ def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
         "trigram": FreqBinLossAccumulator(freq_index, vocab_size, "trigram"),
     }
     with torch.no_grad():
-        for i, (inp, tgt) in enumerate(loader):
-            if i >= n_batches:
-                break
+        for _ in range(n_batches):
+            inp, tgt = next(loader)
             ptl = compute_per_token_loss(model, inp, tgt)
             for branch in accs:
                 accs[branch].update(inp, ptl)
     model.train()
     return {branch: acc.summary() for branch, acc in accs.items()}
+
+
+def frequency_summary_from_batches(model: NanoGPT, batches, freq_index,
+                                   vocab_size: int) -> tuple[float, dict]:
+    """Evaluate a supplied batch collection without advancing its source iterator."""
+    from ngram_freq import FreqBinLossAccumulator, compute_per_token_loss
+    was_training = model.training
+    model.eval()
+    accs = {
+        "bigram": FreqBinLossAccumulator(freq_index, vocab_size, "bigram"),
+        "trigram": FreqBinLossAccumulator(freq_index, vocab_size, "trigram"),
+    }
+    loss_sum = 0.0
+    token_count = 0
+    with torch.no_grad():
+        for inp, tgt in batches:
+            ptl = compute_per_token_loss(model, inp, tgt)
+            loss_sum += float(ptl.sum().item())
+            token_count += ptl.numel()
+            for acc in accs.values():
+                acc.update(inp, ptl)
+    if was_training:
+        model.train()
+    return loss_sum / max(1, token_count), {
+        branch: acc.summary() for branch, acc in accs.items()
+    }
+
+
+def contribution_gap(train_frequency: dict, val_frequency: dict) -> dict:
+    """Per-bucket mean token-loss gap, with total contribution kept as a diagnostic."""
+    out = {}
+    for branch, train_buckets in train_frequency.items():
+        out[branch] = {}
+        val_buckets = val_frequency[branch]
+        for bucket, train_stats in train_buckets.items():
+            val_stats = val_buckets[bucket]
+            out[branch][bucket] = {
+                "contribution": val_stats["total_contrib"] - train_stats["total_contrib"],
+                "mean_loss_gap": val_stats["mean_loss"] - train_stats["mean_loss"],
+                "train_total_contrib": train_stats["total_contrib"],
+                "val_total_contrib": val_stats["total_contrib"],
+                "train_frac": train_stats["frac"],
+                "val_frac": val_stats["frac"],
+            }
+    return out
+
+
+def collect_fixed_probe(dataset: TokenizedShardDataset, device: torch.device,
+                        n_batches: int, offset_batches: int = 0
+                        ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    """Select deterministic batches once without touching the writer iterator.
+
+    ``offset_batches`` is zero-based within the replay epoch.  It lets a
+    contiguous fixed train probe be placed in the middle of an epoch instead
+    of always selecting the first batches after the replay boundary.
+    """
+    if offset_batches < 0:
+        raise ValueError("fixed probe offset must be non-negative")
+    iterator = dataset.iter_batches(device)
+    for _ in range(offset_batches):
+        next(iterator)
+    return [next(iterator) for _ in range(n_batches)]
+
+
+def fixed_probe_center_steps(steps_per_epoch: int, max_steps: int,
+                             offset_optimizer_steps: int) -> list[int]:
+    """Return 1-based writer steps where the fixed train probe begins."""
+    if steps_per_epoch <= 0 or offset_optimizer_steps < 0:
+        return []
+    return [epoch_start + offset_optimizer_steps
+            for epoch_start in range(1, max_steps + 1, steps_per_epoch)
+            if epoch_start + offset_optimizer_steps <= max_steps]
+
+
+def frequency_sample_reason(step: int, steps_per_epoch: int, interval: int,
+                            epoch_window: int, epoch_dense_interval: int,
+                            max_steps: int, probe_centers: list[int] | None = None,
+                            probe_window: int = 0,
+                            probe_dense_interval: int = 1) -> Optional[str]:
+    """Return why a moving/fixed frequency checkpoint is taken at this 1-based step."""
+    if step == max_steps or step % interval == 0:
+        return "interval"
+    reasons = []
+    if steps_per_epoch > 0:
+        for boundary in range(steps_per_epoch, max_steps, steps_per_epoch):
+            if (abs(step - boundary) <= epoch_window
+                    and (step - boundary) % epoch_dense_interval == 0):
+                reasons.append("epoch_dense")
+                break
+    for center in probe_centers or []:
+        if (abs(step - center) <= probe_window
+                and (step - center) % probe_dense_interval == 0):
+            reasons.append("probe_dense")
+            break
+    return "+".join(reasons) if reasons else None
 
 
 def main():
@@ -726,6 +825,27 @@ def main():
                         help="path to freq_index.npz; if set, enables freq-bin eval")
     parser.add_argument("--freq_eval_interval", type=int, default=50)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
+    parser.add_argument("--legacy_freq_eval", action="store_true",
+                        help="enable legacy independent diagnostic frequency evaluation")
+    parser.add_argument("--fixed_gram_samples_per_bucket", type=int, default=100)
+    parser.add_argument("--fixed_gram_seed", type=int, default=None,
+                        help="seed for fixed gram occurrence sampling; defaults to --seed")
+    parser.add_argument("--online_frequency_interval", type=int, default=50,
+                        help="base interval for online/fixed contribution checkpoints")
+    parser.add_argument("--online_frequency_epoch_window", type=int, default=25,
+                        help="sample around each replay epoch boundary within this many steps")
+    parser.add_argument("--online_frequency_dense_interval", type=int, default=1,
+                        help="step spacing for epoch-boundary dense sampling")
+    parser.add_argument("--online_frequency_probe_window", type=int, default=0,
+                        help="sample around each fixed train-probe position within this many steps")
+    parser.add_argument("--online_frequency_probe_dense_interval", type=int, default=1,
+                        help="step spacing for fixed train-probe dense sampling")
+    parser.add_argument("--online_frequency_val_batches", type=int, default=1,
+                        help="fresh moving validation batches per online checkpoint")
+    parser.add_argument("--fixed_probe_batches", type=int, default=4,
+                        help="deterministic train and validation batches kept for fixed-probe checks")
+    parser.add_argument("--fixed_probe_train_offset_steps", type=int, default=0,
+                        help="zero-based writer-step offset of the fixed train probe in each replay epoch")
     args = parser.parse_args()
 
     cfg = Config(
@@ -764,9 +884,23 @@ def main():
                                    cfg.device_batch_size, cfg.data_seed)
     train_iter = train_ds.iter_batches(device)
     val_iter = val_ds.iter_batches(device)
+    online_val_ds = TokenizedShardDataset(cfg.data_dir, cfg.val_shards, cfg.sequence_len,
+                                          cfg.device_batch_size, cfg.data_seed)
+    online_val_iter = online_val_ds.iter_batches(device)
     grad_accum = max(1, cfg.total_batch_size // (cfg.device_batch_size * cfg.sequence_len))
+    full_train_batches_per_epoch = train_ds.total_chunks() // cfg.device_batch_size
+    steps_per_epoch = full_train_batches_per_epoch // grad_accum
+    fixed_probe_offset_batches = args.fixed_probe_train_offset_steps * grad_accum
+    if (fixed_probe_offset_batches + args.fixed_probe_batches
+            > full_train_batches_per_epoch):
+        raise ValueError(
+            "fixed train probe exceeds one replay epoch: "
+            f"offset={fixed_probe_offset_batches}, batches={args.fixed_probe_batches}, "
+            f"available={full_train_batches_per_epoch}")
+    probe_center_steps = fixed_probe_center_steps(
+        steps_per_epoch, cfg.max_steps, args.fixed_probe_train_offset_steps)
     print(f"[nglab] grad_accum={grad_accum} train_chunks={train_ds.total_chunks()} "
-          f"val_chunks={val_ds.total_chunks()}")
+          f"val_chunks={val_ds.total_chunks()} estimated_epoch_steps={steps_per_epoch}")
 
     # model
     model = NanoGPT(cfg).to(device)
@@ -781,42 +915,243 @@ def main():
     # logs
     train_log = open(os.path.join(cfg.out_dir, "train_log.jsonl"), "w")
     table_log = open(os.path.join(cfg.out_dir, "table_norm.jsonl"), "w")
+    online_loss_log = open(os.path.join(cfg.out_dir, "online_loss.jsonl"), "w")
+    online_frequency_log = None
+    fixed_probe_frequency_log = None
+    fixed_gram_frequency_log = None
     freq_bin_log = None
     freq_index_obj = None
+    fixed_gram_probe = None
+    freq_diag_train_iter = None
+    freq_diag_val_iter = None
+    fixed_train_probe = []
+    fixed_val_probe = []
     if args.freq_index and os.path.exists(args.freq_index):
-        from ngram_freq import GlobalFrequencyIndex
+        from ngram_freq import (
+            FixedGramProbe,
+            GlobalFrequencyIndex,
+            build_fixed_gram_manifest,
+            fixed_gram_gap_summary,
+            fixed_gram_overall_loss,
+            fixed_gram_manifest_matches,
+            load_fixed_gram_manifest,
+            save_fixed_gram_manifest,
+        )
         freq_index_obj = GlobalFrequencyIndex.load(args.freq_index)
-        freq_bin_log = open(os.path.join(cfg.out_dir, "freq_bin_loss.jsonl"), "w")
-        print(f"[nglab] freq-bin eval enabled (index: {args.freq_index})")
+        online_frequency_log = open(
+            os.path.join(cfg.out_dir, "online_frequency_gap_contribution.jsonl"), "w")
+        fixed_probe_frequency_log = open(
+            os.path.join(cfg.out_dir, "fixed_probe_frequency_gap_contribution.jsonl"), "w")
+        fixed_gram_frequency_log = open(
+            os.path.join(cfg.out_dir, "fixed_gram_frequency_gap_contribution.jsonl"), "w")
+        fixed_gram_seed = cfg.seed if args.fixed_gram_seed is None else args.fixed_gram_seed
+        manifest_path = os.path.join(cfg.out_dir, "fixed_gram_probe_manifest.json")
+        manifest = None
+        if os.path.exists(manifest_path):
+            candidate_manifest = load_fixed_gram_manifest(manifest_path)
+            if fixed_gram_manifest_matches(
+                    candidate_manifest, cfg.train_shards, cfg.val_shards,
+                    cfg.vocab_size, cfg.sequence_len,
+                    args.fixed_gram_samples_per_bucket, fixed_gram_seed):
+                manifest = candidate_manifest
+                print(f"[nglab] reusing fixed gram manifest: {manifest_path}")
+        if manifest is None:
+            manifest = build_fixed_gram_manifest(
+                cfg.data_dir, cfg.train_shards, cfg.val_shards, freq_index_obj,
+                cfg.vocab_size, cfg.sequence_len,
+                args.fixed_gram_samples_per_bucket, fixed_gram_seed)
+            save_fixed_gram_manifest(manifest, manifest_path)
+            print(f"[nglab] wrote fixed gram manifest: {manifest_path}")
+        fixed_gram_probe = FixedGramProbe(
+            manifest, cfg.data_dir, cfg.sequence_len, device, cfg.device_batch_size)
+
+        # Keep the old contiguous-batch probe and legacy diagnostic on their
+        # own dataset instances so neither can advance the writer iterator.
+        fixed_train_ds = TokenizedShardDataset(
+            cfg.data_dir, cfg.train_shards, cfg.sequence_len,
+            cfg.device_batch_size, cfg.data_seed)
+        fixed_val_ds = TokenizedShardDataset(
+            cfg.data_dir, cfg.val_shards, cfg.sequence_len,
+            cfg.device_batch_size, cfg.data_seed)
+        fixed_train_probe = collect_fixed_probe(
+            fixed_train_ds, device, args.fixed_probe_batches, fixed_probe_offset_batches)
+        fixed_val_probe = collect_fixed_probe(
+            fixed_val_ds, device, args.fixed_probe_batches)
+        if args.legacy_freq_eval:
+            freq_diag_train_ds = TokenizedShardDataset(
+                cfg.data_dir, cfg.train_shards, cfg.sequence_len,
+                cfg.device_batch_size, cfg.data_seed)
+            freq_diag_val_ds = TokenizedShardDataset(
+                cfg.data_dir, cfg.val_shards, cfg.sequence_len,
+                cfg.device_batch_size, cfg.data_seed)
+            freq_diag_train_iter = freq_diag_train_ds.iter_batches(device)
+            freq_diag_val_iter = freq_diag_val_ds.iter_batches(device)
+            freq_bin_log = open(os.path.join(cfg.out_dir, "freq_bin_loss.jsonl"), "w")
+        print(f"[nglab] fixed gram/online frequency eval enabled (index: {args.freq_index})")
+        if args.legacy_freq_eval:
+            print("[nglab] legacy frequency eval enabled with independent diagnostic iterators")
+    else:
+        print("[nglab] online/fixed frequency contribution disabled (no --freq_index)")
+    measurement_meta = {
+        "run_id": args.run_id,
+        "parameter_states": {
+            "online": "pre_optimizer_step",
+            "fixed_probe": "post_optimizer_step",
+            "fixed_gram": "post_optimizer_step",
+        },
+        "online_train": "actual writer microbatches composing this optimizer step",
+        "online_val": "fresh moving validation batches from an independent iterator",
+        "fixed_probe": {
+            "train_batches": args.fixed_probe_batches,
+            "val_batches": args.fixed_probe_batches,
+            "train_offset_batches": fixed_probe_offset_batches,
+            "train_offset_optimizer_steps": args.fixed_probe_train_offset_steps,
+            "selection": "deterministic batches from independent fixed-order iterators",
+        },
+        "fixed_gram_probe": ({
+            "samples_per_bucket": args.fixed_gram_samples_per_bucket,
+            "seed": cfg.seed if args.fixed_gram_seed is None else args.fixed_gram_seed,
+            "selection": "fixed train/val token occurrences sampled independently per train-frequency bucket",
+            "timing": "post_optimizer_step",
+            "manifest": "fixed_gram_probe_manifest.json",
+            "stats": fixed_gram_probe.manifest_stats() if fixed_gram_probe is not None else None,
+        } if freq_index_obj is not None else None),
+        "legacy_freq_eval": bool(args.legacy_freq_eval and freq_index_obj is not None),
+        "sampling": {
+            "base_interval": args.online_frequency_interval,
+            "epoch_window": args.online_frequency_epoch_window,
+            "epoch_dense_interval": args.online_frequency_dense_interval,
+            "probe_window": args.online_frequency_probe_window,
+            "probe_dense_interval": args.online_frequency_probe_dense_interval,
+            "probe_center_steps": probe_center_steps,
+            "estimated_steps_per_epoch": steps_per_epoch,
+        },
+        "geometry": {
+            "device_batch_size": cfg.device_batch_size,
+            "sequence_len": cfg.sequence_len,
+            "grad_accum": grad_accum,
+        },
+    }
+    with open(os.path.join(cfg.out_dir, "frequency_measurement_meta.json"), "w") as f:
+        json.dump(measurement_meta, f, indent=2)
     last_val_loss = float("nan")
     last_train_loss = float("nan")
 
     model.train()
     t0 = time.time()
     for step in range(cfg.max_steps):
+        step_1based = step + 1
+        sample_reason = frequency_sample_reason(
+            step_1based, steps_per_epoch, args.online_frequency_interval,
+            args.online_frequency_epoch_window, args.online_frequency_dense_interval,
+            cfg.max_steps, probe_center_steps,
+            args.online_frequency_probe_window,
+            args.online_frequency_probe_dense_interval)
         # gradient accumulation
         optimizer.zero_grad()
         accum_loss = 0.0
+        online_train_frequency = None
+        online_train_loss_sum = 0.0
+        online_train_token_count = 0
+        if sample_reason is not None and freq_index_obj is not None:
+            from ngram_freq import FreqBinLossAccumulator
+            online_accs = {
+                "bigram": FreqBinLossAccumulator(freq_index_obj, cfg.vocab_size, "bigram"),
+                "trigram": FreqBinLossAccumulator(freq_index_obj, cfg.vocab_size, "trigram"),
+            }
         for _ in range(grad_accum):
             try:
                 inp, tgt = next(train_iter)
             except StopIteration:
                 train_iter = train_ds.iter_batches(device)
                 inp, tgt = next(train_iter)
-            loss = model(inp, targets=tgt) / grad_accum
+            token_loss = model(inp, targets=tgt, reduction="none")
+            loss = token_loss.mean() / grad_accum
             loss.backward()
             accum_loss += loss.item()
+            if sample_reason is not None and freq_index_obj is not None:
+                online_train_loss_sum += float(token_loss.detach().sum().item())
+                online_train_token_count += token_loss.numel()
+                for acc in online_accs.values():
+                    acc.update(inp, token_loss.detach())
         train_loss = accum_loss
-        progress = (step + 1) / cfg.max_steps
+        online_loss_entry = {
+            "step": step_1based,
+            "epoch": train_ds._epoch + 1,
+            "train_writer_loss": train_loss,
+            "elapsed_s": time.time() - t0,
+        }
+        online_loss_log.write(json.dumps(online_loss_entry) + "\n")
+        online_loss_log.flush()
+
+        if sample_reason is not None and freq_index_obj is not None:
+            online_train_frequency = {
+                branch: acc.summary() for branch, acc in online_accs.items()
+            }
+            online_train_loss = online_train_loss_sum / max(1, online_train_token_count)
+            online_val_batches = [
+                next(online_val_iter) for _ in range(args.online_frequency_val_batches)
+            ]
+            online_val_loss, online_val_frequency = frequency_summary_from_batches(
+                model, online_val_batches, freq_index_obj, cfg.vocab_size)
+            online_frequency_entry = {
+                "step": step_1based,
+                "epoch": train_ds._epoch + 1,
+                "reason": sample_reason,
+                "train_writer_loss": online_train_loss,
+                "online_val_loss": online_val_loss,
+                "train_writer": online_train_frequency,
+                "online_val": online_val_frequency,
+                "gap_contribution": contribution_gap(
+                    online_train_frequency, online_val_frequency),
+            }
+            online_frequency_log.write(json.dumps(online_frequency_entry) + "\n")
+            online_frequency_log.flush()
+
+        progress = step_1based / cfg.max_steps
         lr_mult = get_lr_multiplier(progress, cfg.warmdown_ratio)
         optimizer.step(lr_mult=lr_mult)
 
+        if sample_reason is not None and freq_index_obj is not None:
+            fixed_train_loss, fixed_train_frequency = frequency_summary_from_batches(
+                model, fixed_train_probe, freq_index_obj, cfg.vocab_size)
+            fixed_val_loss, fixed_val_frequency = frequency_summary_from_batches(
+                model, fixed_val_probe, freq_index_obj, cfg.vocab_size)
+            fixed_probe_entry = {
+                "step": step_1based,
+                "epoch": train_ds._epoch + 1,
+                "reason": sample_reason,
+                "fixed_train_loss": fixed_train_loss,
+                "fixed_val_loss": fixed_val_loss,
+                "train_probe": fixed_train_frequency,
+                "val_probe": fixed_val_frequency,
+                "gap_contribution": contribution_gap(
+                    fixed_train_frequency, fixed_val_frequency),
+            }
+            fixed_probe_frequency_log.write(json.dumps(fixed_probe_entry) + "\n")
+            fixed_probe_frequency_log.flush()
+
+            fixed_gram_evaluation = fixed_gram_probe.evaluate(model)
+            fixed_gram_entry = {
+                "step": step_1based,
+                "epoch": train_ds._epoch + 1,
+                "reason": sample_reason,
+                "train_loss": fixed_gram_overall_loss(
+                    fixed_gram_evaluation.get("train", {})),
+                "val_loss": fixed_gram_overall_loss(
+                    fixed_gram_evaluation.get("val", {})),
+                "branches": fixed_gram_gap_summary(fixed_gram_evaluation),
+                "unique_chunks": fixed_gram_probe.manifest_stats()["unique_chunks"],
+            }
+            fixed_gram_frequency_log.write(json.dumps(fixed_gram_entry) + "\n")
+            fixed_gram_frequency_log.flush()
+
         # periodic val
-        if (step + 1) % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
+        if step_1based % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
             last_val_loss = evaluate_val(model, val_iter, cfg.val_batches)
             last_train_loss = train_loss
             entry = {
-                "step": step + 1,
+                "step": step_1based,
                 "train_loss": train_loss,
                 "val_loss": last_val_loss,
                 "gap": last_val_loss - train_loss,
@@ -826,20 +1161,19 @@ def main():
             }
             train_log.write(json.dumps(entry) + "\n")
             train_log.flush()
-            print(f"[nglab] step {step+1:4d} | train {train_loss:.4f} | val {last_val_loss:.4f} "
+            print(f"[nglab] step {step_1based:4d} | train {train_loss:.4f} | val {last_val_loss:.4f} "
                   f"| gap {last_val_loss-train_loss:+.4f} | epoch {train_ds._epoch+1} | "
                   f"lr_m {lr_mult:.2f} | {(time.time()-t0):.0f}s")
 
-        # periodic freq-bin eval (train + val)
-        if freq_bin_log is not None and ((step + 1) % args.freq_eval_interval == 0 or step == cfg.max_steps - 1):
-            # train freq-bin (use fresh train batches, not the ones already consumed)
-            train_freq = evaluate_freq_bins(model, train_iter, freq_index_obj,
+        # Optional legacy diagnostic. It uses independent iterators and is
+        # intentionally separate from the fixed gram statistics above.
+        if freq_bin_log is not None and (step_1based % args.freq_eval_interval == 0 or step == cfg.max_steps - 1):
+            train_freq = evaluate_freq_bins(model, freq_diag_train_iter, freq_index_obj,
                                             args.freq_eval_batches, cfg.vocab_size)
-            # val freq-bin
-            val_freq = evaluate_freq_bins(model, val_iter, freq_index_obj,
+            val_freq = evaluate_freq_bins(model, freq_diag_val_iter, freq_index_obj,
                                           args.freq_eval_batches, cfg.vocab_size)
             fb_entry = {
-                "step": step + 1,
+                "step": step_1based,
                 "epoch": train_ds._epoch + 1,
                 "train": train_freq,
                 "val": val_freq,
@@ -848,16 +1182,23 @@ def main():
             freq_bin_log.flush()
 
         # periodic table norm
-        if (step + 1) % cfg.table_norm_interval_steps == 0:
+        if step_1based % cfg.table_norm_interval_steps == 0:
             tn = table_param_rms(model)
-            tn_entry = {"step": step + 1, **tn}
+            tn_entry = {"step": step_1based, **tn}
             table_log.write(json.dumps(tn_entry) + "\n")
             table_log.flush()
 
     train_log.close()
     table_log.close()
+    online_loss_log.close()
     if freq_bin_log is not None:
         freq_bin_log.close()
+    if online_frequency_log is not None:
+        online_frequency_log.close()
+    if fixed_probe_frequency_log is not None:
+        fixed_probe_frequency_log.close()
+    if fixed_gram_frequency_log is not None:
+        fixed_gram_frequency_log.close()
 
     # summary
     summary = {
