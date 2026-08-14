@@ -1,36 +1,30 @@
 """
-Generate synthetic Markovian data based on arXiv:2605.01199v1 Definition 2.1.
+Generate synthetic Markovian data with PER-SEQUENCE stickiness.
 
-Data generation model:
-  - Vocab V = {0, 1, ..., d-1}, where d = vocab_size
-  - Token 0 is the "high-frequency" token (mass π₁)
-  - Tokens 1..d-1 are "low-frequency" tokens with small frequency perturbations
-  - Transition matrix: P = λI + (1-λ)1πᵀ
-    * With probability λ: stay on the same token
-    * With probability 1-λ: jump to a token sampled from stationary distribution π
-  - Each sequence: x_1 ~ Uniform(V), then x_{j+1} ~ P_{x_j} for j=1..s
-  - Input = (x_1, ..., x_s), target = x_{s+1}
+Each sequence k has its own identity = its stickiness λ_k ~ U(λ_low, λ_high):
 
-Key control parameters:
-  - λ (lambda): how predictable the data is. High λ = strong bigram dependency
-  - π₁ (pi_1): probability mass of the high-frequency token
-  - δ (delta): perturbation to break symmetry among low-frequency tokens
+  P_k = λ_k·I + (1-λ_k)·1πᵀ
+    * With probability λ_k: stay on the same token
+    * With probability 1-λ_k: jump to a token sampled from stationary π
 
-Output format:
-  - shard_XXXXX.bin files (uint16), compatible with TokenizedShardDataset
-  - Each chunk = sequence_len + 1 tokens: [x_1..x_s, y]
-  - Additional metadata saved as JSON for experiment tracking
+Unlike the plain generator (single global λ), train sequences are no longer
+exchangeable: the n-gram table can memorize the empirical stickiness of a
+sequence on re-read (epoch boundary), while the backbone must infer λ_k
+from context — mimicking document-specific statistics in natural language.
+
+The per-sequence λ_k values are saved as shard_XXXXX_lambda.npy for analysis.
 
 Usage:
-  python code/generate_markov_data.py \
-      --vocab_size 1024 \
+  python code/generate_markov_data_perseq.py \
+      --vocab_size 8192 \
       --sequence_len 2048 \
-      --lambda_val 0.4 \
+      --lambda_low 0.4 \
+      --lambda_high 0.95 \
       --pi_1 0.3 \
       --num_seqs_per_shard 22000 \
       --num_train_shards 1 \
       --num_val_shards 10 \
-      --out_dir data/markov_v1024_l0.4
+      --out_dir data/markov_perseq
 """
 
 import argparse
@@ -127,16 +121,19 @@ def sample_next_token(current_token, pi, lambda_val):
 # Sequence generation
 # ---------------------------------------------------------------------------
 
-def generate_sequences(num_seqs, sequence_len, pi, lambda_val, seed=None):
+def generate_sequences(num_seqs, sequence_len, pi, lambda_vals, seed=None):
     """
-    Generate sequences according to Definition 2.1:
+    Generate sequences with PER-SEQUENCE stickiness:
       x_1 ~ Uniform(V)
-      x_{j+1} ~ P_{x_j}  for j = 1, ..., sequence_len
+      x_{j+1} ~ P_k(x_j) = lambda_k * I + (1 - lambda_k) * 1*pi^T
 
-    Semi-vectorized: loops over positions (2049 iterations) but vectorized
-    across all sequences (num_seqs in one numpy operation per position).
-    Much faster than per-sequence loops for typical sequence lengths.
+    Each sequence k gets its own lambda_k (the "sequence identity").
+    The backbone cannot infer lambda_k from a single token; the n-gram
+    table can memorize the empirical stickiness per sequence on re-read.
 
+    Semi-vectorized: loops over positions but vectorized across sequences.
+
+    lambda_vals: array of shape (num_seqs,) with one stickiness per sequence.
     Returns an array of shape (num_seqs, sequence_len + 1) of token IDs.
     """
     if seed is not None:
@@ -144,6 +141,9 @@ def generate_sequences(num_seqs, sequence_len, pi, lambda_val, seed=None):
     else:
         rng = np.random.default_rng()
 
+    lambda_vals = np.asarray(lambda_vals, dtype=np.float64).reshape(-1)
+    assert lambda_vals.shape[0] == num_seqs, \
+        f"lambda_vals must have one entry per sequence, got {lambda_vals.shape}"
     d = len(pi)
     total_len = sequence_len + 1
 
@@ -158,10 +158,10 @@ def generate_sequences(num_seqs, sequence_len, pi, lambda_val, seed=None):
     # Pre-generate random thresholds for stay/jump decision at each position
     rand_vals = rng.random(size=(num_seqs, total_len))
 
-    # Fill each position: if random < lambda_val, stay (copy previous);
+    # Fill each position: if random < lambda_k, stay (copy previous);
     # otherwise, jump (use the pre-sampled value from pi)
     for j in range(1, total_len):
-        stay = rand_vals[:, j] < lambda_val
+        stay = rand_vals[:, j] < lambda_vals  # (num_seqs,) per-sequence stickiness
         data[:, j] = np.where(stay, data[:, j-1], jump_values[:, j])
 
     return data.astype(np.uint16)
@@ -187,28 +187,41 @@ def write_shard(data_sequences, filepath):
     return len(flat)
 
 
-def generate_shards(num_seqs_per_shard, num_shards, sequence_len, pi, lambda_val,
+def generate_shards(num_seqs_per_shard, num_shards, sequence_len, pi, lambda_range,
                     out_dir, prefix="shard", seed_offset=0):
     """
-    Generate multiple shard files.
+    Generate multiple shard files, each sequence with its own lambda_k
+    sampled from lambda_range = (lambda_low, lambda_high).
+    The per-sequence lambda values are saved as a .npy file next to each
+    shard for downstream analysis.
     Returns list of (shard_id, num_tokens) tuples.
     """
     os.makedirs(out_dir, exist_ok=True)
     metadata = []
+    lambda_low, lambda_high = lambda_range
 
     for shard_idx in range(num_shards):
         seed = seed_offset + shard_idx * 1000 + 42
-        data = generate_sequences(num_seqs_per_shard, sequence_len, pi, lambda_val, seed=seed)
+        rng = np.random.default_rng(seed)
+        # Per-sequence stickiness — the "sequence identity"
+        lambda_per_seq = rng.uniform(lambda_low, lambda_high, size=num_seqs_per_shard)
+        data = generate_sequences(num_seqs_per_shard, sequence_len, pi, lambda_per_seq, seed=seed)
         filepath = os.path.join(out_dir, f"{prefix}_{shard_idx:05d}.bin")
         n_tokens = write_shard(data, filepath)
+        # Save per-sequence lambda alongside the shard
+        np.save(os.path.join(out_dir, f"{prefix}_{shard_idx:05d}_lambda.npy"), lambda_per_seq)
         metadata.append({
             "shard_id": shard_idx,
             "filepath": filepath,
             "num_tokens": n_tokens,
             "num_seqs": num_seqs_per_shard,
             "seed": seed,
+            "lambda_mean": float(lambda_per_seq.mean()),
+            "lambda_min": float(lambda_per_seq.min()),
+            "lambda_max": float(lambda_per_seq.max()),
         })
-        print(f"  Wrote {filepath}: {n_tokens:,} tokens ({num_seqs_per_shard} sequences)")
+        print(f"  Wrote {filepath}: {n_tokens:,} tokens ({num_seqs_per_shard} sequences, "
+              f"lambda mean={lambda_per_seq.mean():.3f})")
 
     return metadata
 
@@ -219,16 +232,18 @@ def generate_shards(num_seqs_per_shard, num_shards, sequence_len, pi, lambda_val
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate Markovian toy data (arXiv:2605.01199v1 Def 2.1)")
+        description="Generate Markovian toy data with PER-SEQUENCE stickiness "
+                    "(each sequence has its own lambda_k, the 'sequence identity')")
 
     # Data parameters
     parser.add_argument("--vocab_size", type=int, default=8192,
                         help="Vocabulary size d")
     parser.add_argument("--sequence_len", type=int, default=2048,
                         help="Sequence length s (context window)")
-    parser.add_argument("--lambda_val", type=float, default=0.8,
-                        help="λ: stay-on-same-token probability (0-1). "
-                             "Higher = stronger bigram dependency = more memorizable")
+    parser.add_argument("--lambda_low", type=float, default=0.4,
+                        help="λ_low: lower bound of per-sequence stay probability")
+    parser.add_argument("--lambda_high", type=float, default=0.95,
+                        help="λ_high: upper bound of per-sequence stay probability")
     parser.add_argument("--pi_1", type=float, default=0.3,
                         help="π₁: probability mass of the high-frequency token (0-1)")
     parser.add_argument("--delta", type=float, default=None,
@@ -252,20 +267,22 @@ def main():
     args = parser.parse_args()
 
     # Validate
-    assert 0 <= args.lambda_val <= 1, f"lambda_val must be in [0,1], got {args.lambda_val}"
+    assert 0 <= args.lambda_low < args.lambda_high <= 1, \
+        f"need 0 <= lambda_low < lambda_high <= 1, got ({args.lambda_low}, {args.lambda_high})"
     assert 0 < args.pi_1 < 1, f"pi_1 must be in (0,1), got {args.pi_1}"
     assert args.vocab_size >= 2, "vocab_size must be >= 2"
 
     # Build stationary distribution
     pi = build_stationary_distribution(args.vocab_size, args.pi_1, args.delta)
+    lambda_range = (args.lambda_low, args.lambda_high)
 
     # Print summary
     print("=" * 70)
-    print("Markovian Toy Data Generator (arXiv:2605.01199v1 Def 2.1)")
+    print("Markovian Toy Data Generator — per-sequence stickiness")
     print("=" * 70)
     print(f"  Vocab size:      {args.vocab_size}")
     print(f"  Sequence length: {args.sequence_len}")
-    print(f"  λ (stay prob):   {args.lambda_val}")
+    print(f"  λ range:         [{args.lambda_low}, {args.lambda_high}] (per-sequence uniform)")
     print(f"  π₁ (high-freq):  {args.pi_1}")
     print(f"  δ (perturbation):{args.delta if args.delta is not None else 'auto'}")
     print(f"  Train shards:    {args.num_train_shards}")
@@ -280,17 +297,17 @@ def main():
         print(f"    ... (total {args.vocab_size} tokens)")
     print()
     print(f"  Interpretation:")
-    print(f"    - λ={args.lambda_val:.2f}: each token repeats itself with "
-          f"{args.lambda_val*100:.0f}% probability")
+    print(f"    - Each sequence has its own λ_k ~ U({args.lambda_low}, {args.lambda_high}): "
+          f"its identity")
     print(f"    - Token 0 appears {pi[0]*100:.1f}% of the time in equilibrium")
-    print(f"    - Effective bigram dependency strength ∝ λ")
+    print(f"    - Bigram dependency strength varies per sequence ∝ λ_k")
     print()
 
     # Generate train shards
     print("Generating training shards...")
     train_meta = generate_shards(
         args.num_seqs_per_shard, args.num_train_shards,
-        args.sequence_len, pi, args.lambda_val,
+        args.sequence_len, pi, lambda_range,
         os.path.join(args.out_dir, "train"),
         prefix="shard", seed_offset=args.seed)
 
@@ -298,7 +315,7 @@ def main():
     print("Generating validation shards...")
     val_meta = generate_shards(
         args.num_seqs_per_shard, args.num_val_shards,
-        args.sequence_len, pi, args.lambda_val,
+        args.sequence_len, pi, lambda_range,
         os.path.join(args.out_dir, "val"),
         prefix="shard", seed_offset=args.seed + 10000)
 
@@ -307,11 +324,14 @@ def main():
     total_val_tokens = sum(m["num_tokens"] for m in val_meta)
 
     config = {
-        "description": "Markovian toy data (arXiv:2605.01199v1 Def 2.1)",
+        "description": "Markovian toy data with per-sequence stickiness "
+                       "(sequence identity = its own lambda_k)",
         "generation_params": {
             "vocab_size": args.vocab_size,
             "sequence_len": args.sequence_len,
-            "lambda_val": args.lambda_val,
+            "lambda_low": args.lambda_low,
+            "lambda_high": args.lambda_high,
+            "lambda_sampling": "per-sequence uniform",
             "pi_1": args.pi_1,
             "delta": args.delta,
             "num_seqs_per_shard": args.num_seqs_per_shard,
@@ -320,12 +340,12 @@ def main():
             "seed": args.seed,
         },
         "stationary_distribution_first10": pi[:10].tolist(),
-        "transition_matrix": "P = λI + (1-λ)1πᵀ",
+        "transition_matrix": "P_k = λ_k·I + (1-λ_k)·1πᵀ,  λ_k ~ U(lambda_low, lambda_high) per sequence",
         "theoretical_properties": {
             "ergodic": True,
             "irreducible": args.pi_1 < 1.0,
             "mixing_time_fast": True,  # independent resampling mixes in O(1) steps
-            "bigram_dependency_strength": args.lambda_val,
+            "bigram_dependency_strength_range": [args.lambda_low, args.lambda_high],
         },
         "train": {
             "num_shards": args.num_train_shards,
@@ -349,8 +369,8 @@ def main():
     print(f"  Val:   {total_val_tokens:,} tokens across {args.num_val_shards} shards")
     print(f"  Config: {config_path}")
     print()
-    print("To use with train.py:")
-    print(f"  python code/train.py \\")
+    print("To use with train_perseq.py:")
+    print(f"  python code/train_perseq.py \\")
     print(f"    --data_dir {args.out_dir}/train \\")
     print(f"    --train_shards {','.join(str(i) for i in range(args.num_train_shards))} \\")
     print(f"    --val_shards {','.join(str(i) for i in range(args.num_val_shards))} \\")

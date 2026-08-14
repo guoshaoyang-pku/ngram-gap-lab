@@ -50,12 +50,12 @@ import torch.nn.functional as F
 @dataclass
 class Config:
     # model
-    vocab_size: int = 256
+    vocab_size: int = 8192
     n_layer: int = 8
     n_head: int = 6
     n_embd: int = 768
     sequence_len: int = 2048
-    dropout: float = 0.0
+    dropout: float = 0.2
     bias: bool = True
     # n-gram value table (all off by default = pure nanoGPT)
     enable_nanogpt_ngram_ve: bool = True
@@ -94,11 +94,11 @@ def has_ve(layer_idx: int, n_layer: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 1. Model: vanilla nanoGPT + n-gram value table
+# 1. Model: pure MLP + n-gram value table
 # ---------------------------------------------------------------------------
 
-# Hash prime families (decorrelated across layers). First 4 are historical;
-# deeper models deterministically extend via expand_bigram_hash_primes.
+# Hash prime families (decorrelated across layers). These are kept for the
+# n-gram table but the MLP block does not use per-layer hash primes.
 _BASE_BIGRAM_PRIMES = [
     [(2654435761, 2246822519), (1013904223, 6291469)],
     [(374761393, 668265263), (3266489917, 104729)],
@@ -148,137 +148,37 @@ class LayerNorm(nn.Module):
         return F.layer_norm(x, self.weight.shape, self.weight, self.bias, 1e-5)
 
 
-class CausalSelfAttention(nn.Module):
-    """nanoGPT fused-c_attn attention with optional n-gram value injection.
+class PureMLPBlock(nn.Module):
+    """Single deep MLP block: LN → Linear×N → GELU → ... → Linear.
 
-    Injection positions:
-      v     : add gated n-gram value to V before attention  (ResFormer-style)
-      y     : add gated n-gram value to attention output y  (post-attn residual)
-      input : handled in GPT.forward (over-encoding to wte); gates not used here
+    No attention, no residual connections.
     """
 
-    def __init__(self, config: Config, layer_idx: int):
-        super().__init__()
-        assert config.n_embd % config.n_head == 0
-        self.n_head = config.n_head
-        self.n_embd = config.n_embd
-        self.head_dim = config.n_embd // config.n_head
-        self.layer_idx = layer_idx
-        self.ngram_injection_position = config.nanogpt_ngram_injection_position
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
-        self.attn_dropout_p = config.dropout
-        self.resid_dropout = nn.Dropout(config.dropout)
-        self.ve_gate_channels = 32
-        use_ngram = config.enable_nanogpt_ngram_ve
-        use_layer_ve = has_ve(layer_idx, config.n_layer)
-        ve_layers = sorted(i for i in range(config.n_layer) if has_ve(i, config.n_layer))
-        trigram_layers = (
-            {ve_layers[0], ve_layers[-2], ve_layers[-1]}
-            if len(ve_layers) >= 2 else {ve_layers[-1]}
-        )
-        # gates only needed when injection is v or y (input injection has no gate)
-        need_gate = use_ngram and config.nanogpt_ngram_injection_position in {"v", "y"}
-        self.ve_gate = (
-            nn.Linear(self.ve_gate_channels, self.n_head, bias=False)
-            if need_gate and config.enable_unigram_ve and use_layer_ve else None
-        )
-        self.bigram_gate = (
-            nn.Linear(self.ve_gate_channels, self.n_head, bias=False)
-            if need_gate and config.enable_bigram_ve and use_layer_ve else None
-        )
-        self.trigram_gate = (
-            nn.Linear(self.ve_gate_channels, self.n_head, bias=False)
-            if need_gate and config.enable_trigram_ve and layer_idx in trigram_layers else None
-        )
-        self.fourgram_gate = None  # fourgram not supported in minimal version
-
-    def _add_value_residual(self, branch, v_heads, residual, gate, x, ch_start, heads):
-        residual = residual.view(x.size(0), x.size(1), heads, self.head_dim)
-        gate_input = x[..., ch_start: ch_start + self.ve_gate_channels]
-        value_gate = 2 * torch.sigmoid(gate(gate_input)).to(residual.dtype)
-        gated = value_gate.unsqueeze(-1) * residual
-        return v_heads + gated
-
-    def _add_ngram_residuals(self, v_heads, x, ve, bigram_ve, trigram_ve, heads):
-        if ve is not None:
-            v_heads = self._add_value_residual("unigram", v_heads, ve, self.ve_gate, x, 0, heads)
-        if bigram_ve is not None:
-            v_heads = self._add_value_residual(
-                "bigram", v_heads, bigram_ve, self.bigram_gate, x, self.ve_gate_channels, heads)
-        if trigram_ve is not None:
-            v_heads = self._add_value_residual(
-                "trigram", v_heads, trigram_ve, self.trigram_gate, x, 2 * self.ve_gate_channels, heads)
-        return v_heads
-
-    def _compute_ngram_residual_flat(self, x, ve, bigram_ve, trigram_ve, heads):
-        """Post-attention (y) injection: sum gated residuals as (B,T,C)."""
-        r = torch.zeros_like(x)
-        if ve is not None:
-            v = ve.view(x.size(0), x.size(1), heads, self.head_dim)
-            g = 2 * torch.sigmoid(self.ve_gate(x[..., :self.ve_gate_channels])).to(v.dtype)
-            r = r + (g.unsqueeze(-1) * v).view_as(x)
-        if bigram_ve is not None:
-            v = bigram_ve.view(x.size(0), x.size(1), heads, self.head_dim)
-            g = 2 * torch.sigmoid(self.bigram_gate(
-                x[..., self.ve_gate_channels:2 * self.ve_gate_channels])).to(v.dtype)
-            r = r + (g.unsqueeze(-1) * v).view_as(x)
-        if trigram_ve is not None:
-            v = trigram_ve.view(x.size(0), x.size(1), heads, self.head_dim)
-            g = 2 * torch.sigmoid(self.trigram_gate(
-                x[..., 2 * self.ve_gate_channels:3 * self.ve_gate_channels])).to(v.dtype)
-            r = r + (g.unsqueeze(-1) * v).view_as(x)
-        return r
-
-    def forward(self, x, ve=None, bigram_ve=None, trigram_ve=None):
-        B, T, C = x.size()
-        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
-        v_heads = v.view(B, T, self.n_head, self.head_dim)
-        if self.ngram_injection_position == "v":
-            v_heads = self._add_ngram_residuals(v_heads, x, ve, bigram_ve, trigram_ve, self.n_head)
-        v = v_heads.reshape(B, T, C)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
-        y = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=None,
-            dropout_p=self.attn_dropout_p if self.training else 0.0, is_causal=True)
-        y = y.transpose(1, 2).contiguous().view(B, T, C)
-        if self.ngram_injection_position == "y":
-            ngram_res = self._compute_ngram_residual_flat(x, ve, bigram_ve, trigram_ve, self.n_head)
-            y = y + ngram_res
-        y = self.resid_dropout(self.c_proj(y))
-        return y
-
-
-class MLP(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
-        self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
-        self.gelu = nn.GELU()
-        self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        self.ln = LayerNorm(config.n_embd, bias=config.bias)
+        hidden = 1024  # reduced to lower backbone memorization capacity
+        depth = 2      # 768→1024→768
+        layers = []
+        in_dim = config.n_embd
+        for i in range(depth):
+            out_dim = config.n_embd if i == depth - 1 else hidden
+            layers.append(nn.Linear(in_dim, out_dim, bias=config.bias))
+            if i < depth - 1:
+                layers.append(nn.GELU())
+            in_dim = out_dim
+        self.mlp = nn.Sequential(*layers)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
-        return self.dropout(self.c_proj(self.gelu(self.c_fc(x))))
-
-
-class Block(nn.Module):
-    def __init__(self, config: Config, layer_idx: int):
-        super().__init__()
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = CausalSelfAttention(config, layer_idx)
-        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
-        self.mlp = MLP(config)
-
-    def forward(self, x, ve=None, bigram_ve=None, trigram_ve=None):
-        x = x + self.attn(self.ln_1(x), ve=ve, bigram_ve=bigram_ve, trigram_ve=trigram_ve)
-        x = x + self.mlp(self.ln_2(x))
+        x = self.ln(x)
+        x = self.mlp(x)
+        x = self.dropout(x)
         return x
 
 
-class NanoGPT(nn.Module):
-    """vanilla nanoGPT + n-gram value table (bigram/trigram)."""
+class NanoGPTMLP(nn.Module):
+    """Pure MLP backbone + n-gram value table.  No attention, no heads, 1 layer."""
 
     def __init__(self, config: Config):
         super().__init__()
@@ -286,22 +186,20 @@ class NanoGPT(nn.Module):
         self.transformer = nn.ModuleDict({
             "wte": nn.Embedding(config.vocab_size, config.n_embd),
             "drop": nn.Dropout(config.dropout),
-            "h": nn.ModuleList([Block(config, i) for i in range(config.n_layer)]),
         })
         self.transformer["wpe"] = nn.Embedding(config.sequence_len, config.n_embd)
+        self.block = PureMLPBlock(config)
         self.transformer["ln_f"] = LayerNorm(config.n_embd, bias=config.bias)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        # tied embeddings (matches baseline_input setting)
-        self.lm_head.weight = self.transformer.wte.weight
+        self.lm_head.weight = self.transformer.wte.weight  # tied embeddings
 
-        ngram_layers = sorted(i for i in range(config.n_layer) if has_ve(i, config.n_layer))
-        self.value_embeds = nn.ModuleDict({
-            str(i): nn.Embedding(config.vocab_size, config.n_embd)
-            for i in ngram_layers
-            if config.enable_nanogpt_ngram_ve and config.enable_unigram_ve
-        })
+        # n-gram value tables — bigram only
+        ngram_layers = [0]  # only 1 MLP block, ngram tables on it
+        self.value_embeds = nn.ModuleDict({})
         self.bigram_ve_layers = (
-            set(ngram_layers) if config.enable_nanogpt_ngram_ve and config.enable_bigram_ve else set()
+            set(ngram_layers)
+            if config.enable_nanogpt_ngram_ve and config.enable_bigram_ve
+            else set()
         )
         self.bigram_table_size = config.vocab_size * 64
         self.bigram_K = 2
@@ -315,24 +213,12 @@ class NanoGPT(nn.Module):
                 nn.Embedding(self.bigram_table_size, config.n_embd - half_dim),
             ])
             self.bigram_hash_primes_per_layer[li] = _bp[j]
-        self.trigram_ve_layers = (
-            ({ngram_layers[0], ngram_layers[-2], ngram_layers[-1]}
-             if len(ngram_layers) >= 2 else {ngram_layers[-1]})
-            if config.enable_nanogpt_ngram_ve and config.enable_trigram_ve and ngram_layers
-            else set()
-        )
-        self.trigram_table_size = config.vocab_size * 64
-        _tp = _BASE_TRIGRAM_PRIMES[:max(1, len(self.trigram_ve_layers))]
-        while len(_tp) < len(self.trigram_ve_layers):
-            _tp.append(_tp[len(_tp) % len(_BASE_TRIGRAM_PRIMES)])
+
+        # trigram kept for API compatibility but disabled
+        self.trigram_ve_layers = set()
+        self.trigram_table_size = 0
         self.trigram_hash_primes_per_layer = {}
         self.trigram_ves = nn.ModuleDict()
-        for j, li in enumerate(sorted(self.trigram_ve_layers)):
-            self.trigram_ves[str(li)] = nn.ModuleList([
-                nn.Embedding(self.trigram_table_size, half_dim),
-                nn.Embedding(self.trigram_table_size, config.n_embd - half_dim),
-            ])
-            self.trigram_hash_primes_per_layer[li] = _tp[j]
 
     @torch.no_grad()
     def init_weights(self):
@@ -343,34 +229,16 @@ class NanoGPT(nn.Module):
                     torch.nn.init.zeros_(m.bias)
             elif isinstance(m, nn.Embedding):
                 torch.nn.init.normal_(m.weight, mean=0.0, std=0.02)
-        for name, p in self.named_parameters():
-            if name.endswith("c_proj.weight"):
-                torch.nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * self.config.n_layer))
         s = 3 ** 0.5 * self.config.n_embd ** -0.5
-        for ve in self.value_embeds.values():
-            torch.nn.init.uniform_(ve.weight, -s, s)
         for lvs in self.bigram_ves.values():
             for bve in lvs:
                 torch.nn.init.uniform_(bve.weight, -s, s)
-        for lvs in self.trigram_ves.values():
-            for tve in lvs:
-                torch.nn.init.uniform_(tve.weight, -s, s)
-        for blk in self.transformer.h:
-            for gname in ("ve_gate", "bigram_gate", "trigram_gate"):
-                g = getattr(blk.attn, gname, None)
-                if g is not None:
-                    torch.nn.init.zeros_(g.weight)
 
     def _compute_input_ngram_residual(self, idx):
-        """Over-encoding: sum all enabled layers' n-gram values, no gate."""
-        _B, T = idx.size()
+        """Over-encoding: sum n-gram values for all table layers."""
+        T = idx.size(1)
         residual = None
         prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)
-        prev2_idx = torch.cat([idx[:, :2], idx[:, :-2]], dim=1)
-        if self.config.enable_unigram_ve:
-            for li in sorted(self.value_embeds.keys()):
-                ve = self.value_embeds[li](idx)
-                residual = ve if residual is None else residual + ve
         if self.config.enable_bigram_ve:
             for li in sorted(self.bigram_ve_layers):
                 lvs = self.bigram_ves[str(li)]
@@ -378,16 +246,6 @@ class NanoGPT(nn.Module):
                 idxs = [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size for p1, p2 in primes]
                 bgve = torch.cat([lvs[k](idxs[k]) for k in range(self.bigram_K)], dim=-1)
                 residual = bgve if residual is None else residual + bgve
-        if self.config.enable_trigram_ve:
-            for li in sorted(self.trigram_ve_layers):
-                lp = self.trigram_hash_primes_per_layer[li]
-                ti = (
-                    ((prev2_idx * lp[0]) ^ (prev_idx * lp[1]) ^ (idx * lp[2])) % self.trigram_table_size,
-                    ((prev2_idx * lp[3]) ^ (prev_idx * lp[4]) ^ (idx * lp[5])) % self.trigram_table_size,
-                )
-                lvs = self.trigram_ves[str(li)]
-                tgve = torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
-                residual = tgve if residual is None else residual + tgve
         if residual is None:
             residual = torch.zeros(idx.size(0), T, self.config.n_embd,
                                    device=idx.device, dtype=self.transformer.wte.weight.dtype)
@@ -401,37 +259,7 @@ class NanoGPT(nn.Module):
         if self.config.nanogpt_ngram_injection_position == "input":
             x = x + self._compute_input_ngram_residual(idx)
         x = self.transformer.drop(x)
-        prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)
-        prev2_idx = torch.cat([idx[:, :2], idx[:, :-2]], dim=1)
-        bigram_indices = {}
-        if self.config.enable_bigram_ve:
-            for li in self.bigram_ve_layers:
-                bp = self.bigram_hash_primes_per_layer[li]
-                bigram_indices[li] = [
-                    ((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size for p1, p2 in bp
-                ]
-        trigram_indices = {}
-        if self.config.enable_trigram_ve:
-            for li in self.trigram_ve_layers:
-                lp = self.trigram_hash_primes_per_layer[li]
-                trigram_indices[li] = (
-                    ((prev2_idx * lp[0]) ^ (prev_idx * lp[1]) ^ (idx * lp[2])) % self.trigram_table_size,
-                    ((prev2_idx * lp[3]) ^ (prev_idx * lp[4]) ^ (idx * lp[5])) % self.trigram_table_size,
-                )
-        for i, block in enumerate(self.transformer.h):
-            ve = (self.value_embeds[str(i)](idx)
-                  if self.config.enable_unigram_ve and str(i) in self.value_embeds else None)
-            bgve = None
-            if self.config.enable_bigram_ve and i in self.bigram_ve_layers:
-                lvs = self.bigram_ves[str(i)]
-                bi = bigram_indices[i]
-                bgve = torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1)
-            tgve = None
-            if self.config.enable_trigram_ve and i in self.trigram_ve_layers:
-                ti = trigram_indices[i]
-                lvs = self.trigram_ves[str(i)]
-                tgve = torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
-            x = block(x, ve=ve, bigram_ve=bgve, trigram_ve=tgve)
+        x = self.block(x)                               # ← single MLP block, no attn, no residual
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
         if targets is not None:
@@ -440,8 +268,6 @@ class NanoGPT(nn.Module):
                 targets.view(-1), ignore_index=-1, reduction="mean")
             return loss
         return logits.float()
-
-
 # ---------------------------------------------------------------------------
 # 2. Optimizer: AdamW (backbone) + RMSProp (n-gram table), mixed grouping
 # ---------------------------------------------------------------------------
@@ -632,7 +458,7 @@ class TokenizedShardDataset:
 # ---------------------------------------------------------------------------
 
 
-def table_param_rms(model: NanoGPT) -> dict:
+def table_param_rms(model: NanoGPTMLP) -> dict:
     """Compute RMS of n-gram table params (bigram/trigram layer_1 table_0)."""
     out = {}
     for li in sorted(model.bigram_ve_layers):
@@ -658,7 +484,7 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
-def evaluate_val(model: NanoGPT, val_loader, val_batches: int) -> float:
+def evaluate_val(model: NanoGPTMLP, val_loader, val_batches: int) -> float:
     model.eval()
     losses = []
     with torch.no_grad():
@@ -671,7 +497,7 @@ def evaluate_val(model: NanoGPT, val_loader, val_batches: int) -> float:
     return float(np.mean(losses)) if losses else float("nan")
 
 
-def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
+def evaluate_freq_bins(model: NanoGPTMLP, loader, freq_index, n_batches: int,
                        vocab_size: int) -> dict:
     """Run per-frequency-bin loss accumulation on n_batches from loader.
 
@@ -697,16 +523,16 @@ def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_id", default="doc_bigram")
+    parser.add_argument("--run_id", default="run")
     parser.add_argument("--injection_position", default="input",
                         choices=["v", "y", "input"])
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--data_dir", default=os.environ.get("NGLAB_DATA_DIR", "data/markov_doc/all"))
+    parser.add_argument("--data_dir", default=os.environ.get("NGLAB_DATA_DIR", ""))
     parser.add_argument("--out_dir", default=os.environ.get("NGLAB_OUT_DIR", "data/runs"))
-    parser.add_argument("--train_shards", default=os.environ.get("NGLAB_TRAIN_SHARDS", "0"),
+    parser.add_argument("--train_shards", default=os.environ.get("NGLAB_TRAIN_SHARDS", "1"),
                         help="comma-separated shard ids for train")
-    parser.add_argument("--val_shards", default=os.environ.get("NGLAB_VAL_SHARDS", "1,2,3,4,5,6,7,8,9,10"),
+    parser.add_argument("--val_shards", default=os.environ.get("NGLAB_VAL_SHARDS", "2,3,4,5,6,7,8,9,10,6542"),
                         help="comma-separated shard ids for val")
     parser.add_argument("--device_batch_size", type=int, default=72)
     parser.add_argument("--total_batch_size", type=int, default=147456)
@@ -720,9 +546,9 @@ def main():
     parser.add_argument("--n_layer", type=int, default=8)
     parser.add_argument("--n_head", type=int, default=6)
     parser.add_argument("--n_embd", type=int, default=768)
-    parser.add_argument("--vocab_size", type=int, default=256)
+    parser.add_argument("--vocab_size", type=int, default=8192)
     parser.add_argument("--sequence_len", type=int, default=2048)
-    parser.add_argument("--freq_index", default="data/freq_doc.npz",
+    parser.add_argument("--freq_index", default="",
                         help="path to freq_index.npz; if set, enables freq-bin eval")
     parser.add_argument("--freq_eval_interval", type=int, default=50)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
@@ -769,7 +595,7 @@ def main():
           f"val_chunks={val_ds.total_chunks()}")
 
     # model
-    model = NanoGPT(cfg).to(device)
+    model = NanoGPTMLP(cfg).to(device)
     model.init_weights()
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[nglab] model params: {n_params/1e6:.1f}M")

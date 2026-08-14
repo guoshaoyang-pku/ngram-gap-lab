@@ -46,9 +46,9 @@ vocab_size = 8192
 
 用数学符号写就是：
 
-\[
+$$
 x_t^{(0)} = E_{\rm token}(w_t) + E_{\rm position}(t) + E_{\rm bigram}(w_{t-1},w_t).
-\]
+$$
 
 这里：
 
@@ -628,9 +628,9 @@ s = 3 ** 0.5 * self.config.n_embd ** -0.5
 
 `**` 表示乘方。这个公式等价于：
 
-\[
+$$
 s=\sqrt{3}/\sqrt{N}.
-\]
+$$
 
 当前 `N=768`，所以 `s=0.0625`。
 
@@ -1033,9 +1033,9 @@ residual = bgve if residual is None else residual + bgve
 
 对于任意 bigram `(a,b)`，最终向量可以写成：
 
-\[
+$$
 E_{\rm bigram}(a,b)=e_1(a,b)+e_3(a,b)+e_5(a,b)+e_7(a,b).
-\]
+$$
 
 ### 第 381-390 行：trigram 分支
 
@@ -1431,9 +1431,9 @@ def _rmsprop_step(self, name, p, lr_t):
 
 可以粗略理解为：
 
-\[
+$$
 表格新值 = 表格旧值 - 学习率\times归一化后的梯度.
-\]
+$$
 
 第 527 行明确写着：
 

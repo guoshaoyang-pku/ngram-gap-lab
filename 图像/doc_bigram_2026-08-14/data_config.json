@@ -1,0 +1,105 @@
+{
+  "description": "Markov background (\u03bbI + (1-\u03bb)1\u03c0\u1d40) plus a SHARED deterministic pair map g(a,b) with tunable fraction",
+  "generation_params": {
+    "vocab_size": 256,
+    "sequence_len": 2048,
+    "lambda_val": 0.8,
+    "pi_1": 0.3,
+    "content_prob": 0.1,
+    "delta": null,
+    "num_seqs_per_shard": 22000,
+    "num_train_shards": 1,
+    "num_val_shards": 10,
+    "seed": 42
+  },
+  "transition_rule": "x_{t+1} = g(x_{t-1}, x_t) w.p. content_prob; otherwise stay w.p. \u03bb or jump to \u03c0",
+  "train": {
+    "num_shards": 1,
+    "total_tokens": 45078000,
+    "per_shard": [
+      {
+        "shard_id": 0,
+        "filepath": "data/markov_doc/train/shard_00000.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 84
+      }
+    ]
+  },
+  "val": {
+    "num_shards": 10,
+    "total_tokens": 450780000,
+    "per_shard": [
+      {
+        "shard_id": 0,
+        "filepath": "data/markov_doc/val/shard_00000.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 10084
+      },
+      {
+        "shard_id": 1,
+        "filepath": "data/markov_doc/val/shard_00001.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 11084
+      },
+      {
+        "shard_id": 2,
+        "filepath": "data/markov_doc/val/shard_00002.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 12084
+      },
+      {
+        "shard_id": 3,
+        "filepath": "data/markov_doc/val/shard_00003.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 13084
+      },
+      {
+        "shard_id": 4,
+        "filepath": "data/markov_doc/val/shard_00004.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 14084
+      },
+      {
+        "shard_id": 5,
+        "filepath": "data/markov_doc/val/shard_00005.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 15084
+      },
+      {
+        "shard_id": 6,
+        "filepath": "data/markov_doc/val/shard_00006.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 16084
+      },
+      {
+        "shard_id": 7,
+        "filepath": "data/markov_doc/val/shard_00007.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 17084
+      },
+      {
+        "shard_id": 8,
+        "filepath": "data/markov_doc/val/shard_00008.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 18084
+      },
+      {
+        "shard_id": 9,
+        "filepath": "data/markov_doc/val/shard_00009.bin",
+        "num_tokens": 45078000,
+        "num_seqs": 22000,
+        "seed": 19084
+      }
+    ]
+  }
+}
