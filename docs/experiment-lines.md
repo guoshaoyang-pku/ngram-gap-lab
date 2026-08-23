@@ -7,22 +7,25 @@
 
 ## ⚠️ 权威数据源
 
-| | |
-|---|---|
-| **权威数据** | `data/runs_fixed/`，run_id 带 **`_fixed`** 后缀 |
-| 过时数据 | `data/runs/`（以及 `runs_fixed/` 里**不带** `_fixed` 后缀的对照副本） |
+**`data/runs_fixed/` 里带 `_fixed` 后缀的 run 是唯一权威数据。**
 
-原因：`code/train.py` 曾有一个 freq-bin 诊断复用训练迭代器的 bug —— 每次 freq eval 额外
-吃掉 5 个 train batch，这些 batch 永不参与优化，且 epoch 计数虚高。**所有** launcher 都传了
-`--freq_index`，所以**全部历史 run 受影响**。详见 `notes/method/freq-bin-train-iter-bug.md`。
+`data/runs/`（118 MB，64 个 run）与 `runs_fixed/` 里不带后缀的陈旧副本
+**已于 2026-08-23 彻底删除**——按仓库原则，确认是 bug 污染的内容不归档、直接清除。
+同时删除了由这些数据生成的全部图（`docs/_archive/figs_history/`，6 MB）。
 
-同一次修复还带出第二个 bug：`_table_rmsprop_step` 里 `b2` 错取 `self.ngram_beta2` 而非
-`self.table_betas[1]`，导致**所有显式传 `--table_betas` 的 rmsprop arm，旧 run 实际都跑的 b2=0.999**，
-`--table_betas` 被静默忽略。
+### 两个 bug（代码已修复）
 
-修正幅度不是噪声级别：
+| bug | 症状 | 修复 |
+|---|---|---|
+| freq-bin 诊断复用训练迭代器 | 每次 freq eval 白吃 5 个 train batch，这些 batch 永不参与优化，且 epoch 计数虚高。**所有** launcher 都传了 `--freq_index`，故**全部历史 run 受影响** | `code/train.py` 已改用独立的 `freq_train_ds` 迭代器 |
+| `table_betas[1]` 被静默覆盖 | `_table_rmsprop_step` 里 `b2` 错取 `self.ngram_beta2`，导致**所有显式传 `--table_betas` 的 rmsprop run 实际都跑 b2=0.999**，`--table_betas` 完全失效 | `code/train.py:537` 已改为 `b2 = self.table_betas[1]` |
 
-| run | 旧 gap | `_fixed` gap | 变化 |
+详见 `notes/method/freq-bin-train-iter-bug.md`。
+修复后的验证证据保留在 `data/runs_fixed/smoke_fixed_verify/`（400 步 smoke）。
+
+### 修正幅度不是噪声
+
+| run | pre-fix | `_fixed` | 变化 |
 |---|---:|---:|---|
 | `nglab1x_v10_input` | 1.931 | **1.867** | −3% |
 | `nglab1x_v10_y` | 5.049 | 5.804 | +15% |
@@ -33,10 +36,8 @@
 | `nglab2x_opt_rmsprop_2x_b2_099` | 0.643 | **1.995** | **+210%** |
 | `nglab1x_opt_sgd_09` | −0.002 | +0.073 | 符号翻转 |
 
-**当前状态**：所有 14 个作图脚本已指向 `runs_fixed` + `_fixed`；
-但 `experiment-log.md` 全文数值**仍是 pre-fix 的**，两者互相矛盾，回填是待办第一项。
-
----
+⚠️ **`experiment-log.md` 全文数值仍是 pre-fix 的**，与本表矛盾。
+回填是 `docs/notes/plans/plan-3-fix-and-backfill.md` 的 T1 任务。
 
 ## 主线（nanoGPT）
 
@@ -55,15 +56,15 @@
 
 ## Toy 线
 
-完整说明见 **`../code/toy/README.md`**。
+完整说明见 **`../tasks/README.md`**。
 
 | # | 线名 | 脚本目录 | 结果目录 |
 |---|---|---|---|
-| L1 | Lookup-Table 记忆 × Replay | `code/toy/l1_lookup_replay/` | `data/toy_results/l1_lookup_replay/` |
-| L2 | Markov 链精确 gap 闭式解 | `code/toy/l2_markov_exact/` | `data/toy_results/l2_markov_exact/` |
-| L3 | 单 context 采样律 gap(r) | `code/toy/l3_sampling_law/` | 直接出图 |
-| L4 | 幂律合成数据 × 真 harness | `code/toy/l4_synth_powerlaw/` | 360-2 远端 + 本地汇总 JSON |
-| L5 | 优化器伪影（RMSProp v 锯齿 / 表容量） | `code/toy/l5_optimizer_artifact/` | `data/toy_results/l5_optimizer_artifact/` |
+| L1 | Lookup-Table 记忆 × Replay | `tasks/l1_lookup_replay/` | `tasks/l1_lookup_replay/results/` |
+| L2 | Markov 链精确 gap 闭式解 | `tasks/l2_markov_exact/` | `tasks/l2_markov_exact/results/` |
+| L3 | 单 context 采样律 gap(r) | `tasks/l3_sampling_law/` | 直接出图 |
+| L4 | 幂律合成数据 × 真 harness | `tasks/l4_synth_powerlaw/` | 360-2 远端 + 本地汇总 JSON |
+| L5 | 优化器伪影（RMSProp v 锯齿 / 表容量） | `tasks/l5_optimizer_artifact/` | `tasks/l5_optimizer_artifact/results/` |
 
 另有两条**跑在真 harness 上的 toy 线**（图在 `figs/toy/`，脚本在 OPHIS toy 工作区，未迁）：
 
@@ -74,22 +75,29 @@
 
 ## 独立包
 
-**`ngram5_freq_gap/`** —— order-5 / trigram controlled 实验的**独立训练包**（vendored）。
-按 `alpha`（低频上采样系数）组织，自带 `trainer.py` / `data_gen.py` / `lib.py` 与 5 个 launcher。
-它与主线的「注入点 / table 优化器 / epoch 长度」三个维度**正交**，
-且 `experiment-log.md` 全文未登记它、`data/runs*` 里无对应 run。
+**`ngram5_freq_gap/`** —— **第四个实验维度：受控数据干预**（固定极简 setting，只动数据侧）。
+唯一自变量 `alpha`（低频上采样强度），检验 `gap(r) ≈ (K_eff−1)/r`。
+它与主线的「注入点 / table 优化器 / epoch 长度」三个维度**正交**，不是竞争实现。
+定位、极简 setting 逐项核对、以及 P0/P1 阻塞项见 **`../ngram5_freq_gap/README.md`**。
+
+⚠️ **口径隔离**：该包的 train probe 是「训练前抓取、全程不变的 2 个 batch」，
+主线是「滚动的独立诊断迭代器」。两者各自自洽但**数值不可互相引用**。
 
 ---
 
 ## 已知待办
 
-1. **回填 `experiment-log.md`**：用 `_fixed` 数据替换全部 gap 数值，旧值保留为 `(pre-fix: X)`。
-2. **重写 §9c / §9d 的 β₂ 结论**：原结论「β₂ 影响 ≤ ±0.4，远小于 LR 效应」建立在
-   `--table_betas` 被静默忽略的 run 上，必须用 `_fixed` 数据重新判定。
-3. **修 `experiment-log.md` 编号**：§10 出现两次（「基础统计归档」与「shard 扫描」是两个不同实验）；
-   §5 缺失；§10 内约 90 行逐字重复。
-4. **补 M6 缺口**或显式限定结论覆盖范围。
-5. **合并 `gen_all_figures_v10.py` 进 `gen_all_figures.py`**：后者是前者功能超集
-   （27 vs 22 函数，多出幂律拟合 / 曲线去噪 / step-slice），加 `--out-dir` 即可，省 43K 重复代码。
-6. **抽 `table_opt_common.py`**：三个 `analyze_table_opt*.py` 约 40% 的行重复（三个入口保留，问题确实不同）。
-7. **统一 `RUNS_DIR` 为环境变量**：现在 14 个脚本各自硬编码，下次再出 bug 又要改 14 处。
+完整的可执行方案见 **`notes/plans/plan-3-fix-and-backfill.md`**（面向 agent 阵列，含验收标准）。
+摘要：
+
+| # | 任务 | 优先级 |
+|---|---|---|
+| T1 | 回填 `experiment-log.md`：pre-fix 数值**直接覆盖**为 `_fixed`，不保留旧值 | P0 |
+| T2 | 重判 β₂ 结论（§9c/§9d 原结论建立在 `--table_betas` 失效的 run 上） | P0 |
+| T3 | 用 `_fixed` 数据重生成全部图 | P0 |
+| T4 | 修 `experiment-log.md` 结构（§10 重复、§5 缺失、90 行逐字重复） | P1 |
+| T5 | 修 `ngram5_freq_gap/model.py` 的死 fallback → 指向 `code/train.py` | P1 |
+| T6 | 补 M6 缺口（4x/5x/6x/8x）或显式限定结论覆盖范围 | P1 |
+| T7 | 固定 train 采样集合的 loss 曲线（测 ρ） | P2 |
+| T8 | 长时程 no-ngram 对照（backbone 单独会不会 overfit） | P2 |
+| T9 | 工程整理：`RUNS_DIR` 环境变量化、抽 `table_opt_common.py` | P3 |

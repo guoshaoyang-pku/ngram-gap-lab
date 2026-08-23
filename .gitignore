@@ -21,6 +21,8 @@ Thumbs.db
 # Training outputs (already covered by data/ but just in case)
 runs/
 *.log
+# ...but keep task run logs, they are small and part of the evidence
+!tasks/**/*.log
 *.bin
 *.pt
 *.ckpt

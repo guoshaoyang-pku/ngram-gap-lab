@@ -12,7 +12,10 @@
 > - 文献与故事线：`plan-2-literature-story.md`、`../literature/`
 > - 断言台账：`../claims-ledger.md`
 > - **权威报告**：blog `ngram-gap-mechanism-guide/index.html`（9 章极简主线）
-> - ⛔ 已废弃报告：OPHIS `docs/ngram-gap-mechanism-guide.html`（chapter 0–19 全量版）
+> - ⛔ 已废弃报告：OPHIS `docs/report/versions/guide-full-chapter0-19.html`（chapter 0–19 全量版）
+> - ⚠️ 断链（图）：文中引用的 `docs/figs/fig_p12_*`、`t5*`、`fig14_7_*`、`docs/interactive/*`
+>   全部是 current-shell 时代的图，**未随迁移带入，且其数据源已按「bug 内容彻底删除」原则清除**。
+>   这些图不会恢复；对应问题的重跑队列见 `plan-3-fix-and-backfill.md`。
 > - ⚠️ 断链：原引用的 `../ngram_gap_theories.md`、`../ngram_gap_ob-th.md`、`../article_plan.md`、
 >   `../architecture_gap_experiment_matrix.md`、`../current_vs_nanogpt_bottomup_diff_plan.md`
 >   位于 OPHIS 父目录（`OPHIS/`），未随本次迁移带入。需要时去旧仓库查阅。
@@ -110,7 +113,7 @@
 - P4：matched probe 与 evaluation artifact 控制（train/val probe 对齐）
 - P5：必要机制消融（injection 关闭、high-order n-gram 关闭、unigram 关闭等）
 - P6：order specificity、collision 与 hash artifact（table-size/hash-salt sweep、collision-free dictionary、overlap 直方图）
-  - ✅ 2026-08-11：table-size sweep（t5_low, M=1/4/8/16/64/256）已完成并验证——**碰撞区（M<16）内 gap 随表大小涨（低频涨落 pooling 稀释），无碰撞点 M=16 后饱和，参数量再多也无用**。详见 `docs/table-size-sweep-results-20260811.md`。剩余：hash-salt sweep、collision-free dictionary、overlap 直方图
+  - ✅ 2026-08-11：table-size sweep（t5_low, M=1/4/8/16/64/256）已完成并验证——**碰撞区（M<16）内 gap 随表大小涨（低频涨落 pooling 稀释），无碰撞点 M=16 后饱和，参数量再多也无用**。详见 `docs/_archive/docs/table-size-sweep-results-20260811.md`。剩余：hash-salt sweep、collision-free dictionary、overlap 直方图
 - P7：replay schedule、phase diagram 与 mitigation（old-only/new-only replay、ratio sweep、row clipping、gate regularization、table freeze schedule）
 
 ### 3.4 干预实验（是否可消除 gap）
@@ -142,7 +145,7 @@
 - [x] 合成 toy 数据集（高频+低频 n-gram、可控 4-gram 转移矩阵）→ 浮现 forking，细粒度统计频率↔fork 关系（2026-08-02 完成，见 `docs/toy-dataset-results.md` 与 `plans/plan-1-toy-dataset-design.md` 实现状态）：
   - 15/15 runs 复现末 epoch gap（6.5–8.7 nats）；gap(r) 单调（Spearman ≤ −0.9）；r1/r5120 gap 比 ≥63×；novel 解释 val 翘起 96–100%
   - 边界条件：reshuffle（保持 per-context 频率不变）不减少 gap——提示驱动因素是 replay 次数而非位置；字面 Pearson(gap,log r) 仅 n2 达标，幂律形状用 Spearman/log-log ρ 更合适（3 项判据待用户裁定）
-- [x] row reset/rollback、freeze table/reader 的因果验证（P1/P2 主线）— 2026-08-02 第一波完成，见 `docs/p12-causal-results.md`：
+- [x] row reset/rollback、freeze table/reader 的因果验证（P1/P2 主线）— 2026-08-02 第一波完成，见 `docs/_archive/docs/p12-causal-results.md`：
   - e2 边界全行回滚 → final gap 0.121（vs 控制 1.096，−89%）；readout mask → 0.116（−89%）
   - freeze table@e1 → 0.559（−49%）；freeze reader/backbone@e1 → 0.507（−54%）；freeze gate → 0.865（−21%）
   - 图表 `docs/figs/fig_p12_gap_curves.svg` + `docs/interactive/fig_p12_causal.html`；run_exp.sh 新增 case（集群）
@@ -180,7 +183,7 @@
 
 ## 5. 可视化清单与状态（用户逐项检查）
 
-### 5.1 报告章节（`docs/ngram-gap-mechanism-guide.html`）
+### 5.1 报告章节（`docs/report/versions/guide-full-chapter0-19.html`）
 | 章 | 内容 | 状态 |
 |---|---|---|
 | §1 | n-gram table / hash / gate / shell / optimizer grouping 术语 | ✅ 保留 |

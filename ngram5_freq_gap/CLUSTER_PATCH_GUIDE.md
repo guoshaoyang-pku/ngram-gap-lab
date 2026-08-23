@@ -1,5 +1,11 @@
 # Cluster train.py patch guide (S5)
 
+> ⚠️ **[OUTDATED]** 本文档描述如何 patch 集群 `train.py`，其中引用的行号
+> （"around line 3778 in the 7-30 snapshot"）**必然已失效**。而且文档自己的 Option A
+> 已说明不需要 patch。保留仅作历史记录，**不要照此操作**。
+> 当前定位与运行方式见同目录 `README.md`。
+
+
 The 5-gram frequency-gap experiment needs **3 small changes** to the cluster's
 `/data3/guoshaoyang/ngram-gap-exp/train.py` so the existing n-gram injection
 pipeline can (a) load the 5-gram block dataset and (b) decompose the gap by

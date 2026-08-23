@@ -1,9 +1,9 @@
 # Plan 2 · 文献调研与故事线
 
 > 配套文件（细节索引）：
-> - 调研综述：`docs/ngram-memory-literature-review.md`（方案空间：防碰撞 / SCONE / 频率筛选 / TN-gram）
-> - 批判框架：`docs/ngram-literature-critique.md`（Over-Encoding / Engram / LongCat / BLT / N-Grammer 的低频+collision 风险）
-> - 架构对照：`docs/scone-vs-engram-optimization.md`、`docs/scone-engram-architecture-pseudocode.md`
+> - 调研综述：`docs/notes/literature/ngram-memory-literature-review.md`（方案空间：防碰撞 / SCONE / 频率筛选 / TN-gram）
+> - 批判框架：`docs/notes/literature/ngram-literature-critique.md`（Over-Encoding / Engram / LongCat / BLT / N-Grammer 的低频+collision 风险）
+> - 架构对照：`docs/notes/literature/scone-vs-engram-optimization.md`、`docs/notes/literature/scone-engram-architecture-pseudocode.md`
 > - 文章计划（vbird）：`../article_plan.md` §7 相关工作 + §8 新颖性
 
 ## 0. 目标
@@ -37,7 +37,7 @@
 ### 2.3 方法对照表（正式版 · 2026-08-02 原文复核）
 
 > 盘点协议：对每个方法回答四个问题——① 表/记忆结构（精确 / hash / 外部检索 / 低秩）；② 是否报告 train/val 分离 loss；③ 是否按频率分桶分析过 loss/gap；④ 对低频 n-gram 的明确处理。
-> 核实方式：2026-08-02 对 9 篇论文的 arXiv HTML 原文逐篇检索（train/val loss、frequency、Zipf、bucket、long-tail 等关键词），标注 ✅ 确认 / ⚠️ 部分或待核实 / ❌ 未发现。引用元数据（编号/作者/年份）已全部经 arXiv API 复核（见 `docs/literature/references.bib` 与 §6）。
+> 核实方式：2026-08-02 对 9 篇论文的 arXiv HTML 原文逐篇检索（train/val loss、frequency、Zipf、bucket、long-tail 等关键词），标注 ✅ 确认 / ⚠️ 部分或待核实 / ❌ 未发现。引用元数据（编号/作者/年份）已全部经 arXiv API 复核（见 `docs/notes/literature/references.bib` 与 §6）。
 
 | 方法 | ① 表/记忆结构 | ② train/val 分离 loss | ③ 频率分桶 loss/gap 分析 | ④ 低频 n-gram 明确处理 | 我们可批判的点（详见 critique） |
 |---|---|---|---|---|---|
@@ -60,7 +60,7 @@
 
 ### 2.4 三份调研笔记整合（2026-08-02）
 
-原始笔记：`docs/literature/xgram_notes.md`、`docs/literature/scone_notes.md`、`docs/literature/posttraining_freeze_notes.md`（subagent 产出，引用已复核，见 §6 bibtex）。
+原始笔记：`docs/notes/literature/xgram_notes.md`、`docs/notes/literature/scone_notes.md`、`docs/notes/literature/posttraining_freeze_notes.md`（subagent 产出，引用已复核，见 §6 bibtex）。
 
 #### 2.4.1 X-gram：行利用率指标如何对照我们的 gap 分析
 
@@ -113,7 +113,7 @@
 - 现象层：epoch 边界 train cliff + val 翘起；norm/gate 时间对齐。
 - 机制层：writer-local self-kernel + historical row state（公式链见 plan-1 §2.1）。
 - 批判层：用频率条件化 gap 分析揭示「同平均 val loss 背后的长尾记忆化 vs 碰撞干扰」。
-- 协议层：逐 step gap 曲线存在锯齿伪影——主因是 val 重评估间隔（`VAL_LOSS_INTERVAL_STEPS`：旧 50 步 / v10 起 10 步，窗口内 gap 爬升、评估点重置；2026-08-08 在 v10 toy 日志复核：窗口上升均值 0.19）；次因是 epoch 边界真周期（toy ~80 步，自相关 r≈0.56）；「基准值上移」才是结构性 gap。论文图表统一用 val 评估对齐点，并标注 epoch 边界（`docs/loss-curve-sawtooth-audit.md`）。
+- 协议层：逐 step gap 曲线存在锯齿伪影——主因是 val 重评估间隔（`VAL_LOSS_INTERVAL_STEPS`：旧 50 步 / v10 起 10 步，窗口内 gap 爬升、评估点重置；2026-08-08 在 v10 toy 日志复核：窗口上升均值 0.19）；次因是 epoch 边界真周期（toy ~80 步，自相关 r≈0.56）；「基准值上移」才是结构性 gap。论文图表统一用 val 评估对齐点，并标注 epoch 边界（`docs/notes/method/loss-curve-sawtooth-audit.md`）。
 - 启示层：训练/后训练中 over-encoding 组件应被冻结（SFT/RL 多 epoch 重复训练会导致 overfit）。
 
 ### 3.3 与 vbird 文章计划的分工
@@ -149,8 +149,8 @@
 ## 6. 产出物清单
 
 - [x] 方法对照表正式版（§2.3，2026-08-02 原文复核；可直接转论文 Table）
-- [x] Related Work 段落（vbird plan §7 合并本调研）→ `docs/literature/related-work-and-novelty.md`
-- [x] 新颖性声明（vbird plan §8）→ `docs/literature/related-work-and-novelty.md`
-- [x] 引用清单 bibtex（arXiv 编号/作者/年份已逐一复核）→ `docs/literature/references.bib`
+- [x] Related Work 段落（vbird plan §7 合并本调研）→ `docs/notes/literature/related-work-and-novelty.md`
+- [x] 新颖性声明（vbird plan §8）→ `docs/notes/literature/related-work-and-novelty.md`
+- [x] 引用清单 bibtex（arXiv 编号/作者/年份已逐一复核）→ `docs/notes/literature/references.bib`
 - [x] 唯一成果汇报 HTML（docs 内）→ `docs/plan2-literature-story-report.html`（2026-08-08 刷新：证据故事线已闭环，锯齿调查含 v10 复核；论文 Introduction/Background 仍 pending）
 - [ ] 论文结构草案中的 Introduction/Background 素材（下一步；可基于 related-work 文档提炼）

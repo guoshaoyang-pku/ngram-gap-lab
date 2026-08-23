@@ -160,32 +160,40 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 ## 3. 仓库结构
 
-设计原则：**`docs/` 只保留 5 个子目录**；图与 toy 代码/数据一律**按实验线编号分目录**，
-`code/toy/lN_*/` 与 `data/toy_results/lN_*/` 一一对应。
+设计原则：
+- **`docs/` 只保留 5 个子目录**；图按实验线分目录。
+- **独立的敏捷验证任务放 `tasks/`**，每个任务目录**自包含**（脚本 + `results/` + 输入 fixture）。
+- **发现是 bug 的内容彻底删除，不归档**——避免污染代码库。
 
 ```
 ngram-gap-lab/
 ├── agents.md                    # 本文件：工作原则 + 极简 setting SSOT + 坐标
 ├── README.md                    # 对外说明
-├── code/
+├── code/                        # 主线 nanoGPT 训练与分析
 │   ├── train.py                 # vanilla nanoGPT + n-gram table + 3 注入点（<1000 行）
 │   ├── ngram_freq.py            # per-frequency-bin loss 统计
+│   ├── gap_experiment.py        # ★ replay/epoch/lr 纯函数（主线与 ngram5 共用）
 │   ├── prepare_data.py          # 数据准备
-│   ├── make_ngram_blocks.py     # controlled block 构造
+│   ├── make_ngram_blocks.py     # controlled block 构造（data_gen 的 alpha=0 特例）
 │   ├── analyze_minimal.py       # 极简分析入口
 │   ├── cluster/                 # 各集群 launcher + setup_env.sh
-│   ├── tools/                   # 语料熵、生成器等价性校验等通用工具
-│   └── toy/                     # ★ 纯 numpy/torch 理论验证，不依赖 backbone
-│       ├── README.md            #   ★ L1–L5 实验线索引（先读这个）
-│       ├── l1_lookup_replay/    #   查表记忆 × replay
-│       ├── l2_markov_exact/     #   Markov 精确 gap 闭式解
-│       ├── l3_sampling_law/     #   单 context 采样律 gap(r)
-│       ├── l4_synth_powerlaw/   #   幂律合成数据（+ cluster/ 编排脚本）
-│       └── l5_optimizer_artifact/ # RMSProp v 锯齿 / 表容量
-├── ngram5_freq_gap/             # order-5 / trigram controlled 独立训练包（vendored）
+│   └── tools/                   # 语料熵、生成器等价性校验等通用工具
+├── tasks/                       # ★ 独立敏捷验证任务（toy model / 数学模型）
+│   ├── README.md                #   ★ L1–L5 任务索引（先读这个）
+│   ├── l1_lookup_replay/        #   查表记忆 × replay        ┐
+│   ├── l2_markov_exact/         #   Markov 精确 gap 闭式解    │ 每个含
+│   ├── l3_sampling_law/         #   单 context 采样律 gap(r)  │ results/
+│   ├── l4_synth_powerlaw/       #   幂律合成数据 + cluster/   │
+│   └── l5_optimizer_artifact/   #   RMSProp v 锯齿 / 表容量   ┘
+├── ngram5_freq_gap/             # ★ 受控数据干预运行时（第四维度：动数据不动模型）
+│   ├── README.md                #   ★ 定位、极简 setting 核对、P0/P1 阻塞项
+│   ├── data_gen.py              #   不可替代资产：受控数据集生成器
+│   ├── trainer.py               #   DDP / checkpoint / run contract
+│   ├── tests/                   #   ★ 全仓库唯一单元测试（22 个，纯 CPU）
+│   └── cluster/                 #   run_on_cluster.sh 为主力入口
 ├── docs/                        # ★ 只有 5 个子目录
 │   ├── experiment-lines.md      # ★★ 实验线全景 + 权威数据源 + 待办（入口文档）
-│   ├── experiment-log.md        # ★ 实验登记簿（⚠️ 数值待从 pre-fix 回填）
+│   ├── experiment-log.md        # ★ 实验登记簿
 │   ├── claims-ledger.md         # ★ 断言台账（C1–C9）
 │   ├── plan.md                  # 现象定义、消融变量、实验队列
 │   ├── report/                  # 对外报告
@@ -205,20 +213,26 @@ ngram-gap-lab/
 │   │   ├── toy/                 #   T1 + T2（跑在真 harness 上的 toy 线）
 │   │   └── theory/              #   L1–L5 理论图（sync_to_blog.sh 依赖此路径名）
 │   ├── plot_scripts/            # 作图脚本（gen_all_figures.py 为 canonical 入口）
-│   ├── _archive/                # 归档
-│   │   ├── docs/                #   历史文档（含 current-shell 结论）
-│   │   └── figs_history/        #   重跑前快照、旧生成器产物、无脚本僵尸图
+│   ├── _archive/docs/           # 历史文档（含 current-shell 结论，仅供溯源）
 │   └── sync_to_blog.sh          # 同步图与报告到 blog（不覆盖 index.html、不自动 push）
 └── data/                        # ★ gitignored
     ├── tokenized/               # token shards
     ├── freq_index*.npz          # 频率索引
-    ├── runs_fixed/<run_id>_fixed/  # ★ 权威 run 产物
-    ├── runs/                    # ⛔ 过时（freq-bin bug 前）
-    └── toy_results/lN_*/        # toy 结果，与 code/toy/lN_*/ 一一对应
+    └── runs_fixed/<run_id>_fixed/  # ★ 唯一权威 run 产物
 ```
 
 **入口顺序**：`agents.md`（规则）→ `docs/experiment-lines.md`（全景）→
-`docs/experiment-log.md`（细节）/ `code/toy/README.md`（toy 细节）。
+`docs/experiment-log.md`（主线细节）/ `tasks/README.md`（敏捷任务细节）/
+`ngram5_freq_gap/README.md`（数据干预线细节）。
+
+### 3.1 tasks/ 的约定
+
+放进 `tasks/` 的条件：**独立、自包含、能单机快速跑完**（toy model、数学模型的敏捷验证）。
+
+- 目录名 `lN_<短名>`，N 为实验线编号。
+- 目录内固定布局：脚本在根、结果在 `results/`、输入 fixture 在 `results/inputs/`。
+- 不依赖 `code/train.py`、不依赖 GPU 集群、不写 `data/`。
+- 新增任务时在 `tasks/README.md` 补一行，说明**科学问题**而不只是脚本名。
 
 ---
 
@@ -340,10 +354,10 @@ SSH 配置位于 `~/.ssh/config.d/`（主配置 `Include ~/.ssh/config.d/*.conf`
 | `docs/notes/plans/` | `plans/` | plan-1 机制总纲（§3.1a 是极简 setting 的原始定义）、plan-2 文献故事线 |
 | `docs/claims-ledger.md` | `docs/claims-ledger-20260808.md` | C1–C9 断言台账 |
 | `docs/_archive/docs/` | closure-status、p12-causal、table-size-sweep、injpos-log、manual 工作日志 | 历史溯源 |
-| `code/toy/` | `toy/` | 9 个纯 numpy/torch 脚本，全库唯一零 current-shell 污染的代码 |
+| `tasks/l1..l5/` | `toy/` + `toy/results/` | 9 个纯 numpy/torch 脚本 + 结果，全库唯一零 current-shell 污染的代码 |
 | `code/tools/` | `tools/` | 语料熵计算、生成器等价性校验 |
 | `docs/figs/theory/` | `docs/figs/` 中的 markov / gap_vs_samples / synth 系列 | 理论图 |
-| `data/toy_results/` | `toy/results/` | `markov_clean` + `rmsprop_v_sawtooth` |
+| `tasks/*/results/` | `toy/results/` | L1 主矩阵、L2 三个 markov 臂、L5 五臂对照 |
 | `data/injpos_*.json` | `remote_training_runs/` | injpos obs summary + 2000 步延长数据 |
 
 **未迁移**（留在 OPHIS_gap，只读溯源）：
