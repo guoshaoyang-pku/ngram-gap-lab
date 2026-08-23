@@ -19,8 +19,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
-REPO = Path(__file__).resolve().parents[1]
-FIGS = REPO / "docs" / "figs"
+REPO = Path(__file__).resolve().parents[2]
+FIGS = REPO / "docs" / "figs" / "theory"
 
 plt.rcParams["font.sans-serif"] = ["Noto Sans CJK SC", "PingFang HK",
                                    "Arial Unicode MS", "Heiti TC"]

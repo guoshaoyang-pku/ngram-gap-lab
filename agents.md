@@ -2,7 +2,7 @@
 
 > 本仓库是本课题**唯一的开发仓库**。`/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap` 已弃用（见 §7）。
 > 本文件只写**不变的规则与坐标**：工作原则、极简 setting、文档权威性、算力与存储、workspace。
-> 会变的东西（实验进度、待办、作图清单）一律写进 `docs/experiment-log.md` 和 `docs/plans/`。
+> 会变的东西（实验进度、待办、作图清单）一律写进 `docs/experiment-log.md`、`docs/experiment-lines.md` 和 `docs/notes/plans/`。
 
 ---
 
@@ -26,14 +26,19 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 ### P3 · 一次只做一件事，做完就登记
 
-- 一个实验 = 一个 `run_id` = 一个 `data/runs/<run_id>/` 目录 = `docs/experiment-log.md` 里的一行 + 一个 section。
+- 一个实验 = 一个 `run_id` = 一个 `data/runs_fixed/<run_id>_fixed/` 目录 = `docs/experiment-log.md` 里的一行 + 一个 section。
 - 五步生命周期：**登记（planned）→ 占 GPU → 开跑（running）→ 回填（done）→ 沉淀（图/脚本入库）**。
 - 跑完 24h 内回填；未回填的 `planned` 行标 `stalled`。
 
 ### P4 · 口径一致性优先于结果好看
 
 - gap 定义只有一个：`val_loss − train_loss`，同一 step、同一 batch 口径。
-- `val` 必须是 **fixed validation batches**（固定的一组 batch），不能用移动窗口。历史教训见 `docs/method/loss-curve-sawtooth-audit.md`：移动窗 + 50 步间隔曾造出纯显示伪影的「锯齿」。
+- **权威数据只有 `data/runs_fixed/` 里带 `_fixed` 后缀的 run**。`data/runs/` 与不带后缀的副本
+  受 freq-bin 诊断 bug 影响（诊断复用训练迭代器，每次 eval 白吃 5 个 batch + epoch 计数虚高），
+  **一律作废**。同一次修复还带出 `table_betas[1]` 被 `ngram_beta2` 覆盖的 bug —— 旧 run 里
+  `--table_betas` 被静默忽略。详见 `docs/notes/method/freq-bin-train-iter-bug.md`。
+  修正幅度可达 +210%（`nglab2x_opt_rmsprop_2x_b2_099`: 0.64 → 2.00），不是噪声。
+- `val` 必须是 **fixed validation batches**（固定的一组 batch），不能用移动窗口。历史教训见 `docs/notes/method/loss-curve-sawtooth-audit.md`：移动窗 + 50 步间隔曾造出纯显示伪影的「锯齿」。
 - `VAL_LOSS_INTERVAL_STEPS = 10`（v10 规范），freq-bin eval 同步每 10 步。
 - `novel`（train hit count = 0）没有 train token loss，**不能定义 gap**，不进 gap 图。
 - 多机跑同一批实验前，必须 `md5sum` 核对 `code/` 一致（见 §4.3）。
@@ -114,14 +119,18 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 ### 1.5 参考数值（seed 42，2000 步，标准 1x）
 
+> ⚠️ **权威数据是 `data/runs_fixed/` 里带 `_fixed` 后缀的 run**。
+> `data/runs/` 及不带后缀的副本受 freq-bin 诊断 bug 影响，已作废。见 `docs/experiment-lines.md`。
+
 | run | 注入点 | final gap |
 |---|---|---|
-| `nglab1x_v10_input` | **input（主线）** | **1.931** |
-| `nglab1x_v10_y` | y | 5.049 |
-| `nglab1x_v10_v` | v | 5.041 |
-| `nglab1x_v10_nogram` | 无 n-gram（negative control） | 0.231 |
+| `nglab1x_v10_input_fixed` | **input（主线）** | **1.867** |
+| `nglab1x_v10_y_fixed` | y | 5.804 |
+| `nglab1x_v10_v_fixed` | v | 5.450 |
+| `nglab1x_v10_nogram_fixed` | 无 n-gram（negative control） | 0.245 |
 
-完整登记见 `docs/experiment-log.md`。
+实验线全景见 `docs/experiment-lines.md`；数值细节见 `docs/experiment-log.md`
+（⚠️ 该文件数值尚未从 pre-fix 回填）。
 
 ---
 
@@ -131,26 +140,32 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 | 层级 | 文档 | 地位 |
 |---|---|---|
-| **权威主汇报** | `/Users/guoshaoyang/Desktop/workdir/guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide/index.html` | ✅ **唯一权威版**。9 章极简主线（setting / 注入点 / 曲线 / norm / 频率 / exact-frequency / sample285 / toy / 结论），已剔除 current shell |
-| 权威背景页 | 同目录 `background.html` | ✅ 术语、伪代码、debug 过程、以及「current shell 为什么是废弃分支」的说明 |
-| 存档 | 同目录 `index_archive_20260805.html` | 🗄️ 旧版完整 guide |
-| **已废弃** | `OPHIS_gap/docs/ngram-gap-mechanism-guide.html`（chapter 0–19 全量版） | ⛔ **不再维护**。§2 / §7.9 / §9 / §12 / §15 / §16.7 / §16.11 全部建在 `baseline_current`（current shell）上 |
-| 已废弃 | `OPHIS_gap/docs/ngram-gap-mechanism-guide-0728.html` / `-0730.html` | ⛔ 更早的存档 |
-| 已废弃 | `OPHIS_gap/docs/ngram-gap-regime-bridge.html` | ⛔ 同事做的 current-shell 实验 |
+| **权威主汇报（发布地）** | blog 仓库 `blogs/ngram-gap-mechanism-guide/index.html` | ✅ **唯一权威版**，9 章极简主线，已剔除 current shell |
+| **权威主汇报（本地副本）** | `docs/report/index.html` | ✅ 与发布地同步的本地只读副本 |
+| 权威背景页 | `docs/report/background.html` | ✅ 术语、伪代码、debug 过程、以及「current shell 为什么废弃」的说明 |
+| 历史版本 | `docs/report/versions/blog-index-20260805.html` | 🗄️ 旧版 blog 主页 |
+| 历史版本 | `docs/report/versions/guide-0728.html` / `guide-0730.html` | 🗄️ **重要中间版本**，保留供溯源 |
+| 历史版本 | `docs/report/versions/guide-full-chapter0-19.html` | ⛔ chapter 0–19 全量版。§2 / §7.9 / §9 / §12 / §15 / §16 建在 `baseline_current` 上，**不再维护** |
+| 历史版本 | `docs/report/versions/regime-bridge-DEPRECATED.html` | ⛔ 同事的 current-shell 实验 |
 
 **规则**：
-1. 需要引用「主实验结论」时，一律引用 blog 的 `index.html`。
-2. blog 的 `index.html` **不由脚本覆盖**（`docs/sync_to_blog.sh` 只同步独立报告与图）。要改主文档就手工改 blog 仓库那一份。
-3. 本仓库内部的实验事实来源是 `docs/experiment-log.md`（登记簿）+ `docs/claims-ledger.md`（断言台账）。
-4. OPHIS_gap 里的全量版 guide 只在「查历史怎么做过」时打开，**不能当作结论来源**。
+1. 需要引用「主实验结论」时，一律引用 `docs/report/index.html`（= blog 发布版）。
+2. **主文档只在 blog 仓库手工编辑**，改完把 blog 那份 copy 回 `docs/report/index.html` 保持同步。
+   `docs/sync_to_blog.sh` **只同步图与独立报告，绝不覆盖 index.html**，也不自动 push。
+3. 本仓库内部的实验事实来源：`docs/experiment-lines.md`（实验线全景 + 权威数据源）
+   → `docs/experiment-log.md`（登记簿）→ `docs/claims-ledger.md`（断言台账）。
+4. `versions/` 里的历史版本只在「查历史怎么做过」时打开，**不能当作结论来源**。
 
 ---
 
 ## 3. 仓库结构
 
+设计原则：**`docs/` 只保留 5 个子目录**；图与 toy 代码/数据一律**按实验线编号分目录**，
+`code/toy/lN_*/` 与 `data/toy_results/lN_*/` 一一对应。
+
 ```
 ngram-gap-lab/
-├── agents.md                    # 本文件：工作原则 + 极简 setting + 坐标
+├── agents.md                    # 本文件：工作原则 + 极简 setting SSOT + 坐标
 ├── README.md                    # 对外说明
 ├── code/
 │   ├── train.py                 # vanilla nanoGPT + n-gram table + 3 注入点（<1000 行）
@@ -159,28 +174,51 @@ ngram-gap-lab/
 │   ├── make_ngram_blocks.py     # controlled block 构造
 │   ├── analyze_minimal.py       # 极简分析入口
 │   ├── cluster/                 # 各集群 launcher + setup_env.sh
-│   ├── toy/                     # 纯 numpy/torch 理论验证脚本（不依赖 backbone）
-│   └── tools/                   # 语料熵、生成器等价性校验等通用工具
-├── ngram5_freq_gap/             # order-5 / trigram controlled 实验独立训练包
-├── docs/
-│   ├── plan.md                  # 标准实验计划（setting 摘要，细节以 agents.md §1 为准）
-│   ├── experiment-log.md        # ★ 唯一实验登记簿
-│   ├── claims-ledger.md         # ★ 断言台账（C1–C9，标 SUPPORTED / PROXY_ONLY / UNRUN）
-│   ├── theory/                  # 理论推导（unigram gap、幂律、Markov、真实长尾修正）
-│   ├── literature/              # 文献精读 + related work + references.bib
-│   ├── method/                  # 方法论与踩坑（sawtooth 审计、合成任务设计、排除台账模板）
-│   ├── plans/                   # plan-1 机制研究总纲、plan-2 文献故事线
-│   ├── archive/                 # 历史文档（含 current-shell 结论，仅供溯源）
-│   ├── plot_scripts/            # 作图脚本（gen_all_figures.py 为主入口）
-│   ├── figs/                    # 主线图
-│   │   └── theory/              # 理论/toy 图
-│   └── sync_to_blog.sh          # 同步报告与图到 blog（不覆盖 index.html）
+│   ├── tools/                   # 语料熵、生成器等价性校验等通用工具
+│   └── toy/                     # ★ 纯 numpy/torch 理论验证，不依赖 backbone
+│       ├── README.md            #   ★ L1–L5 实验线索引（先读这个）
+│       ├── l1_lookup_replay/    #   查表记忆 × replay
+│       ├── l2_markov_exact/     #   Markov 精确 gap 闭式解
+│       ├── l3_sampling_law/     #   单 context 采样律 gap(r)
+│       ├── l4_synth_powerlaw/   #   幂律合成数据（+ cluster/ 编排脚本）
+│       └── l5_optimizer_artifact/ # RMSProp v 锯齿 / 表容量
+├── ngram5_freq_gap/             # order-5 / trigram controlled 独立训练包（vendored）
+├── docs/                        # ★ 只有 5 个子目录
+│   ├── experiment-lines.md      # ★★ 实验线全景 + 权威数据源 + 待办（入口文档）
+│   ├── experiment-log.md        # ★ 实验登记簿（⚠️ 数值待从 pre-fix 回填）
+│   ├── claims-ledger.md         # ★ 断言台账（C1–C9）
+│   ├── plan.md                  # 现象定义、消融变量、实验队列
+│   ├── report/                  # 对外报告
+│   │   ├── index.html           #   权威版本地副本（= blog 发布版）
+│   │   ├── background.html      #   背景页
+│   │   └── versions/            #   历史版本（0728 / 0730 / chapter0-19 / regime-bridge）
+│   ├── notes/                   # 四类笔记
+│   │   ├── theory/              #   理论推导（unigram gap、幂律、Markov、长尾修正）
+│   │   ├── literature/          #   文献精读 + related work + references.bib
+│   │   ├── method/              #   方法论与踩坑（sawtooth 审计、freq-bin bug、合成任务设计）
+│   │   └── plans/               #   plan-1 机制总纲、plan-2 文献故事线
+│   ├── figs/                    # 按实验线分目录
+│   │   ├── main/                #   M2 注入点 v10 主线（sync_to_blog.sh 的同步源）
+│   │   ├── table_opt/           #   M3 + M4
+│   │   ├── epoch_scale/         #   M5 + M6
+│   │   ├── short_epoch_b2/      #   M7
+│   │   ├── toy/                 #   T1 + T2（跑在真 harness 上的 toy 线）
+│   │   └── theory/              #   L1–L5 理论图（sync_to_blog.sh 依赖此路径名）
+│   ├── plot_scripts/            # 作图脚本（gen_all_figures.py 为 canonical 入口）
+│   ├── _archive/                # 归档
+│   │   ├── docs/                #   历史文档（含 current-shell 结论）
+│   │   └── figs_history/        #   重跑前快照、旧生成器产物、无脚本僵尸图
+│   └── sync_to_blog.sh          # 同步图与报告到 blog（不覆盖 index.html、不自动 push）
 └── data/                        # ★ gitignored
     ├── tokenized/               # token shards
     ├── freq_index*.npz          # 频率索引
-    ├── runs/<run_id>/           # train_log.jsonl / table_norm.jsonl / freq_bin_loss.jsonl / summary.json / train.log
-    └── toy_results/             # toy 实验结果
+    ├── runs_fixed/<run_id>_fixed/  # ★ 权威 run 产物
+    ├── runs/                    # ⛔ 过时（freq-bin bug 前）
+    └── toy_results/lN_*/        # toy 结果，与 code/toy/lN_*/ 一一对应
 ```
+
+**入口顺序**：`agents.md`（规则）→ `docs/experiment-lines.md`（全景）→
+`docs/experiment-log.md`（细节）/ `code/toy/README.md`（toy 细节）。
 
 ---
 
@@ -249,7 +287,7 @@ SSH 配置位于 `~/.ssh/config.d/`（主配置 `Include ~/.ssh/config.d/*.conf`
 | 旧仓库（弃用） | `/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap` | ⛔ **已弃用**，只读溯源，不再开发。见 §7 |
 | 两因素模型参考 | `/Users/guoshaoyang/Documents/Codex/2026-08-21/xian-xi/outputs/ngram-repeat-gap-two-factor-model.html` | 📄 外部理论文档，待验证对象 |
 
-**规则**：新文件、新代码、新实验一律落在 `ngram-gap-lab`。需要 OPHIS 里的东西就 `cp` 过来并在 `docs/archive/` 登记来源，不要跨仓库引用路径。
+**规则**：新文件、新代码、新实验一律落在 `ngram-gap-lab`。需要 OPHIS 里的东西就 `cp` 过来并在 `docs/_archive/docs/` 登记来源，不要跨仓库引用路径。
 
 ---
 
@@ -281,10 +319,10 @@ SSH 配置位于 `~/.ssh/config.d/`（主配置 `Include ~/.ssh/config.d/*.conf`
 
 | 问题 | 原结论（DEPRECATED SETTING） | 存档位置 |
 |---|---|---|
-| 表内容是不是 gap 的载体 | e2 边界 table 全量 reset → gap −89% | `docs/archive/p12-causal-results.md` |
+| 表内容是不是 gap 的载体 | e2 边界 table 全量 reset → gap −89% | `docs/_archive/docs/p12-causal-results.md` |
 | readout 通道是不是必要 | 屏蔽 readout → −89% | 同上 |
 | table write vs backbone 各占多少 | 冻结 table −49%；冻结 backbone −54% | 同上 |
-| 表大小是不是主导变量 | M=16 无碰撞点后 gap 饱和 → 不是参数量，是碰撞区低频涨落加权 | `docs/archive/table-size-sweep-results-20260811.md` |
+| 表大小是不是主导变量 | M=16 无碰撞点后 gap 饱和 → 不是参数量，是碰撞区低频涨落加权 | `docs/_archive/docs/table-size-sweep-results-20260811.md` |
 
 重跑这些是当前最高价值的实验队列。
 
@@ -296,12 +334,12 @@ SSH 配置位于 `~/.ssh/config.d/`（主配置 `Include ~/.ssh/config.d/*.conf`
 
 | 迁入位置 | 来源 | 内容 |
 |---|---|---|
-| `docs/theory/` | `docs/theory_notes/` + `markov-unigram-exact-gap-20260811.md` | 5 篇纯理论推导，零 backbone 依赖 |
-| `docs/literature/` | `docs/literature/` + 4 篇顶层长综述 | 9 个文件，含 arXiv 复核过的 `references.bib` 与可直接进论文的 related work |
-| `docs/method/` | sawtooth 审计、合成任务设计、排除台账 | 方法论与踩坑 |
-| `docs/plans/` | `plans/` | plan-1 机制总纲（§3.1a 是极简 setting 的原始定义）、plan-2 文献故事线 |
+| `docs/notes/theory/` | `docs/theory_notes/` + `markov-unigram-exact-gap-20260811.md` | 5 篇纯理论推导，零 backbone 依赖 |
+| `docs/notes/literature/` | `docs/literature/` + 4 篇顶层长综述 | 9 个文件，含 arXiv 复核过的 `references.bib` 与可直接进论文的 related work |
+| `docs/notes/method/` | sawtooth 审计、合成任务设计、排除台账 | 方法论与踩坑 |
+| `docs/notes/plans/` | `plans/` | plan-1 机制总纲（§3.1a 是极简 setting 的原始定义）、plan-2 文献故事线 |
 | `docs/claims-ledger.md` | `docs/claims-ledger-20260808.md` | C1–C9 断言台账 |
-| `docs/archive/` | closure-status、p12-causal、table-size-sweep、injpos-log、manual 工作日志 | 历史溯源 |
+| `docs/_archive/docs/` | closure-status、p12-causal、table-size-sweep、injpos-log、manual 工作日志 | 历史溯源 |
 | `code/toy/` | `toy/` | 9 个纯 numpy/torch 脚本，全库唯一零 current-shell 污染的代码 |
 | `code/tools/` | `tools/` | 语料熵计算、生成器等价性校验 |
 | `docs/figs/theory/` | `docs/figs/` 中的 markov / gap_vs_samples / synth 系列 | 理论图 |
@@ -330,7 +368,7 @@ python code/train.py --run_id smoke --injection_position input --steps 10 \
 
 # 构建频率索引
 .venv/bin/python code/ngram_freq.py --data_dir <tokenized> \
-  --train_shards 1 --vocab_size 8192 --out data/runs/<run_id>/freq_index.npz
+  --train_shards 1 --vocab_size 8192 --out data/runs_fixed/<run_id>_fixed/freq_index.npz
 
 # 重新生成全部主线图
 python docs/plot_scripts/gen_all_figures.py

@@ -5,7 +5,7 @@ The canonical view is the structure INSIDE a single epoch (step within epoch),
 not the staircase across epochs. Longer epochs = more val points per epoch =
 the within-epoch rise is clearly resolved.
 
-Figures written to docs/figs_v12/:
+Figures written to docs/figs/toy/:
   fig_toy_within_epoch_train_val_gap.png  toy epochs, global-step window
   fig_toy_within_epoch_aligned.png        toy gap vs step-within-epoch (overlay)
   fig_main_within_epoch_aligned.png       main gap vs step-within-epoch per arm
@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs_v12")
+FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "toy")
 os.makedirs(FIGS_DIR, exist_ok=True)
 
 TOY_RUNS = sys.argv[1] if len(sys.argv) > 1 else \
@@ -43,7 +43,7 @@ ARMS = [
     {"key": "0.5x",  "label": "0.5x epoch",  "color": "#4CAF50", "dir": "nglab0_5x_input_fv_fixed"},
     {"key": "1x",    "label": "1x epoch",    "color": "#2196F3", "dir": "nglab1x_v10_input_fixed"},
     {"key": "2x",    "label": "2x epoch",    "color": "#FF9800", "dir": "nglab2x_input_v10_fv_fixed"},
-    {"key": "4x",    "label": "4x epoch",    "color": "#C44E52", "dir": "nglab4x_input_fv_v2"},
+    {"key": "4x",    "label": "4x epoch",    "color": "#C44E52", "dir": "nglab4x_input_fv_v3_fixed"},
     {"key": "8x",    "label": "8x epoch",    "color": ANCHOR,    "dir": "nglab8x_input_fv_fixed"},
 ]
 

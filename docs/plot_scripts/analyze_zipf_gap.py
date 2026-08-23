@@ -12,7 +12,7 @@ Answer structure (theory: docs/theory_notes/toy-gap-frequency-distributions.md):
   * Zipf changes only the WEIGHTS -> aggregate / cumulative curves become
     clean power laws.
 
-Figures -> docs/figs_v12/fig_zipf_gap_analysis.{png,svg}
+Figures -> docs/figs/toy/fig_zipf_gap_analysis.{png,svg}
 """
 import json
 import math
@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs")
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs_v12")
+FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "toy")
 os.makedirs(FIGS_DIR, exist_ok=True)
 
 TOY_META = "/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap/toy/runs/t5b_beta_000_999_low/run_meta.json"

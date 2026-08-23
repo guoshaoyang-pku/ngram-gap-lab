@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs")
+FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "main")
 MIRROR_FIGS_DIR = os.environ.get("NGRAM_GAP_BLOG_FIGS_DIR")
 FALLBACK_BLOG_DIR = os.environ.get(
     "NGRAM_GAP_BLOG_DIR",

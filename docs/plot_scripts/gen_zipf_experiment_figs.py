@@ -7,7 +7,7 @@ Compares per-bucket gap g(r) under:
   * old kink design       (t5_on_low_s42, reference)
 and checks whether gap-vs-frequency double-log linearity improves.
 
-Figures -> docs/figs_v12/fig_zipf_experiment.{png,svg}
+Figures -> docs/figs/toy/fig_zipf_experiment.{png,svg}
 """
 import json
 import os
@@ -18,7 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs_v12")
+FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "toy")
 os.makedirs(FIGS_DIR, exist_ok=True)
 
 TOY_RUNS = "/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap/toy/runs"

@@ -67,7 +67,7 @@
 - ...
 
 ### 产物
-- `data/runs/<run_id>/`；图 `docs/figs/...`；报告 `docs/...`
+- `data/runs_fixed/<run_id>_fixed/`；图 `docs/figs/<line>/`；报告 `docs/report/`
 ```
 
 ## 6. 已完成

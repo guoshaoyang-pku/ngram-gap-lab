@@ -8,6 +8,8 @@
 
 | run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
 |---|---|---|---|---|---|
+| `vanilla_input_1000_seed42` | 2026-08-23 | 干净 vanilla 复现 · input 注入 · 1000 步 | 🔄 running | 待填 | §14 |
+| `vanilla_nogram_1000_seed42` | 2026-08-23 | 干净 vanilla 复现 · 无 n-gram 对照 · 1000 步 | 🔄 running | 待填 | §14 |
 | `nglab_v` | 2026-08-05 | 注入点消融 · v | ✅ done | 0.33 @999 | §2 |
 | `nglab_y` | 2026-08-05 | 注入点消融 · y | ✅ done | 3.50 @999 | §2 |
 | `nglab_input` | 2026-08-05 | 注入点消融 · input | ✅ done | 0.79 @999 | §2 |
@@ -309,7 +311,7 @@ loss，再按照真实 context 的 training hit-count bucket 聚合。运行文�
 - 关键现象：epoch 减半后，train 塌到 1.78 而 val 升到 6.73，gap 几乎是 2x（+0.50）的 **10 倍**；
   gap 从 epoch 2（~step 120）就开始转正，符合「epoch 平台越短 → replay 越早、越猛」的剂量关系。
 - 与 1x（`nglab1x_v10_input`，parallel agent，fixed-val，观测 ~230 steps/epoch）对照见
-  `docs/figs_epoch_scale/epoch_scale_train_val_gap.png`（3 条曲线，均已 2000 步完成）。
+  `docs/figs/epoch_scale/epoch_scale_train_val_gap.png`（3 条曲线，均已 2000 步完成）。
 
 ### 剂量关系汇总（gap@2000，input 注入，v10，fixed-val，seed 42）
 
@@ -356,7 +358,7 @@ validation 每 50 步；本批用 **v10 标准（validation + freq eval 每 10 �
   - `nglab1x_v10_nogram`：final_gap **0.2312**（train 3.0033 / val 3.2345）
   - epoch 边界（每 10 步 val 记录）：230 / 460 / 680 / 910 / 1130 / 1360 / 1580 / 1810（约 226 steps/epoch，freq eval 每 10 步消耗 4 个 train batch）。
   - 与 ophis 首波交叉验证：四 run gap 差 < 0.09（桶数不影响 train/val loss）。
-- 产物：图 `docs/figs_v10/`；数据 `data/injpos_ablation_data.json`；克隆博客 `guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide-v10/`（validation 每 10 步 · 2000 steps）。
+- 产物：图 `docs/figs/main/`；数据 `data/injpos_ablation_data.json`；克隆博客 `guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide-v10/`（validation 每 10 步 · 2000 steps）。
 
 
 ## 9. Table 优化器消融（2026-08-06，input，计划）
@@ -400,7 +402,7 @@ launcher：`code/cluster/run_table_opt.sh <arm> <gpu>`。
   - `nglab1x_v10_nogram`：final_gap **0.2312**（train 3.0033 / val 3.2345）
   - epoch 边界（每 10 步 val 记录）：230 / 460 / 680 / 910 / 1130 / 1360 / 1580 / 1810（约 226 steps/epoch，freq eval 每 10 步消耗 4 个 train batch）。
   - 与 ophis 首波交叉验证：四 run gap 差 < 0.09（桶数不影响 train/val loss）。
-- 产物：图 `docs/figs_v10/`；数据 `data/injpos_ablation_data.json`；克隆博客 `guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide-v10/`（validation 每 10 步 · 2000 steps）。
+- 产物：图 `docs/figs/main/`；数据 `data/injpos_ablation_data.json`；克隆博客 `guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide-v10/`（validation 每 10 步 · 2000 steps）。
 
 ### 9a. Table 优化器消融（郭绍阳，wave1 done / wave2 running）
 
@@ -417,7 +419,7 @@ launcher：`code/cluster/run_table_opt.sh <arm> <gpu>`。
 | RMSProp v50 基线（`nglab_input`）| +0.785 | 0.0781 | +117% |
 
 - 结论：**加速 table 写入最直接有效的是把 RMSProp lr 提到 2×**（norm@1000 +59%）；AdamW 一阶矩对「每 epoch 只被读一次」的稀疏行帮助有限，norm 反而更小、gap 更小（0.8/0.95 时 0.709）。norm 增速 ↑ ↔ gap 大小 ↑ 的对应仍成立。
-- 图：`docs/figs_v10/fig_table_opt.{svg,png}`；脚本 `docs/plot_scripts/analyze_table_opt.py`。
+- 图：`docs/figs/table_opt/fig_table_opt.{svg,png}`；脚本 `docs/plot_scripts/analyze_table_opt.py`。
 
 **Wave2（2026-08-06 23:53 启动，多机并行）**
 
@@ -453,7 +455,7 @@ launcher：`code/cluster/run_table_opt.sh <arm> <gpu>`。
 3. **AdamW 一阶矩对稀疏行帮助有限**：AdamW(0.9,0.999) norm@1000 0.072 反而 ≤ RMSProp 1x 的 0.084（多 seed 稳定），gap@1000 1.34±0.32 略高但受 norm 上限约束；(0.8,0.95) 更慢（0.062 / +0.709）。动量在「每 epoch 只被读一次」的稀疏行上累积价值低。
 4. **norm 先行、gap 滞后**：RMSProp 4x 在 step500 norm 已达 0.22（≥2x@1000）但 gap 仍 +0.01，到 step1000 才跳到 +2.18——table 写入先完成、train/val 分化随后显现，与 wave1 的 norm↔gap 对应关系一致。
 
-**产物**：图 `docs/figs_v10/fig_table_opt.{svg,png}`（含 s43/s44 多 seed mean±std）；脚本 `docs/plot_scripts/analyze_table_opt.py`（自动发现 `nglab1x_opt_*`，seed 42/43/44）。日志：`data/runs/nglab1x_opt_{rmsprop_2x_s43,rmsprop_4x,adamw_090999_s43,adamw_090999_s44,rmsprop_2x_s44,sgd_09}/`。
+**产物**：图 `docs/figs/table_opt/fig_table_opt.{svg,png}`（含 s43/s44 多 seed mean±std）；脚本 `docs/plot_scripts/analyze_table_opt.py`（自动发现 `nglab1x_opt_*`，seed 42/43/44）。日志：`data/runs/nglab1x_opt_{rmsprop_2x_s43,rmsprop_4x,adamw_090999_s43,adamw_090999_s44,rmsprop_2x_s44,sgd_09}/`。
 
 **对用户问题的直接回答**：默认 table 用 RMSProp（β=(0.0,0.999)，无 momentum，无 WD，lr=0.004 与 backbone 相同）；backbone 用 AdamW（β=(0.8,0.95)，WD=0.1，lr=0.004，warmup→warmdown 0.65）。若想让 table 学更快，把 `--table_lr_scale` 提到 2–4 是最直接有效的手段（norm@1000 0.084→0.250），比换 AdamW/SGD 更有效。
 
@@ -487,7 +489,7 @@ launcher：`code/cluster/run_table_opt.sh <arm> <gpu>`。
 4. 2000 步下 2x epoch 只走 ~4.4 epoch（1x 是 ~8.7），所以同臂同 norm 时 gap 普遍小于 1x：
    数据重放次数减半，记忆-过拟合路径没走完。
 
-**产物**：图 `docs/figs_v10/fig_table_opt_2x.{svg,png}`、`fig_table_opt_1x_vs_2x.{svg,png}`；
+**产物**：图 `docs/figs/table_opt/fig_table_opt_2x.{svg,png}`、`fig_table_opt_1x_vs_2x.{svg,png}`；
 脚本 `docs/plot_scripts/analyze_table_opt_2x.py`、`analyze_table_opt_1x_vs_2x.py`；
 launcher `code/cluster/run_table_opt_2x.sh`（train shards 1,2 / val 3..10,6542 / 2000 步）。
 
@@ -574,7 +576,7 @@ launcher `code/cluster/run_table_opt_2x.sh` 风格。
 0.25x→8x：+13 → +5 → +2 → +0.5 → ~0（≥5x 在 2000 步内只走 ~2 个 epoch，gap 尚未形成）。
 0.25–2x 段呈近似幂律（log-log 斜率约 −1.5~−2）。
 
-图：`docs/figs_epoch_scale/dose_response_gap2000.png`（gap@2000 vs shard size，log-x）、
+图：`docs/figs/epoch_scale/dose_response_gap2000.png`（gap@2000 vs shard size，log-x）、
 `gap_vs_epochs.png`（gap vs 已过 epoch 数，横轴按 epoch 缩放）、`sweep_train_val_gap.png`。
 脚本：`docs/plot_scripts/gen_shard_sweep_figs.py`。
 
@@ -641,10 +643,10 @@ gap 的出现（步数维度），并未消除（epoch 维度），支持「重�
   结合 v3（同 LR 调度下 train@2000 = 3.49、无停滞），可归因于延长 run 的 warmdown
   拉伸（2.5x 从 step 1120 开始衰减、停滞区正好落在中高 LR 段），而 2000 步预算内
   （主剂量曲线）2.5x 无异常。
-- 脚本：`code/cluster/run_verify_v3.sh`（nohup，日志 `verify_v3.log`）。
+- 脚本：`code/cluster/run_verify_v3.sh`（⚠️ 该脚本未随迁移带入，仅在 ophis-gpu 远端存在；nohup，日志 `verify_v3.log`）。
 
 ### 图（已用 v2 数据重跑，10:11 同步回本地）
-`docs/figs_epoch_scale/dose_response_gap2000.png`（gap@2000 vs shard size，log-x）、
+`docs/figs/epoch_scale/dose_response_gap2000.png`（gap@2000 vs shard size，log-x）、
 `gap_vs_epochs.png`（gap vs 已过 epoch 数，横轴按 epoch 缩放）、`sweep_train_val_gap.png`。
 脚本：`docs/plot_scripts/gen_shard_sweep_figs.py`。
 
@@ -711,7 +713,7 @@ gap 的出现（步数维度），并未消除（epoch 维度），支持「重�
   结合 v3（同 LR 调度下 train@2000 = 3.49、无停滞），可归因于延长 run 的 warmdown
   拉伸（2.5x 从 step 1120 开始衰减、停滞区正好落在中高 LR 段），而 2000 步预算内
   （主剂量曲线）2.5x 无异常。
-- 脚本：`code/cluster/run_verify_v3.sh`（nohup，日志 `verify_v3.log`）。
+- 脚本：`code/cluster/run_verify_v3.sh`（⚠️ 该脚本未随迁移带入，仅在 ophis-gpu 远端存在；nohup，日志 `verify_v3.log`）。
 
 ### 图（已用 v2 数据重跑，10:11 同步回本地）
 ## 11. toy-model 台阶清晰度溯源（2026-08-07，郭绍阳 + 2 workers）
@@ -791,17 +793,17 @@ gap 的出现（步数维度），并未消除（epoch 维度），支持「重�
    gap@2000 最大 +13.6）；想让台阶变模糊，则拉长 epoch（1x/2x 已模糊）。
 
 ### 产物
-- `OPHIS_gap/toy/figs_v11_toy_beta_scan_per_epoch.svg` / `_step_level.svg`
+- `docs/figs/toy/figs_v11_toy_beta_scan_per_epoch.svg` / `_step_level.svg`
   （同框 5 变体，per-epoch + step 级）
-- `docs/figs_v11/short_epoch_b2_gap_v11.{svg,png}`（4 条 gap-step 曲线同框 +
-  per-epoch mean gap 台阶视图）、`docs/figs_v11/staircase_shape_comparison.{svg,png}`
+- `docs/figs/short_epoch_b2/short_epoch_b2_gap_v11.{svg,png}`（4 条 gap-step 曲线同框 +
+  per-epoch mean gap 台阶视图）、`docs/figs/short_epoch_b2/staircase_shape_comparison.{svg,png}`
   （toy vs 真实模型归一化台阶形状）
 - 脚本：`docs/plot_scripts/gen_short_epoch_b2_figs.py`；launcher：
   `code/cluster/run_epoch_short_b2.sh`（Worker B）、`OPHIS_gap/toy/toy5_beta_scan_launch.sh`（Worker A）
 
 
 
-`docs/figs_epoch_scale/dose_response_gap2000.png`（gap@2000 vs shard size，log-x +
+`docs/figs/epoch_scale/dose_response_gap2000.png`（gap@2000 vs shard size，log-x +
 幂律拟合）、`gap_vs_epochs.png`（gap vs 已过 epoch 数）、`sweep_train_val_gap.png`
 （12 条全曲线）。脚本：`docs/plot_scripts/gen_shard_sweep_figs.py`（SWEEP 映射指向
 v2；本地 `data/runs/<run_id>/train_log.jsonl` 已补齐 12 个 run）。
@@ -870,7 +872,7 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
 > 注意：0.25x 在 6 pass 时 gap 只有 +1.1（vs 2000 步 36 pass 时的 +13.0），
 > 说明小 shard 的巨额 gap 是「重播次数」累积出来的，而非单次重播更强。
 
-图：`docs/figs_epoch_scale/gap_vs_shard_size_epoch_aligned.png`
+图：`docs/figs/epoch_scale/gap_vs_shard_size_epoch_aligned.png`
 （epoch 对齐 vs step 对齐双曲线）、`gap_vs_epoch_curves.png`（gap vs epoch 数，
 各 shard 轨迹）、`epoch_aligned_train_val_gap.png`。
 脚本：`docs/plot_scripts/gen_epoch_aligned_figs.py`。
@@ -881,11 +883,11 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
 ## 13. toy 严格 Zipf 分布 · per-bucket gap 双对数（2026-08-07，planned）
 
 > 背景：真实语料近似 Zipf，per-bin gap–frequency 双对数拟合已较好（bigram R²≈0.96、
-> trigram R²≈0.81，见 `docs/figs_v12/fig_zipf_gap_analysis.png`）；toy 当前的频次分布是
+> trigram R²≈0.81，见 `docs/figs/toy/fig_zipf_gap_analysis.png`）；toy 当前的频次分布是
 > **anti-Zipf 设计**（N_r∝1/r，每桶 token 数相等，a≈−0.93，R²=0.99）。
 > 用户提出：把 toy 的 ngram 分布筛选成**严格 Zipf**（N_r∝1/r²，经典 rank 指数 1），
 > 再看 gap–ngram 双对数线性是否变好。
-> 理论预判（原 `OPHIS_gap/docs/theory_notes/toy-gap-frequency-distributions.md`，⚠️ 该文件已不存在；相关推导见 `docs/theory/`）：
+> 理论预判（原 `OPHIS_gap/docs/theory_notes/toy-gap-frequency-distributions.md`，⚠️ 该文件已不存在；相关推导见 `docs/notes/theory/`）：
 > per-bucket gap g(r) 由训练动力学+val 协议决定，**与总体分布 N_r 可分离**——
 > 严格 Zipf 只改权重/累计曲线，不改 g(r) 形状。本批跑 3 个 seed 做经验验证。
 
@@ -939,6 +941,32 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
   `OPHIS_gap/toy/toy5_zipf_launch.sh`（已同步 360-2，md5 一致）。
 - 数据：360-2 `toy/runs/t5z_zipf_s{42,43,44}/`（已回传 run_meta 到本地
   `OPHIS_gap/toy/runs/t5z_zipf_s{42,43,44}.run_meta.json`）。
-- 图：`docs/figs_v12/fig_zipf_experiment.{png,svg}`（左：per-bucket g(r) 重合；
-  右：N_r 分布 −1 vs −2）；`docs/figs_v12/fig_zipf_gap_analysis.{png,svg}`（重加权分析）。
+- 图：`docs/figs/toy/fig_zipf_experiment.{png,svg}`（左：per-bucket g(r) 重合；
+  右：N_r 分布 −1 vs −2）；`docs/figs/toy/fig_zipf_gap_analysis.{png,svg}`（重加权分析）。
 - 脚本：`docs/plot_scripts/gen_zipf_experiment_figs.py`、`analyze_zipf_gap.py`。
+
+## 14. 干净 vanilla 复现（2026-08-23，input 主臂 + nogram 对照）
+
+### Setting
+极简 SSOT（agents.md §1）标准配置，无任何偏离：
+
+| 项 | 值 |
+|---|---|
+| backbone | vanilla nanoGPT 8L·6H·768D，vocab 8192，seq 2048 |
+| n-gram | bigram+trigram，`input` 注入，table 1M（默认未动） |
+| 优化器 | table RMSProp(0.0,0.999)，backbone AdamW(0.8,0.95) lr 0.004 wd 0.1 |
+| 数据 | shard 1 train（24264 rows ≈ 337 steps/epoch），shard 2 val，fixed 顺序 |
+| 步数 / 评测 | 1000 步（≈3 epoch），seed 42，val 每 10 步 fixed batches（v10 口径） |
+
+### 目的
+在 `code/train.py` 干净复现上重跑标准极简设置，确认 gap 现象可复现
+（历史参考：`nglab1x_v10_input` 1.931@2000，`nglab1x_v10_nogram` 0.231@2000）。
+
+### 结果（回填中）
+| run | gap@999 | 说明 |
+|---|---|---|
+| `vanilla_input_1000_seed42` | 待填 | input 注入主臂 |
+| `vanilla_nogram_1000_seed42` | 待填 | 无 n-gram 对照 |
+
+### 产物
+- 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/`

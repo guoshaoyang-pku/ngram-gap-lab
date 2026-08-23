@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs_epoch_scale")
+FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "epoch_scale")
 os.makedirs(FIGS_DIR, exist_ok=True)
 
 NOGRAM = {"dir": "nglab1x_v10_nogram_fixed", "color": "#111111", "label": "no n-gram (1x, 2000 steps)"}

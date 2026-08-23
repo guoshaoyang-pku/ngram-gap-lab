@@ -3,7 +3,7 @@
 
 Auto-discovers data/runs/nglab2x_opt_* plus the RMSProp 1x reference
 (nglab2x_input_v10_fv_fixed, the §6 fixed-val run). Prints a table and writes
-docs/figs_v10/fig_table_opt_2x.{svg,png}.
+docs/figs/table_opt/fig_table_opt_2x.{svg,png}.
 """
 import json
 import os
@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
-FIGS_DIR = os.environ.get("NGRAM_GAP_V10_FIGS_DIR", os.path.join(REPO_ROOT, "docs", "figs_v10"))
+FIGS_DIR = os.environ.get("NGRAM_GAP_V10_FIGS_DIR", os.path.join(REPO_ROOT, "docs", "figs", "table_opt"))
 RMS_KEY = "bigram.layer_01.table_0.rms"
 
 COLORS = {

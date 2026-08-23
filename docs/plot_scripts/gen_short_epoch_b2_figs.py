@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs_v11")
+FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "short_epoch_b2")
 os.makedirs(FIGS_DIR, exist_ok=True)
 
 # key | label | color | run dir | beta2

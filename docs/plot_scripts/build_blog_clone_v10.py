@@ -8,7 +8,7 @@ import json, os, re, shutil, sys
 ORIG = "/Users/guoshaoyang/Desktop/workdir/guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide"
 CLONE = "/Users/guoshaoyang/Desktop/workdir/guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide-v10"
 RUNS = "/Users/guoshaoyang/Desktop/workdir/ngram-gap-lab/data/runs"
-FIGS = "/Users/guoshaoyang/Desktop/workdir/ngram-gap-lab/docs/figs_v10"
+FIGS = "/Users/guoshaoyang/Desktop/workdir/ngram-gap-lab/docs/figs/main"
 NEW_JSON = sys.argv[1] if len(sys.argv) > 1 else os.path.join(CLONE, "injpos_ablation_data.json")
 
 def load_jsonl(path):

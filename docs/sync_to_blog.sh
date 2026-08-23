@@ -39,8 +39,8 @@ copy_one() {   # copy_one <src> <dst>
 
 echo "=== 同步图与独立报告（不覆盖 index.html）==="
 
-# 1. 主线图：docs/figs/*.svg + *.html → blog 根目录（index.html 用相对同级引用）
-for f in "$SRC_DIR"/figs/*.svg "$SRC_DIR"/figs/*.html; do
+# 1. 主线图：docs/figs/main/*.svg + *.html → blog 根目录（index.html 用相对同级引用）
+for f in "$SRC_DIR"/figs/main/*.svg "$SRC_DIR"/figs/main/*.html; do
   [ -e "$f" ] || continue
   copy_one "$f" "$TARGET_DIR/$(basename "$f")"
 done

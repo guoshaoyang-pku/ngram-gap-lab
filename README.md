@@ -89,7 +89,7 @@ python code/train.py --run_id smoke --injection_position input --steps 10 \
 
 ```bash
 .venv/bin/python code/ngram_freq.py --data_dir <tokenized> \
-  --train_shards 1 --vocab_size 8192 --out data/runs/<run_id>/freq_index.npz
+  --train_shards 1 --vocab_size 8192 --out data/runs_fixed/<run_id>_fixed/freq_index.npz
 ```
 
 ## Public report

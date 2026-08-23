@@ -1,0 +1,1808 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>N-gram Gap 机制指南</title>
+  <style>
+    :root {
+      --bg: #f7f5ef;
+      --ink: #232426;
+      --muted: #686d73;
+      --line: #c8c1b6;
+      --panel: #fffdf8;
+      --panel-2: #f0eee7;
+      --gap: #c4493d;
+      --nogap: #236b70;
+      --pending: #747a83;
+      --weak: #b67524;
+      --anchor: #353d79;
+      --train: #2d6f9f;
+      --val: #c4493d;
+      --epoch: #8a8176;
+      --code-bg: #1e1e2e;
+      --code-fg: #cdd6f4;
+      --code-key: #cba6f7;
+      --code-str: #a6e3a1;
+      --code-num: #fab387;
+      --code-com: #6c7086;
+      --code-fn: #89b4fa;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); }
+    main { width: min(1140px, calc(100vw - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 36px); line-height: 1.08; font-weight: 650; }
+    h1, h2, h3, p, .subtitle, .note, .node-detail, .code-block, pre { overflow-wrap: anywhere; }
+    .subtitle { max-width: 860px; margin: 0 0 24px; color: var(--muted); font-size: 15px; line-height: 1.55; }
+    section { margin-bottom: 36px; }
+    h2 { margin: 0 0 12px; font-size: 22px; font-weight: 650; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+    h3 { margin: 20px 0 8px; font-size: 16px; font-weight: 650; color: var(--anchor); }
+    p { margin: 0 0 12px; font-size: 14.5px; line-height: 1.65; }
+    .note { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin: 12px 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
+    .note strong { color: var(--ink); }
+    .note.gap-note { border-left: 3px solid var(--gap); }
+    .note.nogap-note { border-left: 3px solid var(--nogap); }
+    .note.anchor-note { border-left: 3px solid var(--anchor); }
+
+    /* Diagram container */
+    .diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin: 16px 0; overflow-x: auto; }
+    .diagram svg { display: block; max-width: 100%; height: auto; }
+
+    /* Code blocks */
+    .code-block { background: var(--code-bg); color: var(--code-fg); border-radius: 8px; padding: 16px 18px; margin: 12px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12.5px; line-height: 1.6; overflow-x: auto; white-space: pre; }
+    .code-block .kw { color: var(--code-key); }
+    .code-block .str { color: var(--code-str); }
+    .code-block .num { color: var(--code-num); }
+    .code-block .com { color: var(--code-com); font-style: italic; }
+    .code-block .fn { color: var(--code-fn); }
+    .code-block .hl { background: rgba(250, 179, 135, 0.15); border-radius: 3px; padding: 1px 3px; margin: 0 -3px; }
+    .code-label { font-size: 12px; color: var(--muted); margin-bottom: -8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    /* Comparison tables */
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--line); font-weight: 650; color: var(--anchor); white-space: nowrap; }
+    td { padding: 7px 10px; border-bottom: 1px solid rgba(35,36,38,.08); vertical-align: top; }
+    tr:hover td { background: rgba(53,61,121,.03); }
+    .td-num { font-family: ui-monospace, monospace; text-align: right; white-space: nowrap; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .tag.gap { background: rgba(196,73,61,.12); color: var(--gap); }
+    .tag.nogap { background: rgba(35,107,112,.12); color: var(--nogap); }
+    .tag.weak { background: rgba(182,117,36,.12); color: var(--weak); }
+
+    /* Flow diagram nodes */
+    .flow { display: grid; gap: 0; margin: 16px 0; }
+    .flow-row { display: grid; grid-template-columns: 40px 1fr; align-items: stretch; }
+    .flow-marker { display: flex; flex-direction: column; align-items: center; }
+    .flow-dot { width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--bg); box-shadow: 0 0 0 1px var(--line); flex-shrink: 0; margin-top: 10px; z-index: 1; }
+    .flow-dot.gap { background: var(--gap); } .flow-dot.nogap { background: var(--nogap); } .flow-dot.anchor { background: var(--anchor); } .flow-dot.weak { background: var(--weak); } .flow-dot.pending { background: var(--pending); }
+    .flow-line { flex: 1; width: 2px; background: var(--line); margin-top: -2px; }
+    .flow-row:last-child .flow-line { display: none; }
+    .flow-content { padding: 6px 0 16px 12px; }
+    .flow-title { font-size: 14.5px; font-weight: 650; line-height: 1.3; }
+    .flow-detail { margin-top: 3px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .flow-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; margin-left: 8px; vertical-align: middle; }
+    .flow-tag.gap { background: rgba(196,73,61,.12); color: var(--gap); }
+    .flow-tag.nogap { background: rgba(35,107,112,.12); color: var(--nogap); }
+
+    /* Two-column comparison */
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+    .compare-col { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+    .compare-col.gap { border-top: 3px solid var(--gap); }
+    .compare-col.nogap { border-top: 3px solid var(--nogap); }
+    .compare-title { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
+    .compare-col.gap .compare-title { color: var(--gap); }
+    .compare-col.nogap .compare-title { color: var(--nogap); }
+    .compare-col p { font-size: 13px; margin-bottom: 6px; }
+    .compare-col .code-block { font-size: 11.5px; margin: 8px 0; }
+
+    /* Math */
+    .math { font-family: "Cambria Math", "Latin Modern Math", "STIX Two Math", Georgia, serif; font-style: italic; }
+    .math-block { background: var(--panel-2); border-radius: 6px; padding: 10px 14px; margin: 10px 0; font-family: "Cambria Math", "Latin Modern Math", "STIX Two Math", Georgia, serif; font-size: 14px; line-height: 1.8; overflow-x: auto; }
+
+    /* Chart */
+    .chart-section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
+    .chart-wrap { width: 100%; position: relative; }
+    svg { display: block; width: 100%; height: 100%; }
+    .grid-line, .axis-line { stroke: var(--line); stroke-width: 1; }
+    .train-line { fill: none; stroke: var(--train); stroke-width: 2.2; }
+    .val-line { fill: none; stroke: var(--val); stroke-width: 2.2; }
+    .epoch-line { stroke: var(--epoch); stroke-width: 1; stroke-dasharray: 4 4; }
+    .chart-label { fill: var(--muted); font-size: 10px; font-family: ui-monospace, monospace; }
+    .gap-band { fill: rgba(196,73,61,.06); }
+    .series-legend { display: flex; gap: 16px; align-items: center; margin-top: 10px; color: var(--muted); font-size: 12px; }
+    .series-legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .line-swatch { width: 22px; height: 2px; background: currentColor; }
+    .line-swatch.train { color: var(--train); } .line-swatch.val { color: var(--val); }
+
+    /* Data table mini */
+    .data-mini { font-size: 12.5px; }
+    .data-mini td { padding: 5px 8px; }
+    .data-mini .neg { color: var(--gap); font-weight: 600; }
+    .data-mini .pos { color: var(--nogap); font-weight: 600; }
+
+    @media (max-width: 760px) {
+      .compare { grid-template-columns: 1fr; }
+      main { width: min(100vw - 20px, 1140px); }
+    }
+  </style>
+  <style>
+    .toc {
+      position: fixed;
+      top: 28px;
+      left: max(16px, calc((100vw - 1140px) / 2 - 170px));
+      width: 140px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 8px;
+      box-shadow: 0 4px 16px rgba(35,36,38,.06);
+      z-index: 10;
+    }
+    .toc-title {
+      margin: 0 0 7px;
+      color: var(--anchor);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .toc a {
+      display: block;
+      padding: 4px 5px;
+      border-radius: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+    .toc a:hover {
+      background: rgba(53,61,121,.08);
+      color: var(--anchor);
+    }
+    @media (min-width: 761px) {
+      main {
+        width: min(1140px, calc(100vw - 200px));
+        margin-left: max(200px, calc((100vw - 1140px) / 2 + 85px));
+        margin-right: 20px;
+      }
+    }
+    @media (max-width: 760px) {
+      .toc { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div style="max-width:1040px;margin:0 auto;padding:10px 14px 0;">
+    <a href="ngram-gap-story.html"
+       style="display:block;border:1.5px solid var(--line,#c8c1b6);border-left:5px solid var(--anchor,#353d79);
+              border-radius:10px;padding:10px 14px;background:#fff;color:var(--ink,#232426);
+              text-decoration:none;font-size:13.5px;">
+      <b style="color:var(--anchor,#353d79);">✨ 想先看干净故事？</b>
+      → 打开 <b>ngram-gap-story.html</b>（从零讲起、无 jargon、本地结果为主 + 合作方 svbird 验证）
+    </a>
+  </div>
+  <nav class="toc" aria-label="全文目录">
+    <div class="toc-title">全文目录</div>
+    <a href="#chapter-0">术语表</a>
+    <a href="#chapter-1">1. 实验设置</a>
+    <a href="#chapter-2">2. Gap 现象与因果链</a>
+    <a href="#chapter-7">7. Loss × Norm（视图 A）</a>
+    <a href="#chapter-7-9" style="padding-left:16px;font-size:10px;">7.9 loss↔norm 复合图</a>
+    <a href="#chapter-9">9. Loss × 频次（视图 B/C）</a>
+    <a href="#chapter-9-1" style="padding-left:16px;font-size:10px;">9.1 频次分桶 train/val/gap</a>
+    <a href="#chapter-9-2" style="padding-left:16px;font-size:10px;">9.2 命中频次分布</a>
+    <a href="#chapter-10">10. 扩展实验：干预验证</a>
+    <a href="#chapter-10-1" style="padding-left:16px;font-size:10px;">10.1 实验4 hash错位</a>
+    <a href="#chapter-10-2" style="padding-left:16px;font-size:10px;">10.2 实验5 低频gate=0</a>
+    <a href="#chapter-10-3" style="padding-left:16px;font-size:10px;">10.3 结果复合图</a>
+    <a href="#chapter-10-4" style="padding-left:16px;font-size:10px;">10.4 结论</a>
+    <a href="#chapter-11">11. 精确重复次数 vs gap（exp6）</a>
+    <a href="#chapter-12">12. P1/P2 因果拆解（2026-08-02）</a>
+    <a href="#chapter-12-5" style="padding-left:16px;font-size:10px;">12.5 对照 svbird 频率遮罩</a>
+    <a href="#chapter-13">13. 合成小实验（toy）：重复越少的组合，忘得越干净</a>
+    <a href="#chapter-14">14. 三个需要你拍板的判断题</a>
+    <a href="#chapter-15">15. svbird 评估与复现计划（2026-08-03）</a>
+    <a href="#chapter-16">16. 干净证明：ngram × 低频（2×2 合成实验）</a>
+    <a href="#chapter-18">18. Exact-frequency baseline：主结果</a>
+    <a href="#chapter-19">19. 受控样本量复播：Transformer 与 MLP trunk 对照</a>
+  </nav>
+  <main>
+    <header>
+      <h1>N-gram Gap 机制指南</h1>
+      <p class="subtitle">本文档解释 n-gram gap 实验中的核心概念：什么是 table、gate、shell、optimizer grouping，它们如何组合产生 train/val gap，以及关键实验数据。目标读者是刚接手项目的研究者。</p>
+    </header>
+
+    <!-- ==================== 0. 术语表 ==================== -->
+    <section>
+      <h2 id="chapter-0">术语表</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">以下是本文档中频繁出现的核心术语。每个术语首次在正文中出现时用 <strong>加粗</strong> 标记，在此处可快速查阅定义。</p>
+      <div class="note" style="font-size:13px;line-height:1.8;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <tr style="background:var(--panel-2);"><th style="padding:6px 10px;text-align:left;width:25%;">术语</th><th style="padding:6px 10px;text-align:left;">定义</th></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">n-gram table / VE</td><td style="padding:5px 10px;">一张巨大的查找表（lookup table），用几个连续 token 的 hash 值做 key 来查表。等价于 "value embedding"（VE）。包含 bigram（2-gram）和 trigram（3-gram）两种。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">gate（门控）</td><td style="padding:5px 10px;">控制 n-gram table 输出注入 attention 强度的机制：<code>2×sigmoid(Linear(x))</code>，输出范围 [0, 2]。gate 初始化为 1.0（中性），训练中模型自主调节。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">shell（外壳）</td><td style="padding:5px 10px;">指 transformer block 的架构实现。本文档涉及两种：<strong>nanoGPT shell</strong>（经典 nanoGPT 架构）和 <strong>current shell</strong>（从 current/GPT 架构移植，含 x0 residual、resid_lambda、split QKV）。gap 仅在 current shell 下出现。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">gap / gap onset</td><td style="padding:5px 10px;">train loss 阶梯下降同时 val loss 上升的现象。"gap onset"（也称 "fork"）指 gap 开始出现的具体训练步数。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">hit / hit count</td><td style="padding:5px 10px;">某个 n-gram context（如 trigram 的 2-token 前缀）在整个训练集中总共出现的次数。是数据的静态属性，不随训练变化。在 §9 中用于按频率分组分析 loss。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">novel / novel bucket</td><td style="padding:5px 10px;">指 train 中从未出现过的 context（hit count = 0）。在 §9 的 hit count 分析中，novel bucket 是 val 翘起的最大单一来源。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">baseline_current / B.1</td><td style="padding:5px 10px;">本文档 §2 现象图、§7.9 norm 图、§9 频次分解<strong>统一使用</strong> <strong>baseline_current</strong>（current shell + current-style grouping + bigram+trigram RMSProp，seed42，1000 step，vocab=8192，n_layer=8；epoch 边界 [338, 687]，epoch3 gap 从 ~0.5 扩大到 1.33）。旧的 <strong>B.1</strong>（<code>20260725e_nano_rmsprop_fixv3</code>，nanogpt_original，gap 0.688）仍作为 §10 干预实验的 nanogpt_original 基线。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">fixv2 / fixv3</td><td style="padding:5px 10px;">实验方法论的两个迭代版本。fixv2 使用 epoch 冻结的在线累积计数器，fixv3 替换为完全离线预计算的频率表。本文档当前所有数据均来自 fixv3（详见 <a href="agent-experiment-log.html">agent-experiment-log.html</a> §Gotchas G7）。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">obcurves</td><td style="padding:5px 10px;">observable curves 的缩写。训练过程中记录的结构化指标数据（gate norm、table content RMS、hit bucket loss 等），存储在 <code>observable_curves.obcurves.json</code> 中。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">context / context_hash</td><td style="padding:5px 10px;">n-gram 的条件前缀。如 trigram 的 context = (token[i-2], token[i-1])，bigram 的 context = (token[i-1])。context_hash 是 hash 后的整数标识。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">gated_value_rms / raw_value_rms</td><td style="padding:5px 10px;"><strong>raw_value_rms</strong> = n-gram table 查出的 value 在 gate 之前的 RMS；<strong>gated_value_rms</strong> = gate × table value 的 RMS，即实际注入 attention value head 的量。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">optimizer grouping</td><td style="padding:5px 10px;">参数分组与 LR 分配策略。nanoGPT-style grouping 给 n-gram table LR=0.004，current-style grouping 给 LR=0.6（差 150 倍），这是 gap 出现的必要条件。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">epoch boundary</td><td style="padding:5px 10px;">训练数据遍历完一轮的分界步数。当前数据集：epoch 1→2 在 step 337，epoch 2→3 在 step 686，epoch 3→4（moredata）在 step 1384/2082。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">warmdown</td><td style="padding:5px 10px;">LR schedule 的衰减阶段。当前实验在 step 750 附近 lrm_adam 从 0.33 降到 0.05，触发 train loss 的同步坍塌（memorize 突变）。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">RMSProp（table optimizer）</td><td style="padding:5px 10px;">用于 n-gram table 的优化器。无 first moment（momentum），β₂=0.999 使二阶矩 v 能跨 epoch 持久化（半衰期 ~693 步 ≈ 2 个 epoch）。与 AdamW 的关键区别在于写入方向 = 当前梯度，不被历史 momentum 稀释。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">Muon（matrix optimizer）</td><td style="padding:5px 10px;">用于 transformer 矩阵参数的优化器。在 nanogpt_original shell 下，table RMSProp + matrix Muon 的组合产生 delayed gap（onset 在 epoch2 而非 epoch3）。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">collision</td><td style="padding:5px 10px;">hash 冲突：不同的 n-gram context 被映射到同一个 table row。实测 batch 内 bigram collision ~20%，trigram ~8%。每层用不同 hash prime 降低有效 collision。</td></tr>
+          <tr><td style="padding:5px 10px;font-weight:600;">per-token loss / total contribution</td><td style="padding:5px 10px;"><strong>per-token loss</strong> = 该 bucket 内每个 token 的平均 loss；<strong>total contribution</strong> = frac × loss（该 bucket 对总 loss 的贡献，考虑了 token 占比）。§9 的交互式图表可切换两种视角。</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <!-- ==================== 1. 什么是 n-gram table ==================== -->
+    <section>
+      <h2 id="chapter-1">1.1 什么是 n-gram table</h2>
+      <p>n-gram table 就是一张巨大的查表（lookup table），和 token embedding 没有本质区别。区别在于：token embedding 用 token id 做 key，n-gram table 用<strong>几个连续 token 组成的 context 做 key</strong>。</p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 900 260" xmlns="http://www.w3.org/2000/svg">
+          <!-- Token embedding -->
+          <text x="20" y="25" font-size="13" font-weight="650" fill="#353d79">Token embedding (对照)</text>
+          <rect x="20" y="35" width="120" height="50" fill="none" stroke="#c8c1b6" stroke-width="1" rx="4"/>
+          <text x="80" y="58" font-size="11" fill="#686d73" text-anchor="middle">key = token id</text>
+          <text x="80" y="74" font-size="11" fill="#686d73" text-anchor="middle">如 " Apple" → 313</text>
+          <rect x="150" y="35" width="200" height="50" fill="#f0eee7" stroke="#c8c1b6" rx="4"/>
+          <text x="250" y="58" font-size="11" fill="#232426" text-anchor="middle">nn.Embedding(32768, 768)</text>
+          <text x="250" y="74" font-size="11" fill="#686d73" text-anchor="middle">每个 token 一行</text>
+          <line x1="140" y1="60" x2="150" y2="60" stroke="#686d73" stroke-width="1" marker-end="url(#arrow)"/>
+
+          <!-- Bigram table -->
+          <text x="20" y="120" font-size="13" font-weight="650" fill="#353d79">Bigram table</text>
+          <rect x="20" y="130" width="120" height="50" fill="none" stroke="#c8c1b6" stroke-width="1" rx="4"/>
+          <text x="80" y="153" font-size="11" fill="#686d73" text-anchor="middle">key = hash(wₜ₋₁, wₜ)</text>
+          <text x="80" y="169" font-size="11" fill="#686d73" text-anchor="middle">两个 token → 一个整数</text>
+          <rect x="150" y="130" width="200" height="50" fill="#f0eee7" stroke="#c8c1b6" rx="4"/>
+          <text x="250" y="153" font-size="11" fill="#232426" text-anchor="middle">nn.Embedding(2M, 64)</text>
+          <text x="250" y="169" font-size="11" fill="#686d73" text-anchor="middle">每行 64 维，共 2M 行</text>
+          <line x1="140" y1="155" x2="150" y2="155" stroke="#686d73" stroke-width="1" marker-end="url(#arrow)"/>
+
+          <!-- Trigram table -->
+          <text x="20" y="215" font-size="13" font-weight="650" fill="#353d79">Trigram table</text>
+          <rect x="20" y="225" width="120" height="25" fill="none" stroke="#c8c1b6" stroke-width="1" rx="4"/>
+          <text x="80" y="242" font-size="11" fill="#686d73" text-anchor="middle">key = hash(wₜ₋₂, wₜ₋₁, wₜ)</text>
+          <rect x="150" y="225" width="200" height="25" fill="#f0eee7" stroke="#c8c1b6" rx="4"/>
+          <text x="250" y="242" font-size="11" fill="#232426" text-anchor="middle">nn.Embedding(2M, 64) × 2 sub-tables</text>
+          <line x1="140" y1="237" x2="150" y2="237" stroke="#686d73" stroke-width="1" marker-end="url(#arrow)"/>
+
+          <!-- Arrow marker -->
+          <defs>
+            <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#686d73"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+
+      <h3>table 的规模</h3>
+      <table>
+        <tr><th>table 类型</th><th>context</th><th>行数</th><th>每行维度</th><th>hash 方式</th></tr>
+        <tr><td>unigram</td><td>单个 token</td><td class="td-num">32,768</td><td class="td-num">768</td><td>直接用 token id</td></tr>
+        <tr><td>bigram</td><td>前一个 + 当前 token</td><td class="td-num">2,097,152 (32K × 64)</td><td class="td-num">64 × 2 = 128</td><td>乘法 XOR hash</td></tr>
+        <tr><td>trigram</td><td>前两个 + 当前 token</td><td class="td-num">2,097,152</td><td class="td-num">64 × 2 = 128</td><td>乘法 XOR hash</td></tr>
+        <tr><td>fourgram</td><td>前三个 + 当前 token</td><td class="td-num">2,097,152</td><td class="td-num">64 × 2 = 128</td><td>乘法 XOR hash</td></tr>
+      </table>
+      <p>bigram/trigram/fourgram 的行数都是 <code>vocab_size × 64 = 32768 × 64 = 2,097,152</code>。hash 把 n 个 token 映射到这个范围内的一个整数。每层用不同的 hash prime，使不同层的同一 context 映射到不同行。</p>
+
+      <div class="note">
+        <strong>为什么不用直接查表？</strong> 因为 bigram 的可能组合有 32768² ≈ 10 亿种，trigram 有 32768³ ≈ 3.5 万亿种。直接建表不现实。hash 到 2M 行会产生 collision（不同 context 映射到同一行），但 collision 率很低（batch 内 bigram ~20%，trigram ~8%），而且每层用不同 prime + K=2 双 hash 进一步降低有效 collision。
+      </div>
+    </section>
+
+    <!-- ==================== 2. Hash 机制 ==================== -->
+    <section>
+      <h2>1.2 Hash 机制详解</h2>
+      <p>hash 的作用是把 n 个 token id 压缩成一个 row 号。具体实现是<strong>乘法 + XOR + 取模</strong>，全部在 GPU 上以 tensor 整数运算完成。</p>
+
+      <div class="code-label">train.py:1536-1546 — hash 计算</div>
+      <div class="code-block"><span class="com"># 输入: prev_idx, prev2_idx 是 shifted token id tensor [batch, seq_len]</span>
+<span class="com"># idx 是当前 token id tensor [batch, seq_len]</span>
+
+<span class="com"># Bigram: 两个 token → 一个 row</span>
+row = ((prev_idx * <span class="num">p1</span>) <span class="kw">^</span> (idx * <span class="num">p2</span>)) <span class="kw">%</span> <span class="num">2_097_152</span>
+
+<span class="com"># Trigram: 三个 token → 一个 row</span>
+row = ((prev2_idx * <span class="num">lp[0]</span>) <span class="kw">^</span> (prev_idx * <span class="num">lp[1]</span>) <span class="kw">^</span> (idx * <span class="num">lp[2]</span>)) <span class="kw">%</span> <span class="num">2_097_152</span></div>
+
+      <p>每层使用不同的 prime 组（来自 MurmurHash/FNV/golden-ratio 家族），保证不同层的同一 context 映射到完全不同的行。K=2 multi-hash 是指每个 n-gram 查两次独立 hash，各取半个维度（64 维），拼成完整的 128 维。</p>
+
+      <h3>collision 的实测数据</h3>
+      <table>
+        <tr><th>指标</th><th>bigram</th><th>trigram</th><th>含义</th></tr>
+        <tr><td>batch 内 unique_frac</td><td class="td-num">0.80</td><td class="td-num">0.92</td><td>trigram 的 collision 更低 (92% unique vs 80%)</td></tr>
+        <tr><td>within_batch_repeat</td><td class="td-num">20%</td><td class="td-num">8%</td><td>同一 batch 内有多少 token 共享 row</td></tr>
+        <tr><td>entropy_norm</td><td class="td-num">0.983</td><td class="td-num">0.993</td><td>trigram 的 row 分布更均匀</td></tr>
+        <tr><td>rows_ever_seen (step 1000)</td><td class="td-num">97%</td><td class="td-num">99%</td><td>到训练结束时大部分 row 都被访问过</td></tr>
+        <tr><td>rows_epoch_lag</td><td class="td-num">10%</td><td class="td-num">1.5%</td><td>epoch 间同位置 row overlap 很低</td></tr>
+      </table>
+      <p>关键发现：<strong>epoch 间同一文本映射到的 row 几乎完全不同</strong>（trigram 只有 1.5% overlap）。gap 不是来自"精确同 row 重复读"，而是来自 row 内容的统计积累。</p>
+    </section>
+
+    <!-- ==================== 3. Gate 机制 ==================== -->
+    <section>
+      <h2>1.3 Gate 机制：table 如何注入到模型</h2>
+      <p>n-gram table 查出的 value 不会直接加到模型输出上——它经过一个 <strong>input-dependent gate</strong> 控制注入强度。gate 本身是一个小 linear layer + sigmoid。</p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 880 200" xmlns="http://www.w3.org/2000/svg">
+          <!-- Step 1: hash -->
+          <rect x="10" y="20" width="120" height="55" fill="#f0eee7" stroke="#c8c1b6" rx="6"/>
+          <text x="70" y="42" font-size="11" font-weight="600" text-anchor="middle" fill="#232426">1. Hash</text>
+          <text x="70" y="58" font-size="10" text-anchor="middle" fill="#686d73">tokens → row #</text>
+          <text x="70" y="68" font-size="10" text-anchor="middle" fill="#686d73">GPU 整数运算</text>
+
+          <!-- Step 2: lookup -->
+          <rect x="160" y="20" width="120" height="55" fill="#f0eee7" stroke="#c8c1b6" rx="6"/>
+          <text x="220" y="42" font-size="11" font-weight="600" text-anchor="middle" fill="#232426">2. 查表</text>
+          <text x="220" y="58" font-size="10" text-anchor="middle" fill="#686d73">Embedding(row)</text>
+          <text x="220" y="68" font-size="10" text-anchor="middle" fill="#686d73">→ value [B,T,128]</text>
+
+          <!-- Step 3: gate -->
+          <rect x="310" y="20" width="120" height="55" fill="#fffdf8" stroke="#c4493d" stroke-width="1.5" rx="6"/>
+          <text x="370" y="42" font-size="11" font-weight="600" text-anchor="middle" fill="#c4493d">3. Gate</text>
+          <text x="370" y="58" font-size="10" text-anchor="middle" fill="#686d73">2×sigmoid(Linear(x))</text>
+          <text x="370" y="68" font-size="10" text-anchor="middle" fill="#686d73">→ gate [B,T,heads]</text>
+
+          <!-- Step 4: multiply -->
+          <circle cx="480" cy="47" r="16" fill="none" stroke="#353d79" stroke-width="1.5"/>
+          <text x="480" y="52" font-size="14" font-weight="700" text-anchor="middle" fill="#353d79">×</text>
+
+          <!-- Step 5: add -->
+          <rect x="520" y="20" width="120" height="55" fill="#f0eee7" stroke="#c8c1b6" rx="6"/>
+          <text x="580" y="42" font-size="11" font-weight="600" text-anchor="middle" fill="#232426">5. 加到 value</text>
+          <text x="580" y="58" font-size="10" text-anchor="middle" fill="#686d73">v_heads += gated</text>
+          <text x="580" y="68" font-size="10" text-anchor="middle" fill="#686d73">残差注入</text>
+
+          <!-- Arrows -->
+          <line x1="130" y1="47" x2="160" y2="47" stroke="#686d73" stroke-width="1" marker-end="url(#arrow2)"/>
+          <line x1="280" y1="47" x2="310" y2="47" stroke="#686d73" stroke-width="1" marker-end="url(#arrow2)"/>
+          <line x1="430" y1="47" x2="464" y2="47" stroke="#686d73" stroke-width="1" marker-end="url(#arrow2)"/>
+          <line x1="496" y1="47" x2="520" y2="47" stroke="#686d73" stroke-width="1" marker-end="url(#arrow2)"/>
+
+          <!-- Hidden state input -->
+          <rect x="310" y="100" width="120" height="35" fill="none" stroke="#c8c1b6" stroke-dasharray="4 3" rx="4"/>
+          <text x="370" y="122" font-size="10" text-anchor="middle" fill="#686d73">hidden state x</text>
+          <line x1="370" y1="100" x2="370" y2="75" stroke="#686d73" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#arrow2)"/>
+
+          <!-- Attention V input -->
+          <rect x="520" y="100" width="120" height="35" fill="none" stroke="#c8c1b6" stroke-dasharray="4 3" rx="4"/>
+          <text x="580" y="122" font-size="10" text-anchor="middle" fill="#686d73">attention V heads</text>
+          <line x1="580" y1="100" x2="580" y2="75" stroke="#686d73" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#arrow2)"/>
+
+          <!-- After -->
+          <text x="680" y="52" font-size="12" fill="#686d73">→ attention 继续计算</text>
+          <text x="680" y="68" font-size="11" fill="#686d73">softmax(QK/√d)·(V+gated)</text>
+
+          <defs>
+            <marker id="arrow2" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#686d73"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+
+      <div class="code-label">train.py:1721-1728 — gate 注入</div>
+      <div class="code-block"><span class="kw">def</span> <span class="fn">_add_value_residual</span>(self, branch, v_heads, residual, gate, x, channel_start, heads):
+    <span class="com"># residual = table 查出的 value [B, T, heads, head_dim]</span>
+    residual = residual.view(x.size(<span class="num">0</span>), x.size(<span class="num">1</span>), heads, self.head_dim)
+
+    <span class="com"># gate: 从 hidden state 取前 32 维 → linear → sigmoid → ×2</span>
+    gate_input = x[..., channel_start : channel_start + self.ve_gate_channels]
+    <span class="hl">value_gate = <span class="num">2</span> * torch.<span class="fn">sigmoid</span>(gate(gate_input))</span>  <span class="com"># 范围 [0, 2]</span>
+
+    <span class="com"># 逐位置乘 gate</span>
+    gated = value_gate.unsqueeze(<span class="num">-1</span>) * residual
+
+    <span class="com"># 加到 attention value 上</span>
+    <span class="kw">return</span> v_heads + gated</div>
+
+      <p>gate 初始化为全 0 权重，所以 <code>2×sigmoid(0) = 1.0</code>——训练初期 gate 全开（中性），之后模型自己学习该在什么时候、什么位置放大或抑制 n-gram value 的注入。</p>
+
+      <div class="note anchor-note">
+        <strong>gate 是 gap 的关键放大器</strong>。实验数据显示：epoch1 期间 trigram gate_rms 只有 0.088（几乎不工作），但进入 epoch2 中段后 gate_rms 上升到 0.29——gate 被训练起来后，table 中积累的历史内容才被"放大"为可见的 train loss 下降。
+      </div>
+    </section>
+
+    <!-- ==================== 4. Shell 概念 ==================== -->
+    <section>
+      <h2>1.4 Shell 是什么：nanoGPT vs current shell</h2>
+      <p>项目中有两类模型架构，称为 "shell"（外壳）。它们的区别在于 transformer block 的内部结构。</p>
+
+      <div class="compare">
+        <div class="compare-col nogap">
+          <div class="compare-title">nanoGPT shell</div>
+          <p>经典 nanoGPT 架构。标准 LayerNorm、标准 attention、标准 MLP。</p>
+          <div class="code-block"><span class="com"># NanoGPTBlock</span>
+x = LayerNorm(x)
+x = x + SelfAttention(x)
+x = LayerNorm(x)
+x = x + MLP(x)</div>
+          <p>即使加 n-gram table + RMSProp + 高 LR，也<strong>不产生 gap</strong>。</p>
+        </div>
+        <div class="compare-col gap">
+          <div class="compare-title">current shell (GPT)</div>
+          <p>从 current/GPT 架构移植的 block。包含 x0 residual、resid_lambda、split QKV 等额外结构。</p>
+          <div class="code-block"><span class="com"># Block (current shell)</span>
+x = resid_lambda*x + x0_lambda*x0_gate*x0
+x = x + SelfAttention_splitQKV(x)
+x = x + MLP(x)
+<span class="com"># attention 内部: V += ngram_gate × table_value</span></div>
+          <p>n-gram table 注入到 attention value stream 的方式<strong>和 nanoGPT shell 不同</strong>。在 current shell 下，gap 出现。</p>
+        </div>
+      </div>
+
+      <p>关键区别不在 table 本身（两者都可以有相同的 n-gram table），而在于 <strong>reader 的传输路径</strong>：current shell 的 attention split QKV + 残差路径使 n-gram value 在后层 residual 中被更有效地放大。这是为什么 nanoGPT shell 即使加上所有组件仍然无 gap，而切到 current shell 后 gap 出现。</p>
+
+      <div class="note">
+        <strong>"current-style n-gram injection"</strong> 指的是 n-gram value 被注入到 attention value stream 的具体坐标和方式。nanoGPT-style injection 和 current-style injection 的数学结构不同（注入位置、gate 通道分配、与 attention 的交互方式），这决定了 reader Jacobian <span class="math">J<sub>i,a</sub></span> 的大小。
+      </div>
+    </section>
+
+    <!-- ==================== 5. Optimizer grouping ==================== -->
+    <section>
+      <h2>1.5 Optimizer grouping：两个独立的概念</h2>
+      <p>项目中 "optimizer" 相关的配置有两个独立维度，经常被混淆。这里明确区分。</p>
+
+      <h3>维度一：n-gram table 用什么 optimizer</h3>
+      <p>由 <code>nanogpt_ngram_optimizer</code> 控制，决定 table 参数的更新算法：</p>
+      <table>
+        <tr><th>取值</th><th>unigram table</th><th>bigram/trigram table</th><th>含义</th></tr>
+        <tr><td><code>"adamw"</code></td><td>AdamW</td><td>AdamW</td><td>全部用 AdamW（有 momentum）</td></tr>
+        <tr><td><code>"rmsprop"</code></td><td>RMSProp</td><td>RMSProp</td><td>全部用 RMSProp（无 momentum）</td></tr>
+        <tr><td><code>"mixed"</code></td><td>AdamW</td><td>RMSProp</td><td>unigram 用 AdamW，high-order 用 RMSProp</td></tr>
+      </table>
+
+      <h3>维度二：参数分组与 LR 分配</h3>
+      <p>由 <code>optimizer_grouping</code> 控制，决定<strong>每类参数的学习率</strong>：</p>
+      <table>
+        <tr><th>参数类型</th><th>nanoGPT-style grouping</th><th>current-style grouping</th></tr>
+        <tr><td>embedding (wte + wpe)</td><td class="td-num">0.004</td><td class="td-num"><strong>0.6</strong></td></tr>
+        <tr><td>lm_head (unembedding)</td><td class="td-num">0.004</td><td class="td-num">0.004</td></tr>
+        <tr><td>unigram VE</td><td class="td-num">0.004</td><td class="td-num"><strong>0.6</strong></td></tr>
+        <tr><td>bigram/trigram VE</td><td class="td-num">0.004</td><td class="td-num"><strong>0.6</strong></td></tr>
+        <tr><td>norm params</td><td class="td-num">0.004</td><td class="td-num">0.004</td></tr>
+        <tr><td>matrix (Muon)</td><td class="td-num">0.04</td><td class="td-num">0.04</td></tr>
+      </table>
+
+      <div class="note gap-note">
+        <strong>关键差异</strong>：current-style grouping 给 n-gram table 的 LR 是 0.6，而 nanoGPT-style 只有 0.004——<strong>差 150 倍</strong>。这个 LR 差异是 gap 出现的必要条件：高 LR 使 table 在 epoch1 内快速积累 train-specific content，到 epoch2 时形成足够强的 history state。
+      </div>
+
+      <h3>RMSProp 对比 AdamW：为什么对 sparse table 更合适</h3>
+      <div class="compare">
+        <div class="compare-col nogap">
+          <div class="compare-title">AdamW（有 first moment）</div>
+          <div class="code-block">m = β₁·m + (1-β₁)·grad   <span class="com"># momentum</span>
+v = β₂·v + (1-β₂)·grad²
+update = lr · m / (√v + ε)
+
+<span class="com"># β₁ = 0.8 → 半衰期 ~3 步</span>
+<span class="com"># sparse row 隔几十步才被访问</span>
+<span class="com"># → m 已衰减到 ~0，等于每次"重启"</span></div>
+        </div>
+        <div class="compare-col gap">
+          <div class="compare-title">RMSProp（无 first moment）</div>
+          <div class="code-block">v = β₂·v + (1-β₂)·grad²
+update = lr · grad / (√v + ε)
+
+<span class="com"># β₂ = 0.999 → 半衰期 ~693 步</span>
+<span class="com"># ≈ 2 个 epoch 的长度</span>
+<span class="com"># → v 能跨 epoch 持久化</span>
+<span class="com"># → 写入方向 = 当前梯度，不被稀释</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 6. 现象 ==================== -->
+    <section>
+      <h2 id="chapter-2">2. Gap 现象与因果链</h2>
+      <p>以下为 <code>baseline_current</code> 的真实 loss 记录（current shell + current-style grouping + bigram+trigram RMSProp，seed42，1000 step，vocab=8192，n_layer=8）——与 §7.9 / §9 的 norm / 频次分解<strong>同一 run</strong>。</p>
+
+      <div class="chart-section">
+        <div class="chart-wrap" style="aspect-ratio: 2.2/1; min-height: 320px;">
+          <svg viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,ui-sans-serif,system-ui,sans-serif">
+<rect width="820" height="320" fill="#fffdf8" rx="6"/>
+<line x1="55" y1="272.4" x2="800" y2="272.4" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="49" y="275.4" text-anchor="end" fill="#686d73" font-size="9">3</text>
+<line x1="55" y1="234.5" x2="800" y2="234.5" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="49" y="237.5" text-anchor="end" fill="#686d73" font-size="9">4</text>
+<line x1="55" y1="196.7" x2="800" y2="196.7" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="49" y="199.7" text-anchor="end" fill="#686d73" font-size="9">5</text>
+<line x1="55" y1="158.8" x2="800" y2="158.8" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="49" y="161.8" text-anchor="end" fill="#686d73" font-size="9">6</text>
+<line x1="55" y1="120.9" x2="800" y2="120.9" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="49" y="123.9" text-anchor="end" fill="#686d73" font-size="9">7</text>
+<line x1="55" y1="83.0" x2="800" y2="83.0" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="49" y="86.0" text-anchor="end" fill="#686d73" font-size="9">8</text>
+<line x1="55" y1="45.2" x2="800" y2="45.2" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="49" y="48.2" text-anchor="end" fill="#686d73" font-size="9">9</text>
+<line x1="55.0" y1="280" x2="55.0" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="55.0" y="296" text-anchor="middle" fill="#686d73" font-size="9">0</text>
+<line x1="129.5" y1="280" x2="129.5" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="129.5" y="296" text-anchor="middle" fill="#686d73" font-size="9">100</text>
+<line x1="204.0" y1="280" x2="204.0" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="204.0" y="296" text-anchor="middle" fill="#686d73" font-size="9">200</text>
+<line x1="278.5" y1="280" x2="278.5" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="278.5" y="296" text-anchor="middle" fill="#686d73" font-size="9">300</text>
+<line x1="353.0" y1="280" x2="353.0" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="353.0" y="296" text-anchor="middle" fill="#686d73" font-size="9">400</text>
+<line x1="427.5" y1="280" x2="427.5" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="427.5" y="296" text-anchor="middle" fill="#686d73" font-size="9">500</text>
+<line x1="502.0" y1="280" x2="502.0" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="502.0" y="296" text-anchor="middle" fill="#686d73" font-size="9">600</text>
+<line x1="576.5" y1="280" x2="576.5" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="576.5" y="296" text-anchor="middle" fill="#686d73" font-size="9">700</text>
+<line x1="651.0" y1="280" x2="651.0" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="651.0" y="296" text-anchor="middle" fill="#686d73" font-size="9">800</text>
+<line x1="725.5" y1="280" x2="725.5" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="725.5" y="296" text-anchor="middle" fill="#686d73" font-size="9">900</text>
+<line x1="800.0" y1="280" x2="800.0" y2="284" stroke="#c8c1b6" stroke-width="0.5"/>
+<text x="800.0" y="296" text-anchor="middle" fill="#686d73" font-size="9">1000</text>
+<line x1="306.8" y1="30" x2="306.8" y2="280" stroke="#8a8176" stroke-width="1" stroke-dasharray="4 3"/>
+<line x1="566.8" y1="30" x2="566.8" y2="280" stroke="#8a8176" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="180.9" y="24" text-anchor="middle" fill="#8a8176" font-size="9" font-weight="600">epoch 1</text>
+<text x="436.8" y="24" text-anchor="middle" fill="#8a8176" font-size="9" font-weight="600">epoch 2</text>
+<text x="683.4" y="24" text-anchor="middle" fill="#8a8176" font-size="9" font-weight="600">epoch 3</text>
+<text x="427.5" y="314" text-anchor="middle" fill="#686d73" font-size="10">training step</text>
+<text x="12" y="155.0" text-anchor="middle" fill="#686d73" font-size="10" transform="rotate(-90,12,155.0)">loss</text>
+<text x="427.5" y="16" text-anchor="middle" fill="#232426" font-size="12" font-weight="650">Train & Val Loss Overview</text>
+<line x1="55" y1="30" x2="55" y2="280" stroke="#c8c1b6" stroke-width="1"/>
+<line x1="55" y1="280" x2="800" y2="280" stroke="#c8c1b6" stroke-width="1"/>
+<polyline points="55.7,44.7 58.0,49.0 60.2,66.2 62.5,88.3 64.7,96.6 66.9,104.8 69.2,105.7 71.4,106.4 73.6,107.0 75.9,106.8 78.1,107.3 80.3,106.8 82.6,107.4 84.8,107.4 87.0,107.8 89.3,107.3 91.5,107.8 93.7,107.3 96.0,107.2 98.2,107.3 100.4,108.3 102.7,107.5 104.9,109.6 107.2,109.8 109.4,112.2 111.6,113.4 113.9,114.4 116.1,115.3 118.3,119.1 120.6,121.9 122.8,120.5 125.0,127.6 127.3,131.0 129.5,133.9 131.7,134.6 134.0,137.7 136.2,141.1 138.4,141.8 140.7,144.8 142.9,140.0 145.1,146.6 147.4,149.0 149.6,150.8 151.9,152.4 154.1,151.9 156.3,155.5 158.6,156.1 160.8,157.9 163.0,160.3 165.3,162.0 167.5,160.6 169.7,162.5 172.0,164.5 174.2,165.7 176.4,166.2 178.7,166.7 180.9,167.7 183.1,168.1 185.4,167.5 187.6,169.1 189.8,170.4 192.1,171.5 194.3,171.2 196.6,173.7 198.8,172.4 201.0,172.8 203.3,171.7 205.5,173.9 207.7,174.5 210.0,175.0 212.2,175.4 214.4,175.8 216.7,173.6 218.9,175.2 221.1,175.7 223.4,176.4 225.6,177.8 227.8,178.2 230.1,181.0 232.3,180.9 234.5,181.1 236.8,182.1 239.0,184.5 241.2,184.6 243.5,184.4 245.7,185.1 248.0,185.7 250.2,187.9 252.4,186.7 254.7,188.2 256.9,189.2 259.1,190.3 261.4,191.0 263.6,191.3 265.8,191.6 268.1,191.1 270.3,191.7 272.5,193.2 274.8,195.0 277.0,194.5 279.2,195.1 281.5,196.0 283.7,196.9 285.9,194.7 288.2,195.6 290.4,196.9 292.7,198.7 294.9,199.1 297.1,199.4 299.4,198.2 301.6,199.2 303.8,200.2 306.1,199.2 308.3,201.1 310.5,197.5 312.8,201.3 315.0,200.6 317.2,201.8 319.5,201.3 321.7,203.5 323.9,203.0 326.2,204.1 328.4,202.5 330.6,204.7 332.9,205.5 335.1,206.6 337.4,205.3 339.6,206.9 341.8,205.0 344.1,204.7 346.3,208.5 348.5,208.9 350.8,207.9 353.0,208.1 355.2,208.4 357.5,206.6 359.7,210.3 361.9,209.5 364.2,208.0 366.4,208.2 368.6,208.1 370.9,210.9 373.1,208.6 375.4,210.1 377.6,212.0 379.8,212.3 382.1,212.1 384.3,212.1 386.5,209.1 388.8,212.1 391.0,213.1 393.2,210.9 395.5,213.8 397.7,213.1 399.9,216.0 402.2,214.8 404.4,213.2 406.6,215.3 408.9,214.6 411.1,215.5 413.3,215.0 415.6,218.1 417.8,217.4 420.1,216.7 422.3,218.9 424.5,215.3 426.8,218.5 429.0,218.5 431.2,219.1 433.5,217.4 435.7,217.5 437.9,220.9 440.2,218.7 442.4,217.4 444.6,217.7 446.9,217.4 449.1,218.2 451.3,220.7 453.6,219.8 455.8,220.1 458.0,218.6 460.3,219.8 462.5,219.5 464.8,217.8 467.0,216.1 469.2,220.6 471.5,221.2 473.7,222.4 475.9,223.4 478.2,222.9 480.4,222.3 482.6,222.2 484.9,225.7 487.1,223.7 489.3,228.1 491.6,226.7 493.8,228.6 496.0,227.1 498.3,229.8 500.5,228.1 502.7,230.2 505.0,227.1 507.2,228.1 509.4,231.1 511.7,230.6 513.9,231.1 516.2,233.6 518.4,231.0 520.6,233.5 522.9,231.7 525.1,232.6 527.3,233.3 529.6,232.0 531.8,233.4 534.0,235.7 536.3,235.5 538.5,234.8 540.7,236.2 543.0,235.9 545.2,234.1 547.4,234.2 549.7,235.1 551.9,235.5 554.2,238.3 556.4,236.4 558.6,237.1 560.9,236.5 563.1,237.9 565.3,237.1 567.6,236.6 569.8,236.5 572.0,236.0 574.3,238.8 576.5,238.6 578.7,239.7 581.0,239.0 583.2,238.5 585.4,241.1 587.7,241.4 589.9,240.0 592.1,239.4 594.4,240.7 596.6,240.7 598.9,240.8 601.1,241.0 603.3,240.8 605.6,242.0 607.8,242.9 610.0,242.5 612.3,240.0 614.5,242.8 616.7,240.9 619.0,241.5 621.2,242.9 623.4,243.8 625.7,242.9 627.9,240.8 630.1,242.6 632.4,242.7 634.6,243.7 636.8,245.0 639.1,247.7 641.3,244.6 643.6,242.2 645.8,242.3 648.0,245.4 650.3,245.4 652.5,245.9 654.7,246.9 657.0,242.4 659.2,246.3 661.4,246.0 663.7,246.6 665.9,245.7 668.1,245.7 670.4,246.5 672.6,247.7 674.8,247.7 677.1,246.8 679.3,249.0 681.5,247.4 683.8,246.6 686.0,249.2 688.2,249.3 690.5,247.1 692.7,249.0 695.0,250.2 697.2,249.4 699.4,247.3 701.7,250.0 703.9,248.6 706.1,249.2 708.4,250.0 710.6,251.4 712.8,252.4 715.1,250.4 717.3,250.3 719.5,248.5 721.8,250.8 724.0,249.0 726.2,246.4 728.5,250.5 730.7,252.0 733.0,252.6 735.2,251.9 737.4,251.2 739.7,253.9 741.9,252.9 744.1,252.4 746.4,254.9 748.6,255.4 750.8,256.7 753.1,258.3 755.3,257.5 757.5,257.8 759.8,259.6 762.0,258.7 764.2,257.5 766.5,259.4 768.7,262.0 770.9,261.2 773.2,262.6 775.4,262.5 777.6,261.2 779.9,264.1 782.1,262.3 784.4,263.3 786.6,260.0 788.8,261.0 791.1,261.6 793.3,265.0 795.5,264.0 797.8,265.0 800.0,264.9" fill="none" stroke="#2d6f9f" stroke-width="2" stroke-linejoin="round"/>
+<polyline points="92.2,106.9 94.5,106.9 96.7,106.9 99.0,106.9 101.2,106.9 103.4,106.9 105.7,106.9 107.9,106.9 110.1,106.9 112.4,106.9 114.6,106.9 116.8,106.9 119.1,106.9 121.3,106.9 123.5,106.9 125.8,106.9 128.0,106.9 130.2,134.4 132.5,134.4 134.7,134.4 136.9,134.4 139.2,134.4 141.4,134.4 143.7,134.4 145.9,134.4 148.1,134.4 150.4,134.4 152.6,134.4 154.8,134.4 157.1,134.4 159.3,134.4 161.5,134.4 163.8,134.4 166.0,134.4 168.2,161.0 170.5,161.0 172.7,161.0 174.9,161.0 177.2,161.0 179.4,161.0 181.7,161.0 183.9,161.0 186.1,161.0 188.4,161.0 190.6,161.0 192.8,161.0 195.1,161.0 197.3,161.0 199.5,161.0 201.8,161.0 204.0,173.7 206.2,173.7 208.5,173.7 210.7,173.7 212.9,173.7 215.2,173.7 217.4,173.7 219.6,173.7 221.9,173.7 224.1,173.7 226.3,173.7 228.6,173.7 230.8,173.7 233.1,173.7 235.3,173.7 237.5,173.7 239.8,173.7 242.0,184.4 244.2,184.4 246.5,184.4 248.7,184.4 250.9,184.4 253.2,184.4 255.4,184.4 257.6,184.4 259.9,184.4 262.1,184.4 264.3,184.4 266.6,184.4 268.8,184.4 271.0,184.4 273.3,184.4 275.5,184.4 277.8,184.4 280.0,195.2 282.2,195.2 284.5,195.2 286.7,195.2 288.9,195.2 291.2,195.2 293.4,195.2 295.6,195.2 297.9,195.2 300.1,195.2 302.3,195.2 304.6,195.2 306.8,195.2 309.0,195.2 311.3,195.2 313.5,195.2 315.8,201.7 318.0,201.7 320.2,201.7 322.5,201.7 324.7,201.7 326.9,201.7 329.2,201.7 331.4,201.7 333.6,201.7 335.9,201.7 338.1,201.7 340.3,201.7 342.6,201.7 344.8,201.7 347.0,201.7 349.3,201.7 351.5,201.7 353.7,207.1 356.0,207.1 358.2,207.1 360.4,207.1 362.7,207.1 364.9,207.1 367.2,207.1 369.4,207.1 371.6,207.1 373.9,207.1 376.1,207.1 378.3,207.1 380.6,207.1 382.8,207.1 385.0,207.1 387.3,207.1 389.5,207.1 391.7,212.1 394.0,212.1 396.2,212.1 398.4,212.1 400.7,212.1 402.9,212.1 405.1,212.1 407.4,212.1 409.6,212.1 411.9,212.1 414.1,212.1 416.3,212.1 418.6,212.1 420.8,212.1 423.0,212.1 425.3,212.1 427.5,216.5 429.7,216.5 432.0,216.5 434.2,216.5 436.4,216.5 438.7,216.5 440.9,216.5 443.1,216.5 445.4,216.5 447.6,216.5 449.9,216.5 452.1,216.5 454.3,216.5 456.6,216.5 458.8,216.5 461.0,216.5 463.3,216.5 465.5,215.9 467.7,215.9 470.0,215.9 472.2,215.9 474.4,215.9 476.7,215.9 478.9,215.9 481.1,215.9 483.4,215.9 485.6,215.9 487.8,215.9 490.1,215.9 492.3,215.9 494.5,215.9 496.8,215.9 499.0,215.9 501.3,215.9 503.5,218.6 505.7,218.6 508.0,218.6 510.2,218.6 512.4,218.6 514.7,218.6 516.9,218.6 519.1,218.6 521.4,218.6 523.6,218.6 525.8,218.6 528.1,218.6 530.3,218.6 532.5,218.6 534.8,218.6 537.0,218.6 539.2,218.5 541.5,218.5 543.7,218.5 546.0,218.5 548.2,218.5 550.4,218.5 552.7,218.5 554.9,218.5 557.1,218.5 559.4,218.5 561.6,218.5 563.8,218.5 566.1,218.5 568.3,218.5 570.5,218.5 572.8,218.5 575.0,218.5 577.2,217.2 579.5,217.2 581.7,217.2 583.9,217.2 586.2,217.2 588.4,217.2 590.7,217.2 592.9,217.2 595.1,217.2 597.4,217.2 599.6,217.2 601.8,217.2 604.1,217.2 606.3,217.2 608.5,217.2 610.8,217.2 613.0,217.2 615.2,219.3 617.5,219.3 619.7,219.3 621.9,219.3 624.2,219.3 626.4,219.3 628.6,219.3 630.9,219.3 633.1,219.3 635.4,219.3 637.6,219.3 639.8,219.3 642.1,219.3 644.3,219.3 646.5,219.3 648.8,219.3 651.0,220.3 653.2,220.3 655.5,220.3 657.7,220.3 659.9,220.3 662.2,220.3 664.4,220.3 666.6,220.3 668.9,220.3 671.1,220.3 673.4,220.3 675.6,220.3 677.8,220.3 680.1,220.3 682.3,220.3 684.5,220.3 686.8,220.3 689.0,221.3 691.2,221.3 693.5,221.3 695.7,221.3 697.9,221.3 700.2,221.3 702.4,221.3 704.6,221.3 706.9,221.3 709.1,221.3 711.3,221.3 713.6,221.3 715.8,221.3 718.0,221.3 720.3,221.3 722.5,221.3 724.8,221.3 727.0,220.8 729.2,220.8 731.5,220.8 733.7,220.8 735.9,220.8 738.2,220.8 740.4,220.8 742.6,220.8 744.9,220.8 747.1,220.8 749.3,220.8 751.6,220.8 753.8,220.8 756.0,220.8 758.3,220.8 760.5,220.8 762.8,218.4 765.0,218.4 767.2,218.4 769.5,218.4 771.7,218.4 773.9,218.4 776.2,218.4 778.4,218.4 780.6,218.4 782.9,218.4 785.1,218.4 787.3,218.4 789.6,218.4 791.8,218.4 794.0,218.4 796.3,218.4 798.5,218.4" fill="none" stroke="#c4493d" stroke-width="2" stroke-linejoin="round"/>
+<line x1="65" y1="42" x2="81" y2="42" stroke="#2d6f9f" stroke-width="2.5"/>
+<text x="85" y="45.5" fill="#686d73" font-size="9">train</text>
+<line x1="65" y1="56" x2="81" y2="56" stroke="#c4493d" stroke-width="2.5"/>
+<text x="85" y="59.5" fill="#686d73" font-size="9">val</text>
+</svg>
+        </div>
+        <div class="series-legend">
+        <span><i class="line-swatch train"></i>train loss</span>
+          <span><i class="line-swatch val"></i>val loss</span>
+        </div>
+        <div style="padding:0 12px 8px;font-size:10px;color:var(--weak);text-align:center;">
+          📊 数据来源：baseline_current (current shell + current-style grouping + bigram+trigram RMSProp, vocab=8192, n_layer=8, seed42, 1000 step)
+        </div>
+      </div>
+
+      <p>关键现象：epoch2 时 train 与 val 基本贴合（gap ~0.04）；进入 epoch3 后 train 持续阶梯下降、val 停滞并回升，gap 从 ~0.5 扩大到 1.33。图中曲线直接来自真实训练记录，与下方 §7.9 / §9 同一 run。</p>
+      <table>
+        <tr><th>step</th><th>train loss</th><th>val loss</th><th>gap</th><th>现象</th></tr>
+        <tr><td class="td-num">338</td><td class="td-num">4.854</td><td class="td-num">5.038</td><td class="td-num">0.184</td><td>epoch1→2 边界，gap 极小</td></tr>
+        <tr><td class="td-num">500</td><td class="td-num">4.437</td><td class="td-num">4.476</td><td class="td-num">0.040</td><td>epoch2 中段，train 与 val 贴合</td></tr>
+        <tr><td class="td-num">687</td><td class="td-num">3.911</td><td class="td-num">4.424</td><td class="td-num">0.513</td><td>epoch2→3 边界，gap 开始扩大</td></tr>
+        <tr><td class="td-num">800</td><td class="td-num">3.718</td><td class="td-num">4.377</td><td class="td-num">0.659</td><td><span class="tag gap">train 持续下降</span></td></tr>
+        <tr><td class="td-num">900</td><td class="td-num">3.596</td><td class="td-num">4.362</td><td class="td-num">0.766</td><td>val 停滞，gap 扩大</td></tr>
+        <tr><td class="td-num">1000</td><td class="td-num">3.197</td><td class="td-num">4.527</td><td class="td-num">1.330</td><td>epoch3 末，val 回升、gap 超过 1.3</td></tr>
+      </table>
+
+      <h3>因果链：gap 是如何产生的</h3>
+      <p>以下因果链基于 <code>baseline_current</code> 的 observable 数据（与 §7.9 / §9 同一 run）。每个环节都有直接测量证据。</p>
+
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-marker"><div class="flow-dot anchor"></div><div class="flow-line"></div></div>
+          <div class="flow-content">
+            <div class="flow-title">epoch1-2: table 积累 train-specific content</div>
+            <div class="flow-detail">高 LR + RMSProp（无 momentum 稀释）使每个被访问的 row 写入纯 train 方向的 gradient，table content RMS（raw_value_rms）在训练中持续增长。<strong>但此时 reader gate 还没训练起来</strong>，注入幅度（gated value RMS = gate × table）有限，所以 epoch2 时 train 与 val 基本贴合（gap ~0.04）。</div>
+          </div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-marker"><div class="flow-dot weak"></div><div class="flow-line"></div></div>
+          <div class="flow-content">
+            <div class="flow-title">epoch2→3 边界: gate 通道建立</div>
+            <div class="flow-detail">gate_rms 在 epoch2-3 抬升，gate 通道被激活，table 中已积累的历史内容开始被放大为 logits 上的有效 signal（gated value RMS 同步增长，见 §7.9 双轴图）。</div>
+          </div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-marker"><div class="flow-dot gap"></div><div class="flow-line"></div></div>
+          <div class="flow-content">
+            <div class="flow-title">train 阶梯下降 <span class="flow-tag gap">gap</span></div>
+            <div class="flow-detail">table 中的历史 row 内容在 train probe 上大幅降低 loss。train loss 从 4.44（step 500）阶梯下降到 3.20（step 1000）。</div>
+          </div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-marker"><div class="flow-dot gap"></div><div class="flow-line"></div></div>
+          <div class="flow-content">
+            <div class="flow-title">val loss 翘起 <span class="flow-tag gap">gap</span></div>
+            <div class="flow-detail">table 中的 train-specific row content 被 val 文本访问时，因 residual 方向不对齐而产生 cross-penalty。val loss 从 4.48（step 500）停滞并回升到 4.53（step 1000）。</div>
+          </div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-marker"><div class="flow-dot gap"></div></div>
+          <div class="flow-content">
+            <div class="flow-title">gap 持续扩大 <span class="flow-tag gap">gap</span></div>
+            <div class="flow-detail">train loss 持续下降，val loss 停滞/回升。gap 从 0.04（epoch2）扩大到 1.33（epoch3 末），且仍在上升。频次分解（§9）显示这些被放大的 pattern 主要让 novel / 低中频 context 过拟合。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ==================== 7. Table Norm × Gate（loss↔norm，与 §9 同 setting） ==================== -->
+    <section>
+      <h2 id="chapter-7">7. Table Norm × Gate：loss↔norm 时间关系</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:6px">
+        视图 A：loss↔norm。<strong>与 §9 的 loss↔频次分解同一实验</strong>（baseline_current，current shell）。
+      </p>
+      <div class="note" style="background:#faf7f0;border-left:4px solid var(--anchor);border-radius:8px;padding:12px 16px;margin:10px 0;font-size:13px;line-height:1.7;">
+        <strong>统一 setting</strong>：本图与 §9 都用 <code>baseline_current</code>
+        （current shell + current-style grouping + bigram+trigram RMSProp，seed42，1000 step，vocab=8192，n_layer=8，
+        epoch 边界 [338, 687]，epoch3 gap 从 ~0.5 扩大到 1.33）——
+        与上方 §2 现象图<strong>同一 setting 系</strong>（current shell，gap 量级远大于 nanogpt_original），
+        且同时记录了<strong>逐 step 的 gate/table/gated norm</strong>与<strong>按频次分桶的 loss</strong>。
+      </div>
+
+      <h3 id="chapter-7-9">§7.9 Loss × n-gram Norm（双轴复合图）</h3>
+      <p style="font-size:14px;line-height:1.65;margin-bottom:10px">
+        左轴 train/val/gap loss，右轴 n-gram norm（gate_rms / table content RMS / gated value RMS）。
+        切 context（unigram/bigram/trigram）、切 loss 曲线、开关各 norm。<strong>判据</strong>：注入 norm
+        （gated value RMS = gate × table）的增长时点是否与 gap 爆发对齐。
+      </p>
+      <div class="chart-section">
+        <div class="chart-wrap" style="width:100%;position:relative;">
+          <iframe src="interactive/fig_loss_norm.html" style="width:100%;max-width:1040px;height:620px;border:1px solid var(--line);border-radius:8px;" title="Loss × Norm 时间关系"></iframe>
+        </div>
+        <div style="padding:4px 12px 8px;font-size:11px;color:var(--muted);text-align:center;">
+          图 7.9：loss（左轴）与 n-gram norm（右轴）随 step 演化。下方表格给出每 epoch 变化率，可直接读出 norm 增长峰值 epoch 是否与 gap 峰值 epoch 对齐。
+        </div>
+        <div style="padding:0 12px 8px;font-size:10px;color:var(--weak);text-align:center;">
+          📊 数据来源：baseline_current (current shell + current-style grouping + bigram+trigram RMSProp, vocab=8192, n_layer=8, seed42, 1000 step)
+        </div>
+      </div>
+      <div class="note" style="background:#fbf7ef;border-left:4px solid #c4493d;border-radius:8px;padding:14px 16px;margin:12px 0;font-size:13.5px;line-height:1.7;">
+        <strong style="color:#c4493d;">读图</strong>：table content RMS 持续增长，gate 部分调节，
+        <strong>gated value RMS（注入）= gate × table</strong> 才是真正加到 value head 的量。把 loss 切到 <em>gap (val−train)</em>、
+        norm 留 <em>gated value RMS</em>，可见注入幅度的增长与 gap 的扩大在时间上<strong>对齐</strong>（epoch3 train 降到 3.2、val 升到 4.5，注入 norm 同步抬升）——
+        gap 不是 gate 单独造成，而是 table 累积的 train-specific pattern 经 gate 通道被持续放大。
+        下一节 <a href="#chapter-9">§9</a> 从频次角度补充：这些被放大的 pattern 主要让低中频 / novel context 过拟合。
+      </div>
+    </section>
+
+    <!-- ==================== 9. 频次分解分析 ==================== -->
+    <section>
+      <h2 id="chapter-9">9. 频次分解分析</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        把 loss 按 n-gram context 的<strong>训练频次</strong>分解，是定位 gap 来源的核心观测量。
+      </p>
+      <div class="note anchor-note">
+        <strong>频次定义（统一口径）</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          每个 n-gram context 的频次 = 它在<strong>单个 train epoch</strong> 内出现的精确次数，由训练前一次性离线扫描的
+          <strong>精确频率索引</strong>（<code>GlobalNgramFrequencyIndex</code>）给出，整个训练过程不变。
+          <strong>频次定义仅在 train 上</strong>；val 的 token 按"其 context 在 train 中的频次"归类到同一套桶，
+          因此 val 有 <code>novel</code> 桶（context 在 train 中从未出现），而 train 按定义没有 novel 桶。
+        </p>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          桶的边界（精确频次，上下界闭区间）：<code>novel(0) / 1 / 2 / 3 / 4 / 5 / 6-10 / 11-20 / 21-50 / 51-100 / 101-200 / 201-500 / 501-1k / 1k-5k / 5k+</code>。
+          低频段被细分为单值桶（1/2/3/4/5），便于直接观察最低频 context 的过拟合。
+        </p>
+      </div>
+      <div class="note gap-note">
+        <strong>与 §7 同 setting（视图 B）</strong>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          本章频次分解与 §7 的 loss↔norm 图用<strong>同一 run</strong>：<code>baseline_current</code>
+          （current shell + current-style grouping + bigram+trigram RMSProp，seed42，1000 step，vocab=8192，n_layer=8，
+          epoch3 gap 从 ~0.5 扩大到 1.33）——与 §2 现象图同一 setting 系，gap 量级远大于 nanogpt_original。
+          §7（视图 A）说"<strong>注入 norm 在增长、与 gap 时间对齐</strong>"，本章（视图 B/C）补充"<strong>这些被放大的 pattern 主要让 novel / 低中频 context 过拟合</strong>"——同一现象的两个测量面。
+        </p>
+      </div>
+
+      <h3 id="chapter-9-1">9.1 频次分桶：train / val / gap 损失曲线</h3>
+      <p>
+        下面这张复合图把<strong>每个频次桶</strong>的 train loss、val loss、gap(val−train) 放进同一个面板，可切换：
+      </p>
+      <ul style="font-size:14px;line-height:1.7;margin:0 0 12px 24px;">
+        <li><strong>曲线 (curve)</strong>：train loss / val loss / <strong>train+val 同图</strong>（默认，train 蓝实线、val 红虚线）/ gap(val−train)。
+            按用户要求，<em>所有 gap 图都自动带上 val 和 train 两条曲线</em>，切换到 gap 视图时 0 线固定为坐标轴。</li>
+        <li><strong>指标 (metric)</strong>：per-token loss / 总贡献 = frac × loss（衡量该桶对总 loss/gap 的实际贡献量级）。</li>
+        <li><strong>context</strong>：bigram / trigram。每个桶可用复选框单独开关。</li>
+      </ul>
+      <div class="chart-section">
+        <div class="chart-wrap" style="width:100%;position:relative;">
+          <iframe src="interactive/fig_gap_by_freq.html" style="width:100%;max-width:1000px;height:850px;border:1px solid var(--line);border-radius:8px;overflow:hidden;" scrolling="no" title="频次分桶 train/val/gap 复合图"></iframe>
+        </div>
+        <div style="padding:4px 12px 8px;font-size:11px;color:var(--muted);text-align:center;">
+          图 9.1：频次分桶复合图（也可直接打开 <code>interactive/fig_gap_by_freq.html</code> 单独查看/放大）。
+          bigram 与 trigram 均拥有完整频段（含 novel 与 1/2/3/4/5 单值低频桶）；trigram 的 novel 桶在 val 上占 ~30%，是 val 翘起的主要来源。
+        </div>
+        <div style="padding:0 12px 8px;font-size:10px;color:var(--weak);text-align:center;">
+          📊 数据来源：baseline_current (current shell + current-style grouping + bigram+trigram RMSProp, vocab=8192, n_layer=8, seed42, 1000 step)
+        </div>
+      </div>
+
+      <div class="note anchor-note">
+        <strong>关键读图结论</strong>
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>gap 是全局性的，低中频 bucket 最严重</strong>：所有非高频桶的 gap 在 epoch3 爆发。
+              切到 <em>gap</em> 视图可见低中频（1/2/3、6-10、11-20、21-50）bucket 的 gap 最大，高频（5k+）bucket 的 gap 最小。</li>
+          <li><strong>train 与 val 的分离在低频端最明显</strong>：切到 <em>train+val</em> 视图，低频桶的 train loss 显著低于 val（过拟合），
+              高频桶两者接近（QA pattern 天然可预测）。</li>
+          <li><strong>novel 桶是 val 翘起的最大单一来源</strong>：切到 <em>总贡献</em> 视图，novel 桶（仅 val，占 trigram val token 的 ~30%）贡献最大，
+              其次是 21-50/51-100 等中频桶；高频桶虽然 per-token gap 小，但若 token 占比高也会有一定的总贡献。</li>
+          <li><strong>trigram 的 novel 占比远高于 bigram</strong>：trigram 组合空间远大于 train 文本，~30% 的 val trigram context 从未在 train 出现；
+              bigram 的 novel 占比仅 ~4%。这正是 trigram 对 gap 贡献更大的结构性原因。</li>
+        </ol>
+      </div>
+
+      <h3 id="chapter-9-2">9.2 命中频次分布（单 train epoch 内）</h3>
+      <p>
+        在解释 gap 之前，先看训练数据的频次结构本身。<strong>频次定义仅在 train</strong>：统计每个 context 在一个 train epoch 内出现的精确次数。
+        下面这张复合图分别统计 <strong>bigram / trigram</strong>，提供 token 占比视角与两个 split：
+      </p>
+      <ul style="font-size:14px;line-height:1.7;margin:0 0 12px 24px;">
+        <li><strong>视图</strong>：token 占比（按出现次数加权）。</li>
+        <li><strong>split</strong>：train（按 train 频次）/ val（val token 按 train 频次归类，故 val 有 novel 桶）。</li>
+      </ul>
+      <div class="chart-section">
+        <div class="chart-wrap" style="width:100%;position:relative;">
+          <iframe src="interactive/fig_hitcount_dist.html" style="width:100%;max-width:1000px;height:520px;border:1px solid var(--line);border-radius:8px;overflow:hidden;" scrolling="no" title="命中频次分布复合图"></iframe>
+        </div>
+        <div style="padding:4px 12px 8px;font-size:11px;color:var(--muted);text-align:center;">
+          图 9.2：命中频次分布（柱状 + 累积）。左：分桶占比；右：从低频到高频的累积分布。
+          trigram 的 val novel 占 ~30%（大量 val context 从未在 train 出现）；bigram 的 val novel 仅 ~4%。train 侧呈典型幂律分布，中高频 context 承载大部分 token。
+        </div>
+        <div style="padding:0 12px 8px;font-size:10px;color:var(--weak);text-align:center;">
+          📊 数据来源：baseline_current (current shell + current-style grouping + bigram+trigram RMSProp, vocab=8192, n_layer=8)
+        </div>
+      </div>
+
+      <div class="note" style="background:#fbf7ef;border-left:4px solid #c4493d;border-radius:8px;padding:16px;margin:12px 0;">
+        <strong style="color:#c4493d;">机制解读：频次结构如何决定 gap</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          训练集的 context 频次呈典型<strong>幂律分布</strong>：train 侧大部分 token 来自少数高频 context，
+          但 val 侧有大量 context（尤其 trigram，~30%）在 train 中从未出现（novel）。gap 的成因正是这种分布与多 epoch 重复训练的交互：
+        </p>
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>novel / 低频 context</strong>：模型在 train 中见过几次（低频）或没见过（novel），
+              到 epoch3 配合 gate 通道建立，模型把这些 context 的特定后续 token memorize 下来（train loss 坍塌），
+              但 val 中即使遇到相同 context，后续 token 也不同，模型"过度自信"反而出错（val loss 翘起）。trigram 的 ~30% val novel 是其 gap 尤为显著的结构性原因。</li>
+          <li><strong>高频 context</strong>：多为 QA pattern（<code>? Answer:</code> 等），后续 token 天然可预测，
+              train 和 val 的 loss 都相对低且接近，对 gap 贡献最小。</li>
+          <li><strong>启示</strong>：用 BPE 把高频 token 组合 over-encode 成单个 token、避免对低频 context 建 hash 表，
+              可以从源头减少低频过拟合——这是后续干预实验的方向（见 <a href="agent-experiment-log.html">agent-experiment-log.html</a>）。</li>
+        </ol>
+      </div>
+
+      <div class="note">
+        <strong>关于 unigram</strong>：本 run（<code>baseline_current</code>）的 n-gram value tables 只启用 bigram 与 trigram
+        （<code>ENABLE_UNIGRAM_VE=0</code>），unigram 不参与训练，故无 unigram 频次分解。
+        如需 unigram 视角，需要一次 <code>ENABLE_UNIGRAM_VE=1</code> 且把 unigram 纳入频次分解的新 run；
+        服务器环境已就绪（见 <a href="agent-experiment-log.html">实验日志</a>），可在需要时补跑。
+      </div>
+    </section>
+
+    <!-- ==================== 10. 扩展实验：干预验证 ==================== -->
+    <section>
+      <h2 id="chapter-10">10. 扩展实验：干预验证（gap 是否能被消除）</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        §9 的频次分解定位了 gap 的来源（低中频 n-gram context 过拟合）。本章用两个干预实验直接验证：
+        若假设成立，干预应能消除/减弱 gap。
+      </p>
+
+      <div class="note anchor-note">
+        <strong>实验设置</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          两个干预都在 <code>20260725e_nano_rmsprop_fixv3</code> 同款设置上跑（table RMSProp, nanogpt_original shell, vocab=8192, n_layer=8, seed42, 1000 step, 单 shard tr1），
+          并各加一个 <strong>current-shell</strong> 版本（同 rmsprop，对照 current-shell baseline <code>baseline_current</code>，即 §2/§7.9/§9 用的同款 setting）。
+          共 4 个干预 run，各自对照同 shell 的 baseline。所有 run 都到 step 1000、含 3 个 epoch（边界 step 337/686）。<br>
+          <em>注</em>：§9 的频次分解现已统一到 <code>baseline_current</code>（current shell，gap 量级更大、现象更典型）；本章干预在两个 shell 上都验证，nanogpt_original 用 B.1，current-shell 用 baseline_current 同款配置。
+        </p>
+      </div>
+
+      <h3 id="chapter-10-1">10.1 实验 4：per-epoch hash 错位</h3>
+      <div class="note" style="background:#f2f6f5;border-left:4px solid var(--nogap);border-radius:8px;padding:14px 16px;margin:12px 0;">
+        <strong style="color:var(--nogap);">假设</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          n-gram table 的 gap 根因是"同一 context 跨 epoch 重复查到同一行，table 在该行累积 train-specific pattern"。
+          若每个 epoch 用 epoch 号做 seed 重生成全部 hash primes，使同一 context 跨 epoch 落到完全不同的 row，
+          则 table 无法跨 epoch 稳定累积 → gap 预期<strong>显著降低</strong>。
+        </p>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          实现：新增 env <code>NGRAM_HASH_RESEED_PER_EPOCH=1</code>；epoch 1 保留 canonical primes（与 baseline 一致），
+          epoch≥2 边界调用 <code>_reseed_ngram_hash_primes(model, epoch_seed)</code> 用 epoch 号重生成 bigram/trigram/fourgram 全部 primes。
+          reseed 只改 hash 映射、不改 table 行内容——正好实现"新 epoch 同一 context 查到另一行（未被该 context 训练污染）"。
+        </p>
+      </div>
+
+      <h3 id="chapter-10-2">10.2 实验 5：低频 context 强制 gate=0</h3>
+      <div class="note" style="background:#f2f6f5;border-left:4px solid var(--nogap);border-radius:8px;padding:14px 16px;margin:12px 0;">
+        <strong style="color:var(--nogap);">假设</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          §9 显示低中频 n-gram context 是 gap 的主要 driver。若用离线 train 频次表（<code>ngram_global_frequency_v2</code>，
+          一个"与训练完全解耦的独立统计者"）判定低频区间（hit count 1-200），并在这些 context 上把 n-gram 注入 gate 强制置零，
+          则低频 context 不再注入 n-gram → <strong>gap 应减弱/消除</strong>。
+        </p>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          实现：新增 env <code>NGRAM_LOWFREQ_GATE_ZERO=1</code> + <code>NGRAM_GLOBAL_FREQUENCY_CUSTOM_RANGES=bigram:1-200;trigram:1-200</code>；
+          在模型主 forward 里用 <code>GlobalNgramFrequencyIndex.mask_for_ranges</code> 算出低频位置的 [B,T] 布尔 mask，
+          在 <code>_add_value_residual</code> 里把该位置的 <code>value_gate</code> 置零（gate=0 → n-gram value 不注入）。
+          mask 从 epoch 1 起全程生效（不是 step 338 后），目的是"杜绝"低频 context 的 n-gram 注入。
+          与已有 readout-mask（value 置零）的区别：本实验置零 gate（直接关闭注入通道，且 gate 仍收梯度但被强制为 0）。
+        </p>
+      </div>
+
+      <h3 id="chapter-10-3">10.3 结果：复合对比图</h3>
+      <p>
+        下面这张复合图把 4 个干预 run 与各自 baseline 的 gap/train/val 曲线放进同一面板，可切 shell 与曲线类型；
+        下方表格给出每 epoch 最大 gap 与 final gap 的数值对比。
+      </p>
+      <div class="chart-section">
+        <div class="chart-wrap" style="width:100%;position:relative;">
+          <iframe src="interactive/fig_exp45_results.html" style="width:100%;max-width:1000px;height:620px;border:1px solid var(--line);border-radius:8px;" title="扩展实验 4&5 结果复合图"></iframe>
+        </div>
+        <div style="padding:4px 12px 8px;font-size:11px;color:var(--muted);text-align:center;">
+          图 10.1：干预验证复合图（也可直接打开 <code>interactive/fig_exp45_results.html</code>）。
+          红虚线=baseline，青实线=exp4(hash reseed)，绿实线=exp5(low-freq gate=0)。切 shell 看 nanogpt_original / current-shell。
+        </div>
+        <div style="padding:0 12px 8px;font-size:10px;color:var(--weak);text-align:center;">
+          📊 数据来源：exp4/exp5 runs（ophis-gpu, 2026-07-30）vs B.1 baseline (nanogpt_original) / allgram-mask-baseline (current-shell)
+        </div>
+      </div>
+
+      <h3 id="chapter-10-4">10.4 结论</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0;">
+        <tr style="background:var(--panel-2);"><th style="padding:7px 10px;text-align:left;">run</th><th style="padding:7px 10px;text-align:right;">epoch2 max gap</th><th style="padding:7px 10px;text-align:right;">epoch3 max gap</th><th style="padding:7px 10px;text-align:right;">final gap</th><th style="padding:7px 10px;text-align:right;">vs baseline</th></tr>
+        <tr style="font-style:italic;color:var(--muted);"><td style="padding:6px 10px;">B.1 baseline (nanogpt_original)</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">0.383</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">0.688</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">0.688</td><td style="padding:6px 10px;text-align:right;">—</td></tr>
+        <tr><td style="padding:6px 10px;">exp4 hash-reseed (nanogpt_original)</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">0.257</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--nogap);font-weight:600;">0.371</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--nogap);font-weight:600;">0.047</td><td style="padding:6px 10px;text-align:right;color:var(--nogap);font-weight:600;">−93%</td></tr>
+        <tr><td style="padding:6px 10px;">exp5 low-freq gate=0 (nanogpt_original)</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">0.166</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--nogap);font-weight:600;">0.102</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--nogap);font-weight:600;">0.040</td><td style="padding:6px 10px;text-align:right;color:var(--nogap);font-weight:600;">−94%</td></tr>
+        <tr style="font-style:italic;color:var(--muted);"><td style="padding:6px 10px;">baseline (current-shell)</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">1.300</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">3.937</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">3.658</td><td style="padding:6px 10px;text-align:right;">—</td></tr>
+        <tr><td style="padding:6px 10px;">exp4 hash-reseed (current-shell)</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">0.307</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--nogap);font-weight:600;">0.351</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--nogap);font-weight:600;">0.252</td><td style="padding:6px 10px;text-align:right;color:var(--nogap);font-weight:600;">−93%</td></tr>
+        <tr><td style="padding:6px 10px;">exp5 low-freq gate=0 (current-shell)</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;">0.543</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--weak);font-weight:600;">1.523</td><td style="padding:6px 10px;text-align:right;font-family:ui-monospace,monospace;color:var(--weak);font-weight:600;">1.523</td><td style="padding:6px 10px;text-align:right;color:var(--weak);font-weight:600;">−58%</td></tr>
+      </table>
+
+      <div class="note nogap-note">
+        <strong>实验 4（per-epoch hash 错位）— 假设验证成立，两个 shell 都基本消除 gap</strong>
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li>nanogpt_original：epoch3 max gap 从 0.688 → <strong>0.371</strong>，final gap 从 0.688 → <strong>0.047</strong>（−93%）。
+              epoch3 的 gap 爆发被完全压住——gap 不再随 epoch 增长。</li>
+          <li>current-shell：epoch3 max gap 从 3.937 → <strong>0.351</strong>（−91%），final gap 从 3.658 → <strong>0.252</strong>（−93%）。
+              即使在 gap 大 5 倍的 current-shell 上，reseed 仍几乎完全消除 gap。</li>
+          <li><strong>机理确认</strong>：gap 确实来自"同一 context 跨 epoch 重复查到同一行、table 在该行累积 train-specific pattern"。
+              一旦打断这个跨 epoch 的 row 对应关系，table 无法稳定累积 → gap 显著降低到接近 0。这是对 §7.9/§9 因果链的直接因果干预验证。</li>
+        </ol>
+      </div>
+
+      <div class="note nogap-note">
+        <strong>实验 5（低频 gate=0）— 假设验证成立（nanogpt_original），部分成立（current-shell）</strong>
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li>nanogpt_original：epoch3 max gap 从 0.688 → <strong>0.102</strong>，final gap → <strong>0.040</strong>（−94%）。
+              与 exp4 几乎一样有效——说明在 nanogpt_original 上，低频 context 确实是 gap 的几乎全部来源。</li>
+          <li>current-shell：epoch3 max gap 从 3.937 → <strong>1.523</strong>（−61%），final gap → <strong>1.523</strong>。
+              显著减弱但未消除——current-shell 的注入通道更强（split QKV + 残差路径），中高频 context 仍能过拟合，
+              仅挡低频不够。这与 §9"current-shell gap 量级大得多"一致。</li>
+          <li><strong>启示</strong>：用 BPE 把高频 token 组合 over-encode、避免对低频 context 建 hash 表（等价于永久 gate=0），
+              是从源头消除低频过拟合的方向。exp5 用 gate=0 在 nanogpt_original 上已验证可行；current-shell 需配合更强的频率截断。</li>
+        </ol>
+      </div>
+
+      <div class="note">
+        <strong>两点说明</strong>
+        <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.7;">
+          <li>exp4 的 reseed 只在 epoch≥2 边界触发（epoch1 保留 canonical primes 以与 baseline 对齐）；
+              reseed 不改 table 行内容，只改 hash→row 映射，所以是干净的因果干预（不改变模型容量、不冻结参数）。</li>
+          <li>exp5 的频次表来自训练前一次离线扫描（<code>ngram_global_frequency_v2</code>），与训练过程完全解耦——
+              是"独立统计者"判定低频，不存在在线漂移。gate=0 是逐位置 mask（shape [B,T]），只对 bigram/trigram 分支生效，unigram 不受影响。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ==================== 11. 精确重复次数 vs gap（exp6 细粒度分桶） ==================== -->
+    <section>
+      <h2 id="chapter-11">11. 精确重复次数 vs gap（exp6 细粒度分桶）</h2>
+      <p>
+        §9 的频次分桶用的是粗粒度区间（1, 2, 3, 4, 5, 6-10, 11-20, …）。本节在
+        <strong>同一 current-shell 设置</strong>（baseline_current 同款：current shell + bigram+trigram RMSProp，
+        seed42，但延长到 <strong>1700 step / 5 epoch</strong>，让 gap 充分展开）下，把分桶细化到
+        <strong>精确到每个重复次数</strong>（0=novel, 1, 2, 3, …, 9, 10-14, 15-20, 21-30, 31-50, …, 5k+），
+        并在 epoch 2/3/4/5 各取一个横截面，观察 gap 如何随重复次数和训练进度演化。
+      </p>
+      <p style="font-size:13px;color:var(--muted);">
+        频次定义与 §9 一致：每个 context 在<strong>单 train epoch</strong> 内的离线精确命中次数
+       （<code>GlobalNgramFrequencyIndex</code>，train-only 定义）。val token 按"其 context 在 train 中的频次"归类到同一套桶。
+        每个 epoch 的横截面取该 epoch 最后一个 probe step（epoch1=step337, epoch2=650, epoch3=1025, epoch4=1375, epoch5=1700）。
+      </p>
+
+      <div class="chart-section">
+        <div class="chart-wrap" style="width:100%;position:relative;">
+          <iframe src="interactive/fig_exp6_freq_gap.html" style="width:100%;max-width:1040px;height:620px;border:1px solid var(--line);border-radius:8px;" title="exp6 精确重复次数 vs gap"></iframe>
+        </div>
+        <div style="padding:4px 12px 8px;font-size:11px;color:var(--muted);text-align:center;">
+          图 11.1：精确重复次数 vs train/val/gap 损失（也可直接打开 <code>interactive/fig_exp6_freq_gap.html</code>）。
+          切 epoch（2/3/4/5）· 切曲线（train / val / train+val / gap）· 切指标（per-token / 总贡献=frac×loss）· 切 context（bigram / trigram）。
+        </div>
+      </div>
+
+      <h3 id="chapter-11-1">11.1 关键发现</h3>
+      <div class="note nogap-note" style="margin:12px 0;">
+        <strong>gap 随重复次数的变化不是单调的——低频最大，但高频也有显著 gap（尤其多 epoch 后）</strong>
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>epoch 2</strong>：gap 已经在低频桶（1-2 次重复）出现（bigram bucket "1" gap≈1.12，bucket "2" gap≈1.39），
+              但高频桶（5k+）gap≈0.02（几乎为 0）。此时 gap 几乎完全由低频驱动。</li>
+          <li><strong>epoch 3</strong>：低频桶 gap 急剧扩大（bigram bucket "1" gap≈3.57），中频（51-100）gap≈1.79，
+              高频（5k+）gap≈0.94——gap 开始向高频蔓延。</li>
+          <li><strong>epoch 4-5</strong>：所有频段都有大 gap（bigram e5: bucket "1" gap≈6.70，5k+ gap≈5.37）。
+              <strong>到 epoch 5，高频桶的 gap 也接近低频水平</strong>——说明多 epoch 重复训练后，
+              table 在所有频段都累积了 train-specific pattern，不再只是低频问题。</li>
+          <li><strong>trigram novel bucket</strong>（val 中占 30%）始终是大 gap 来源：
+              e5 trigram novel val loss=6.72（无 train 对照，因为 train 中按定义无 novel context），
+              总贡献 = 0.30 × 6.72 ≈ 2.0，是 trigram val 翘起的最大单一来源。</li>
+        </ol>
+      </div>
+      <div class="note">
+        <strong>与 §9 粗粒度分桶的对比</strong>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          §9 的 1000-step run 到 epoch 3 末 final gap≈3.66；本 exp6 延长到 1700 step / 5 epoch，
+          final gap（step 1700, train=1.38 / val=5.83）≈4.45——gap 仍在扩大。
+          精确分桶揭示了 <strong>"低频优先过拟合 → 多 epoch 后高频也沦陷"</strong> 的动态过程：
+          epoch 2 时 gap 集中在 1-5 次重复的低频桶；到 epoch 5，1 次和 5k+ 次的 gap 差距缩小到 1.3（6.70 vs 5.37）。
+          这解释了为什么 exp5（仅挡低频 1-200）在 current-shell 上只能减 58%——多 epoch 后中高频也需要干预。
+        </p>
+      </div>
+
+      <h3 id="chapter-11-2">11.2 数值表（bigram，per-token loss）</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;">
+        <tr style="background:var(--panel-2);"><th style="padding:6px 8px;text-align:left;">bucket</th><th style="padding:6px 8px;text-align:right;">e2 train</th><th style="padding:6px 8px;text-align:right;">e2 val</th><th style="padding:6px 8px;text-align:right;">e2 gap</th><th style="padding:6px 8px;text-align:right;">e3 gap</th><th style="padding:6px 8px;text-align:right;">e4 gap</th><th style="padding:6px 8px;text-align:right;">e5 gap</th></tr>
+        <tr><td style="padding:5px 8px;">novel</td><td colspan="2" style="padding:5px 8px;color:var(--muted);font-style:italic;">train 无（按定义）</td><td style="padding:5px 8px;text-align:right;color:var(--muted);">—</td><td style="padding:5px 8px;text-align:right;color:var(--muted);">—</td><td style="padding:5px 8px;text-align:right;color:var(--muted);">—</td><td style="padding:5px 8px;text-align:right;color:var(--muted);">—</td></tr>
+        <tr><td style="padding:5px 8px;">1</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">3.659</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">4.779</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">1.121</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--weak);">3.567</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">5.971</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);font-weight:600;">6.700</td></tr>
+        <tr><td style="padding:5px 8px;">2</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">3.506</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">4.894</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">1.387</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--weak);">3.744</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">5.918</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);font-weight:600;">6.552</td></tr>
+        <tr><td style="padding:5px 8px;">5</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">3.773</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">4.379</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">0.607</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">2.871</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">4.739</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">5.455</td></tr>
+        <tr><td style="padding:5px 8px;">10-14</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">3.591</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">4.287</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">0.696</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">2.468</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">4.627</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">5.140</td></tr>
+        <tr><td style="padding:5px 8px;">51-100</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">3.913</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">4.362</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">0.449</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">1.794</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">3.894</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">4.884</td></tr>
+        <tr><td style="padding:5px 8px;">5k+</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">5.060</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">5.078</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--nogap);">0.019</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;">0.936</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--weak);">3.363</td><td style="padding:5px 8px;text-align:right;font-family:ui-monospace,monospace;color:var(--no);">5.370</td></tr>
+      </table>
+      <p style="font-size:11px;color:var(--muted);margin:4px 0 12px;">
+        颜色：<span style="color:var(--nogap);font-weight:600;">绿</span>=gap<0.1（基本无 gap），
+        <span style="color:var(--weak);font-weight:600;">橙</span>=gap 1-4（中等），
+        <span style="color:var(--no);font-weight:600;">红</span>=gap>4（严重过拟合）。
+        novel 桶无 train 对照（train 中按定义无 novel context），故 gap 列为空。
+      </p>
+
+      <div class="note">
+        <strong>实验设置</strong>
+        <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.7;">
+          <li>run：<code>exp6_freqdecomp_current</code>（服务器 <code>/data3/guoshaoyang/ngram-gap-exp/runs/</code>，2026-07-31，GPU 6）</li>
+          <li>config：与 <code>baseline_current</code> 同款 current-shell（ARCH_VARIANT=nanogpt_current_shell, table RMSProp, seed42, vocab=8192, n_layer=8），延长到 MAX_TRAINING_STEPS=1700（5 epoch）</li>
+          <li>频次分桶：<code>NGRAM_GLOBAL_FREQUENCY_BUCKET_EDGES=0,1,2,3,4,5,6,7,8,9,10,15,21,31,51,101,201,501,1001,5001</code>（精确到 1-9 次重复，10-14 合并）</li>
+          <li>epoch 边界：[338, 687, 1035, 1384]（每 epoch ~349 step）</li>
+          <li>final loss：train=1.382 / val=5.829（gap=4.447，仍在上升）</li>
+        </ul>
+      </div>
+    </section>
+
+
+    <!-- ==================== 12. P1/P2 因果拆解 ==================== -->
+    <section>
+      <h2 id="chapter-12">12. P1/P2 因果拆解：historical row-state + table write vs reader/backbone</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        与 <code>baseline_current</code> 同一 setting（current shell + bigram/trigram RMSProp, seed42, 1000 step, vocab=8192）的 8 个因果干预 +
+        1 个同观测控制。干预在 epoch 边界（step 338 / 687）激活。gap 口径 = val − raw train（同 §7.9）。
+      </p>
+
+      <div class="chart-section">
+        <div class="chart-wrap" style="width:100%;position:relative;">
+          <img src="figs/fig_p12_gap_curves.svg" style="width:100%;max-width:1040px;border:1px solid var(--line);border-radius:8px;" alt="P1/P2 gap curves"/>
+        </div>
+        <div style="padding:4px 12px 8px;font-size:11px;color:var(--muted);text-align:center;">
+          图 12.1：train / val / gap 三面板，9 条曲线（控制 + 8 干预）。虚线 = e2 边界回滚 / reader-backbone 冻结。
+        </div>
+        <div class="chart-wrap" style="width:100%;position:relative;">
+          <iframe src="interactive/fig_p12_causal.html" style="width:100%;max-width:1040px;height:760px;border:1px solid var(--line);border-radius:8px;" title="P1/P2 交互图"></iframe>
+        </div>
+        <div style="padding:4px 12px 8px;font-size:11px;color:var(--muted);text-align:center;">
+          图 12.2：交互图（切 train/val/gap · 切 run · 理论量面板：history ablation gap integrand / direct kernel / gated value RMS）。
+        </div>
+      </div>
+
+      <h3 id="chapter-12-1">12.1 结果表（final gap@1000 = val − train）</h3>
+      <table>
+        <tr><th>run</th><th>干预（激活点）</th><th>final gap</th><th>peak gap e3</th><th>vs 控制</th></tr>
+        <tr><td>baseline_current（控制）</td><td>无</td><td>1.096</td><td>1.096</td><td>—</td></tr>
+        <tr><td>p1_reset_all_e1</td><td>e1 边界全行回滚到 init</td><td>0.956</td><td>0.980</td><td>−13%</td></tr>
+        <tr><td><b>p1_reset_all_e2</b></td><td><b>e2 边界全行回滚到 init</b></td><td><b>0.121</b></td><td>0.610</td><td><b>−89%</b></td></tr>
+        <tr><td>p1_reset_ref_e1</td><td>e1 边界探针行回滚</td><td>0.992</td><td>0.992</td><td>−9%</td></tr>
+        <tr><td>p1_reset_rand_e1</td><td>e1 边界随机行回滚（对照）</td><td>1.126</td><td>1.126</td><td>+3%</td></tr>
+        <tr><td>p2_freeze_table_e1</td><td>e1 边界冻结 table（保留 e1 内容）</td><td>0.559</td><td>0.559</td><td>−49%</td></tr>
+        <tr><td>p2_table_gate_only_e1</td><td>e1 边界冻结 reader/backbone</td><td>0.507</td><td>0.507</td><td>−54%</td></tr>
+        <tr><td>p2_gate_freeze_e1</td><td>e1 边界冻结 gate</td><td>0.865</td><td>0.865</td><td>−21%</td></tr>
+        <tr><td><b>p2_readout_mask_e1</b></td><td><b>e1 边界屏蔽 bigram/trigram readout</b></td><td><b>0.116</b></td><td>0.135</td><td><b>−89%</b></td></tr>
+      </table>
+
+      <table style="margin-top:10px;">
+        <tr><th>3-seed 汇总（s42/s43/s44，2026-08-04 补跑，mean±std）</th><th>final gap</th><th>vs 控制（逐 seed 相对）</th><th>结论</th></tr>
+        <tr><td>baseline_current（控制）</td><td>1.21 ± 0.28（1.10 / 1.53 / 1.00）</td><td>—</td><td>跨 seed 波动大（训练动力学敏感）</td></tr>
+        <tr><td><b>p1_reset_all_e2</b>（全行回滚@e2）</td><td><b>0.122 ± 0.001</b>（0.121 / 0.123 / 0.122）</td><td><b>−89%</b></td><td>历史行内容是必要载体，跨 seed 塌缩到同一水平</td></tr>
+        <tr><td>p1_reset_ref_e1（探针行回滚）</td><td>1.153 ± 0.21（0.992 / 1.391 / 1.076）</td><td>≈0（−3%）</td><td>小规模行回滚无效：效应是「全表内容」级的</td></tr>
+        <tr><td>p1_reset_rand_e1（随机行回滚，对照）</td><td>1.170 ± 0.14（1.126 / 1.051 / 1.332）</td><td>≈0（+2%）</td><td>随机行对照同样 null，排除「回滚操作本身」artifact</td></tr>
+        <tr><td><b>p2_freeze_table_e1</b>（冻结 table）</td><td><b>0.593 ± 0.054</b>（0.559 / 0.656 / 0.564）</td><td><b>−50%</b></td><td>只保留 e1 内容 → gap 减半，稳健</td></tr>
+        <tr><td><b>p2_table_gate_only_e1</b>（冻结 reader/backbone）</td><td><b>0.487 ± 0.105</b>（0.507 / 0.580 / 0.374）</td><td><b>−59%</b></td><td>reader/backbone 放大也是必要项</td></tr>
+        <tr><td>p2_gate_freeze_e1（冻结 gate）</td><td>0.979 ± 0.23（0.865 / 1.234 / 0.838）</td><td>−19%</td><td>gate 是次要放大器（3-seed 确认弱效应）</td></tr>
+        <tr><td><b>p2_readout_mask_e1</b>（屏蔽 readout）</td><td><b>0.121 ± 0.005</b>（0.116 / 0.121 / 0.126）</td><td><b>−89%</b></td><td>注入通道必要，跨 seed 塌缩到 ~0.12</td></tr>
+      </table>
+      <p style="font-size:13.5px;line-height:1.7;">3-seed 汇总的结论：<strong>全表级干预（回滚 / 冻结表 / 冻结 reader / 屏蔽 readout）跨 seed 稳健</strong>（−50%~−89%，且两个 −89% 干预 std 只有 0.001–0.005）；<strong>小规模行回滚（ref/rand，约 1e5 行）跨 seed 均为 null</strong>——特异性证据弱，但与「效应是内容级而非 norm 级」一致；gate 冻结只有 −19% 的弱效应。控制组跨 seed 波动（1.00–1.53）远大于干预组的稳定性，说明这些干预是在「吃透」的动力学上做因果切断，不是平均值抵消。</p>
+      <img src="figs/p12_3seed_bars.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;margin-top:10px;" alt="p12 3-seed bars"/>
+      <p style="font-size:13px;color:var(--muted);">图 12.3：P1/P2 因果拆解 3-seed 汇总。左：全表级干预（回滚 / 冻结表 / 冻结 reader / 屏蔽 readout）bar 均值跨 seed 稳健塌缩；中：ref/rand 小规模行回滚与 baseline 无差异（null）；右：gate 冻结只有弱效应（−19%）。</p>
+
+      <h3 id="chapter-12-2">12.2 关键发现</h3>
+      <div class="note anchor-note" style="margin:12px 0;">
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.75;">
+          <li><strong>历史行内容是必要的（P1）</strong>：e2 边界把全部 table 行回滚到 init 后，e3 gap 从 1.10 → 0.12（−89%）。
+              即使 e3 重新写入 313 步，也无法重建同量级 gap——e3 的大 gap 依赖 e1/e2 累积的行内容。
+              e1 边界回滚只有 −13%（e2 重新写入后历史恢复）；ref/随机行回滚差异很小（−9% / +3%），
+              说明小规模行回滚的效应主要是行 norm/scale 层面，特异性证据弱，但全量回滚是内容层面的强证据。</li>
+          <li><strong>readout 通道必要（P2）</strong>：e1 后屏蔽 n-gram readout，gap → 0.12（−89%）——n-gram 注入是 gap 的传导口（F2）。</li>
+          <li><strong>table write 与 reader/backbone 各约一半</strong>：冻结 table → 0.56（−49%）；冻结 reader/backbone → 0.51（−54%）。
+              二者合起来说明 gap = 历史行内容/写入 × reader/backbone 放大，缺一不可。</li>
+          <li><strong>gate 是次要放大器</strong>：冻结 gate → 0.87（−21%）。</li>
+          <li><strong>重跑可复现性</strong>：e2 回滚重跑 0.123（首跑 0.121）、readout mask 重跑 0.119（首跑 0.116）；
+              e1 回滚重跑 0.828（首跑 0.956）——方向一致，波动来自 obs 探针的 in-place 表写入（见 12.3）。</li>
+        </ol>
+      </div>
+
+      <h3 id="chapter-12-3">12.3 备注与口径</h3>
+      <div class="note">
+        <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.7;">
+          <li>干预 run 与控制 run 使用同一 obs 配置（direct kernel / row history / history ablation），比较内部一致。</li>
+          <li>direct-kernel / history-ablation obs 会对 table 做 in-place 有限差分写回，引入轻微 run-to-run 不确定
+              （同配置重跑 final gap ±15%，e1 bpb ~0.1）；效应量（−49%~−89%）远大于该噪声。两个 −89% 关键干预 3-seed
+              （seed42/43/44）波动 &lt; ±0.01，稳健（见 §12.4）。</li>
+          <li>原基线（无 direct-kernel obs）final gap 1.330；同 obs 控制 1.096；§2/§7.9/§9 图表仍基于原基线数据。</li>
+          <li>exp4（per-epoch hash 错位）在统一口径下 final gap 0.282（−79%，验证通过）；exp5（低频 gate 清零 1-200）无效
+              ——因为 novel（count=0）不在 1-200 范围内，val 翘起主体是 novel；exp7（0 起阈值，含 novel，即 over-encoding 代理）验证失败——低频桶 gap 不降反升、记忆转移给 backbone，见 §12.4。</li>
+        </ul>
+      </div>
+      <h3 id="chapter-12-4">12.4 exp7（over-encoding 代理）验证失败 + 3-seed 稳健性</h3>
+      <div class="note">
+        <ul style="margin:8px 0 0;padding-left:20px;font-size:13px;line-height:1.7;">
+          <li><strong>3-seed 稳健性（2026-08-04 补跑完成）</strong>：<code>p1_reset_all_e2</code> 0.121 / 0.123 / 0.122、<code>p2_readout_mask_e1</code> 0.116 / 0.121 / 0.126——两个 −89% 干预跨 seed 塌缩到 ~0.12（std ≤0.005）；<code>p2_freeze_table_e1</code> 0.559 / 0.656 / 0.564（−50%）、<code>p2_table_gate_only_e1</code>（冻结 reader/backbone）0.507 / 0.580 / 0.374（−59%）同样稳健；<code>p2_gate_freeze_e1</code> 0.865 / 1.234 / 0.838（−19%，弱效应确认）；<code>p1_reset_ref_e1</code> / <code>p1_reset_rand_e1</code> 0.992/1.391/1.076、1.126/1.051/1.332——小规模行回滚跨 seed 均 null（≈0），排除「回滚操作本身」artifact，历史效应是「全表内容」级的。控制组本身跨 seed 波动大（1.10–1.53，训练动力学敏感）。</li>
+          <li><strong><code>p2_freeze_both_e1</code></strong>（table+gate 一起冻结）final gap 0.572 ≈ 只冻结 table（0.559），
+              gate 冻结不叠加 → gate 是次要放大器（与 <code>p2_gate_freeze_e1</code> −21% 一致）。</li>
+          <li><strong>exp7 结果</strong>：低频 gate 清零含 novel（bigram/trigram 0-200 / 0-1000）final gap 1.280 / 1.686，
+              vs 控制 1.096——<strong>未消除 gap，反而略增</strong>。mask 已确认在 train/eval forward 中正确生效
+              （作用于 gate 输出，含 novel 的 ranges 已加载）。分桶诊断：被 mask 的低频桶 gap 不降反升
+              （bigram ≤200：1.40→1.66→2.10），未 mask 的高频桶也升。</li>
+          <li><strong>机制</strong>：gate 是学出来的、输入侧不含频率信息，不是频率干预的有效位点；强制清零低频 gate 后，
+              固定顺序 replay 下模型把低频 train 位置的记忆转移给 backbone（train 3.38→2.98，val 4.47→4.66）→ gap 维持或扩大。
+              频率结构存在于<strong>表/行内容与 train 数据统计</strong>（P1 e2 回滚 −89%、toy gap(r) 单调），不在 gate 里。
+          BPE/over-encoding 的 gate-zero 代理<strong>不成立</strong>；「真正 BPE 合并高频组合/低频共享行」由 <a href="#chapter-16-11">§16.11</a> 的 token 重映射代理实现（T=8000 → gap −67%、长时程稳健 0.28）。</li>
+        </ul>
+      </div>
+
+      <h3 id="chapter-12-5">12.5 对照 svbird 频率遮罩实验（nanoGPT 的 F 部分）</h3>
+      <div class="note anchor-note">
+        <strong>这一节在说什么（人话）</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          svbird 在 nanoGPT 上做了一组「按频率掐掉 n-gram 注入」的实验，发布在
+          <code>https://svbird.github.io/ngram-gap-regime-bridge/</code>（F 部分，2026-08-03 已完整）。
+          它和我们的 P1/P2 是<strong>同一类干预、不同位点</strong>：我们 §12 干预「表的内容」和「整体注入通道」；
+          svbird 干预的是<strong>「某个精确组合的查表输出值」</strong>，并按该组合在训练里出现的精确次数分桶
+          （0 次 / 1–5 次 / 6–200 次 / 1000+ 次）。
+        </p>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          <strong>口径提醒</strong>：svbird 是它自己的 nanoGPT 分支，gap 口径是「最后 100 步的在线 gap」
+          （同一步的 val loss − raw train loss），且从 step-337 checkpoint 恢复、epoch 2 起生效；
+          我们的数字是 <code>baseline_current</code> 的 final gap@1000（val 每 50 步采样）。
+          <strong>两边的数值不能直接比，能比的是方向与机制。</strong>
+        </p>
+      </div>
+
+      <div class="note">
+        <strong>svbird 的做法（人话）</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          从第 2 个 epoch 开始，把「某个精确组合查表得到的 n-gram 数值」在注入前直接置成 0。
+          表本身、gate、主干网络照常训练更新——只是这个位置不再往里注入。可以只掐某一个频段的组合，
+          也可以 0 起点一起掐。同源组内（v4/v5/v6 与 20260803 各自内部）no-mask 与遮罩共享 optimizer/RNG/loader，
+          因此差异可解释为 step 338 之后的干预效应；count=0 的 v3 组是独立早期 source，只能看形状、不能严格配对。
+        </p>
+      </div>
+
+      <table>
+        <tr><th>遮罩（epoch 2 起生效，最后 100 步在线 gap）</th><th>gap</th><th>相对不遮</th></tr>
+        <tr><td>不遮（no-mask，v4/v5/v6 同源组）</td><td class="td-num">3.779</td><td>—</td></tr>
+        <tr><td>只遮 bigram 1–5 次</td><td class="td-num">3.409</td><td>−9.8%</td></tr>
+        <tr><td>只遮 trigram 1–5 次</td><td class="td-num">3.366</td><td>−10.9%</td></tr>
+        <tr><td><b>一起遮 bigram+trigram 1–5 次</b></td><td class="td-num"><b>2.802</b></td><td><b>−25.9%</b></td></tr>
+        <tr><td>只遮 bigram 6–200 次</td><td class="td-num">3.481</td><td>−7.9%</td></tr>
+        <tr><td>一起遮 count=0（v3 独立 source，仅看形状）</td><td class="td-num">3.654</td><td>有效但小</td></tr>
+        <tr><td><b>0 起点一起遮 0–200 次（20260803 同源组）</b></td><td class="td-num"><b>3.727 → 0.514</b></td><td><b>大幅压 gap</b></td></tr>
+        <tr><td>0 起点一起遮 0–1000 次（同上）</td><td class="td-num">3.727 → 0.232</td><td>gap 边际收益小</td></tr>
+      </table>
+
+      <div class="note gap-note">
+        <strong>svbird 的两类结论</strong>
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>低频的查表输出对 gap 有直接贡献</strong>：掐掉 1–5 次的组合，gap 明显降（−26%），
+              且 bigram+trigram 一起掐（−25.9%）超过两个单支之和（9.8% + 10.9% = 20.7%）——非加性；
+              把 0 次（训练没见过的）一起掐进 0–200 后，gap 从 3.73 压到 0.51。</li>
+          <li><strong>掐高频（1000+ 次）不是「制造 gap」，而是「两边都变差」</strong>：高频组合本来对预测有用，
+              掐掉后 train 和 val 的绝对 loss 一起抬升（step 338 起 raw train loss 高 0.29–0.86），
+              gap 本身的边际下降很小。</li>
+          <li>两个效应近似可叠加：既保留低频遮罩的 gap 缩小，又叠加高频遮罩的绝对 loss 代价。</li>
+        </ol>
+      </div>
+
+      <div class="note anchor-note">
+        <strong>和我们的实验是什么关系</strong>
+        <table style="margin-top:8px;">
+          <tr><th>对照</th><th>svbird F（nanoGPT）</th><th>本地（baseline_current）</th><th>互相印证了什么</th></tr>
+          <tr><td>干预位点</td><td>置零「精确组合的查表输出值」（value readout）</td><td>exp7 置零「gate 输出」→ 失败（1.28 / 1.69 vs 控制 1.10，§12.4）</td><td>频率干预的有效位点是 <b>readout 注入通道</b>，不是 gate</td></tr>
+          <tr><td>整体断通道</td><td>（按频率精细版的更粗粒度）</td><td>p2_readout_mask 整体屏蔽 readout → 0.116（−89%，§12.1）</td><td>svbird 的按频率遮罩是它的精细子集，方向一致</td></tr>
+          <tr><td>清除历史内容</td><td>明确说明「置零 readout ≠ 消除 table 历史」</td><td>P1 e2 全行回滚 → 0.121（−89%，§12.1）</td><td>内容（表里攒的历史）与通道（readout）缺一不可</td></tr>
+          <tr><td>频率分桶</td><td>精确 count：0 / 1–5 / 6–200 / ≥1001</td><td>§9 频次分解 + exp6 精确重复分桶</td><td>两边都指向「低频是 gap 主要来源」</td></tr>
+        </table>
+      </div>
+
+      <div class="note nogap-note">
+        <strong>一句话小结 + 对判断题 3 的意义</strong>
+        <p style="margin:8px 0 0;font-size:14px;line-height:1.7;">
+          svbird F 验证了「readout 通道」这一半：按频率精确掐掉低频注入 → gap 真降（0–200 从 3.73 压到 0.51）；
+          本地 exp7 排除了「gate」这个位点；本地 p2_readout_mask（−89%）和 P1 e2 回滚（−89%）是更彻底的整体版本。
+          三者拼起来：<strong>gap = 表里累积的历史内容 × readout 传导通道</strong>，频率结构在表/值里，不在 gate 里。
+        </p>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          对 §14 判断题 3（BPE 方向）的参考：svbird F 进一步支持「改表结构 / readout 通道」（方向 A 或 B），
+          而不是已经失败的「剪 gate」（exp7）。
+        </p>
+      </div>
+    </section>
+
+    <!-- ==================== 13. toy 实验（大白话版） ==================== -->
+    <section>
+      <h2 id="chapter-13">13. 合成小实验（toy）：重复越少的组合，忘得越干净</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+        前面的实验用的都是真实文本。这一章我们造了一个完全由我们自己控制的"微型世界"来验证同一个现象，
+        好处是每个细节都知道答案。详细报告见 <a href="toy-dataset-results.md">docs/toy-dataset-results.md</a>。
+      </p>
+
+      <h3 id="chapter-13-1">13.1 这个实验在做什么（一分钟版）</h3>
+      <div class="note" style="line-height:1.8;font-size:13.5px;">
+        <p style="margin:0 0 6px;">我们虚构了一个"语言"，规则只有一条：<b>前面 4 个符号决定下一个符号是什么</b>（100% 确定，没有例外）。然后造了 80 万个符号的训练集，其中有 8 档"重复次数"的组合：</p>
+        <p style="margin:0 0 6px;padding-left:18px;">
+          只出现 1 次 / 2 次 / 4 次 / 8 次 / 16 次 / 64 次 / 512 次 / 5120 次。
+        </p>
+        <p style="margin:0;">训练方式跟真实实验一样：把训练集<b>反复重播 30 轮</b>。验证集换成"同一规则生成、但大部分是训练里没见过的组合"的新数据。
+        用 3 个不同随机数起点（seed，保证结果不是碰巧），共做了 15 次实验。</p>
+      </div>
+
+      <h3 id="chapter-13-2">13.2 结果：15 次实验，全部复现同一个现象</h3>
+      <table>
+        <tr><th style="text-align:left;">观察</th><th style="text-align:left;">结果</th></tr>
+        <tr><td>训练集被"背下来"了</td><td>训练 loss 一轮一轮阶梯式往下掉，最后接近 0（规则全记住）。</td></tr>
+        <tr><td>验证集却卡在高位</td><td>验证 loss 停在 6.5–8.7，不跟着降——这就是我们要的"落差"（gap）。15/15 次实验全部出现。</td></tr>
+        <tr><td>重复越少，忘得越干净</td><td>把验证集按"训练时重复次数"分组：重复 1 次的组合，落差最大；重复 5120 次的组合，落差几乎为 0。二者落差相差至少 <b>63 倍</b>。</td></tr>
+        <tr><td>下降是"先快后慢"</td><td>重复次数从 1 涨到 16 时落差掉得最快，再往后就平了——不是一条直线，而是"幂律"形状（13/15 次实验连排序都严格单调）。</td></tr>
+        <tr><td>没见过的组合是主角</td><td>验证集上 96–100% 的损失来自"训练里从没见过的组合"。</td></tr>
+      </table>
+      <div class="note" style="margin-top:10px;font-size:13px;line-height:1.7;">
+        <b>图</b>：<code>figs/toy_base_gap_curves.svg</code>（loss 曲线）、<code>figs/toy_base_gap_vs_r.svg</code>（落差 vs 重复次数）、<code>figs/toy_base_seen_novel.svg</code>（见过/没见过分解）。
+        <br/><b>结论一句话</b>：固定顺序反复重播时，模型把训练集背得越狠（train 侧塌陷），验证时没见过的组合越惨——重复次数少 = 忘得越干净。
+      </div>
+
+      <h3 id="chapter-13-3">13.3 一个边界情况：打乱顺序也没用</h3>
+      <div class="note" style="line-height:1.7;font-size:13.5px;">
+        我们还试了"每轮把文档顺序打乱再训练"（reshuffle），结果落差基本不变（6.87 vs 7.15）。
+        原因：打乱顺序<b>不改变每个组合的重复次数</b>，只是换了个先后。这说明驱动现象的不是"顺序"，而是"同一段内容被反复看了多少遍"。
+        这跟真实实验里"两个 epoch 数据混起来训练仍有 gap"是一致的。
+      </div>
+    </section>
+
+    <!-- ==================== 14. 三个判断题（大白话） ==================== -->
+    <section>
+      <h2 id="chapter-14">14. 三个需要你拍板的判断题</h2>
+      <div class="note nogap-note" style="margin-top:10px;">
+        <p style="margin:0;font-size:13.5px;line-height:1.6;"><strong>2026-08-04 更新：判断题 1 和 2 已被 §16 的 v5 实验构造性解决，不再需要选口径。</strong>
+        判断题 1（怎么算「重复越少 → 落差越大」）：v5 把判据从「相关性」升级为<strong>预设的精确阈值</strong>——低频键（r&lt;16）gap 15–20、共享键（r≥16）gap ≤ 0.005，断崖正好在 r=16，不需要相关性统计。
+        判断题 2（验证集全是"没见过的组合"是否算数）：v5 的 low 模式就是「公平考卷」——同样的键在训练里见过、但验证时换成独立抽取的答案，证明过拟合发生在「见过却换了答案」的键上。
+        判断题 3（BPE 方向）仍未定，见下方。</p>
+      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">
+        下面三件事，结论都做完了，但"怎么算成功"需要你选一个口径。每个都先说人话、再给选项。
+      </p>
+
+      <h3 id="chapter-14-1">判断题 1：怎么算「重复越少 → 落差越大」这条规律成立？</h3>
+      <div class="note" style="line-height:1.8;font-size:13.5px;">
+        <p style="margin:0 0 6px;"><b>人话</b>：我们量了 8 个档位的"重复次数"各自对应的落差，想证明"越少越惨"。问题只是：要用多严格的标准来宣布"规律成立"？</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin:6px 0;">
+          <tr style="background:var(--panel-2);"><th style="padding:5px 8px;text-align:left;">选项</th><th style="padding:5px 8px;text-align:left;">要求</th><th style="padding:5px 8px;text-align:left;">现状</th></tr>
+          <tr><td style="padding:5px 8px;"><b>A. 严格：要一条直线</b></td><td style="padding:5px 8px;">落差随"重复次数的对数"直线下降</td><td style="padding:5px 8px;">只有"只看 2 个符号"那组配置达标；主配置只到 −0.46~−0.66，不合格</td></tr>
+          <tr><td style="padding:5px 8px;"><b>B. 宽松：只要单调、先快后慢</b></td><td style="padding:5px 8px;">落差随重复次数严格单调下降，形状是"幂律"（先快后慢）</td><td style="padding:5px 8px;">15/15 次实验全部达标（13/15 连排序都完全严格）</td></tr>
+        </table>
+        <p style="margin:0;"><b>建议选 B</b>：数据形状本来就不是直线（先快后慢），A 是把结论硬掰成直线。B 既符合数据、又足够强（比"只差 5 倍"这种弱结论强得多）。</p>
+      </div>
+
+      <h3 id="chapter-14-2">判断题 2：验证集的坑全在"没见过的组合"，这个结论算数吗？</h3>
+      <div class="note" style="line-height:1.8;font-size:13.5px;">
+        <p style="margin:0 0 6px;"><b>人话</b>：验证集里有两类内容：训练里见过的（换个顺序再考一遍）、训练里完全没见过的。我们测出"没见过的"解释了 96–100% 的落差。
+        但有个尴尬：我们当前的验证集设计里，"见过的"本来就是训练时背过的题，验证时自然答得好——这等于拿"背过的题"和"没见过的题"比谁更难，有点不公平（我们叫它"送分题"）。</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin:6px 0;">
+          <tr style="background:var(--panel-2);"><th style="padding:5px 8px;text-align:left;">选项</th><th style="padding:5px 8px;text-align:left;">做法</th><th style="padding:5px 8px;text-align:left;">代价</th></tr>
+          <tr><td style="padding:5px 8px;"><b>A. 接受现状</b></td><td style="padding:5px 8px;">"没见过的组合是痛点"这个方向结论合理，直接采用</td><td style="padding:5px 8px;">零成本</td></tr>
+          <tr><td style="padding:5px 8px;"><b>B. 换公平考卷</b></td><td style="padding:5px 8px;">重新设计验证集：让"见过的组合"也用全新上下文来考，跟"没见过的"同等难度</td><td style="padding:5px 8px;">重跑一次 toy 实验（生成器已留好接口，改一行配置）</td></tr>
+        </table>
+        <p style="margin:0;"><b>建议选 B（算力够的话）</b>：论文里"96–100% 来自没见过"听起来很漂亮，但审稿人可能指出这是"送分题"。B 让这个数字有说服力；预算紧张就选 A。</p>
+      </div>
+
+      <h3 id="chapter-14-3">判断题 3：BPE 方向，往哪做？</h3>
+      <div class="note" style="line-height:1.8;font-size:13.5px;">
+        <p style="margin:0 0 6px;"><b>背景</b>：最初设想——把常见组合合并成单个 token（BPE，一种"把高频字母组合打包"的压缩方法），从而让低频组合不再制造噪声。
+        我们先用一个偷懒的近似试了试（exp7：把低频位置的 n-gram 注入直接掐掉），结果<b>失败</b>：落差没消（1.28/1.69 vs 控制 1.10）。</p>
+        <p style="margin:0 0 6px;"><b>为什么失败（人话）</b>：门控通道是模型自己学出来的，它根本不知道哪些组合是低频的；把低频的 n-gram 掐掉后，模型改用主干网络照样把训练集背下来，验证集照样不会 → 落差还在。</p>
+        <p style="margin:0 0 6px;"><b>三个方向</b>（都要改训练代码、开新实验）：</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin:6px 0;">
+          <tr style="background:var(--panel-2);"><th style="padding:5px 8px;text-align:left;">方向</th><th style="padding:5px 8px;text-align:left;">做法（人话）</th><th style="padding:5px 8px;text-align:left;">改动量</th></tr>
+          <tr><td style="padding:5px 8px;"><b>A. 低频合并行</b></td><td style="padding:5px 8px;">低频组合共用一个格子（合并），高频组合独占格子（不碰撞）——BPE 思想的 n-gram 版</td><td style="padding:5px 8px;">中</td></tr>
+          <tr><td style="padding:5px 8px;"><b>B. 无碰撞高频表</b></td><td style="padding:5px 8px;">只给高频组合建一张不碰撞的查找表</td><td style="padding:5px 8px;">中</td></tr>
+          <tr><td style="padding:5px 8px;"><b>C. 真正改 tokenizer</b></td><td style="padding:5px 8px;">直接把高频组合合成新 token（标准 BPE）</td><td style="padding:5px 8px;">大</td></tr>
+        </table>
+        <p style="margin:0;"><b>建议</b>：A 或 B——它们改的是"表的结构"，跟已经失败的"门控剪枝"是两码事，也更贴近问题本质（证据：P1 里把表的内容清空，落差 −89%）。C 最接近真实 BPE 但改动最大。请选一个方向，我再开新实验。</p>
+      </div>
+        </section>
+
+    <!-- ==================== 15. svbird 评估与统一复现计划 ==================== -->
+    <section>
+      <h2 id="chapter-15">15. svbird 结果评估：符合预期，结论收敛（2026-08-03）</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        把 svbird 页面（A–G，重点是 E 干预系列 + F 频率遮罩）全部结果与我们的理论预期逐项对照。
+        结论一句话：<strong>方向全部一致，没有反例；还补上了本地没有的两个新维度，有利于论文收敛。</strong>
+      </p>
+
+      <div class="note anchor-note">
+        <strong>我怎么核对的（可复现性）</strong>
+        <p style="margin:8px 0 0;font-size:13px;line-height:1.7;">
+          下载了页面数据文件 <code>ngram-gap-regime-bridge-data.js</code>（70 个 run 的 train/val 原生曲线），
+          用「同一步 val − train 的最后 100 步平均」口径复算：页面 F 的 18 个数字全部对上
+          （如 no-mask 3.779、B+T 1–5 → 2.802、0–200 → 0.514、0–1000 → 0.232，epoch-2 平均 0.925/0.078/0.031）。
+          以下对照均基于复算后的数字。
+        </p>
+      </div>
+
+      <h3 id="chapter-15-0">15.0 svbird F 实验本身：它到底做了什么（人话完整版，2026-08-04）</h3>
+      <p style="font-size:13.5px;line-height:1.7;">
+        <strong>一句话</strong>：把 n-gram 表里「训练中恰好见过 X 次的组合」的查表输出，在第 2 遍训练开始后直接清零，
+        看 gap 掉多少——用「按出现次数分桶」的方式，把「频率」变成可以一格一格关掉的开关。
+        这是外部实验（<a href="https://svbird.github.io/ngram-gap-regime-bridge/" target="_blank">svbird 页面 F 部分</a>），
+        本地已用统一框架复现（§15.5，P0）。
+      </p>
+
+      <h4 style="margin:14px 0 6px;font-size:14px;">为什么要做这个实验</h4>
+      <p style="font-size:13.5px;line-height:1.7;">
+        我们的核心怀疑是：gap 来自 n-gram 表把「低频组合」背了下来——训练反复问它 A，验证换一种问法 B，
+        它就答错。但这个怀疑之前只有<strong>观测证据</strong>（§9：统计上低频组合的 gap 大），
+        观测不等于因果，可能是别的因素在作怪。这个实验把「频率」本身变成干预：
+        一次只掐掉一个「出现次数桶」（0 次 / 1–5 次 / 6–200 次 / 201–1000 次 / ≥1001 次），
+        看哪一桶的开关对 gap 影响最大。掐的位置是<strong>查表输出的值</strong>（注入前置零）；
+        表本身、gate、主干网络都照常训练——所以它不是「把表删掉」，而是「堵住这一桶的输出」。
+      </p>
+
+      <h4 style="margin:14px 0 6px;font-size:14px;">为什么比较是干净的（同源对照）</h4>
+      <p style="font-size:13.5px;line-height:1.7;">
+        同一组内所有 run 都从第 337 步（第一遍训练结束）的<strong>同一个 checkpoint</strong> 恢复：
+        相同权重、相同优化器状态、相同随机数、相同数据顺序。从第 338 步起，遮罩组只多做一件事——
+        把指定频段的查表输出置零。因此「不遮 vs 遮」的差异，只能来自 step 338 之后的这一个干预，
+        不会被训练过程的其它差异污染。分组上：<strong>v4/v5/v6 与 20260803 各自内部同源</strong>（可严格配对）；
+        count=0 的 v3 与 20260729 allgram 是更早的独立 run（只能比曲线形状和剂量方向，
+        不能把不同来源的绝对 gap 当成配对差异）。
+      </p>
+
+      <h4 style="margin:14px 0 6px;font-size:14px;">结果（v4/v5/v6 主组，最后 100 步 online gap = val − train）</h4>
+      <table>
+        <tr><th>遮罩</th><th>最后 100 步 gap</th><th>相对不遮</th><th>人话</th></tr>
+        <tr><td>不遮（no-mask）</td><td><b>3.779</b></td><td>—</td><td>基准</td></tr>
+        <tr><td>只遮 bigram 1–5 次</td><td>3.409</td><td>−9.8%</td><td>低频组合单支有效</td></tr>
+        <tr><td>只遮 trigram 1–5 次</td><td>3.366</td><td>−10.9%</td><td>同上</td></tr>
+        <tr><td><b>一起遮 1–5 次</b></td><td><b>2.802</b></td><td><b>−25.9%</b></td><td>超过单支之和（20.7%）→ 低频桶之间有协同</td></tr>
+        <tr><td>只遮 bigram 6–200 次</td><td>3.481</td><td>−7.9%</td><td>中频也有份，但小</td></tr>
+        <tr><td>遮 count=0（没见过）</td><td>3.654</td><td>小</td><td>单独遮「没见过」只降一点</td></tr>
+        <tr><td>0 起点遮 0–200</td><td><b>0.514</b></td><td>大幅压</td><td>把「没见过 + 低频」一起掐 → gap 塌</td></tr>
+        <tr><td>0 起点遮 0–1000</td><td>0.232</td><td>边际小</td><td>扩到 0–1000 主要伤绝对 loss</td></tr>
+      </table>
+      <p style="font-size:13px;color:var(--muted);">
+        20260803 组（同口径）：no-mask / 0–200 / 0–1000 的 epoch-2 平均 gap = 0.925 / 0.078 / 0.031；
+        最后 100 步 = 3.727 / 0.514 / 0.232。两种遮罩在 step 338 都造成 train 侧边界损害
+        （raw train loss 分别高 0.292 与 0.862），对应 val 侧遮罩率 42.1%/89.0% 与 72.5%/97.0%——
+        0–200 已大幅压低该组 epoch-2 gap，扩到 0–1000 主要是进一步损害两边绝对 loss。
+      </p>
+
+      <h4 style="margin:14px 0 6px;font-size:14px;">两个结论（人话）</h4>
+      <ul style="font-size:13.5px;line-height:1.8;margin:6px 0;">
+        <li><strong>低频 readout 直接参与 gap</strong>：掐掉 1–5 次的组合，gap 明显降（−26%）；把 count=0 也遮住后再掐 1–5 次，仍有额外下降——说明这不是「没见过」的假象，低频的精确组合 value readout 本身在贡献 gap。</li>
+        <li><strong>遮高频不是「制造 gap」，而是「两边一起变差」</strong>：遮 ≥1001 次的组合，gap 基本不降，但 train 和 val 的绝对 loss 一起抬高（step 338 起 train loss 高 0.29–0.86）——高频组合对预测本来有用，掐掉是性能代价，不是 gap 来源。</li>
+        <li><strong>两个效应近似可加</strong>：先掐低频（gap 缩小）+ 再加掐高频（loss 跃升），两种曲线变化方向可分辨、能叠加——不是同一种变化被算了两遍。</li>
+      </ul>
+
+      <h4 style="margin:14px 0 6px;font-size:14px;">它证明了什么、没证明什么</h4>
+      <p style="font-size:13.5px;line-height:1.7;">
+        <strong>证明了</strong>：这些「低频 readout 值」对 gap 有贡献，频率是 gap 的因果维度（从观测升级为干预）。
+        <strong>没证明</strong>：① 遮 readout ≠ 删掉表的记忆（table 行还在继续更新，只是注入被掐）；
+        ② 低频是唯一来源（只证明有贡献，不证明只有它）。
+      </p>
+
+      <h4 style="margin:14px 0 6px;font-size:14px;">与本地实验的衔接（三线收敛）</h4>
+      <ul style="font-size:13.5px;line-height:1.8;margin:6px 0;">
+        <li>本地 P0 在统一 baseline_current 框架重跑同款遮罩（<a href="#chapter-15-5">§15.5</a>，3 seeds 同源对拍）：0–200 → <b>−86%</b>、0–1000 → <b>−92%</b>，方向一致且数字更干净；交互版 <a href="interactive/fig_p0_freqmask.html" target="_blank">fig_p0_freqmask.html</a>。</li>
+        <li>本地「去表」（injection=none，<a href="#chapter-15-6">§15.6</a>）：同 setting 1000 步 <b>−90%</b>。</li>
+        <li>本地「去低频」（token 重映射，<a href="#chapter-16-11">§16.11</a>）：T=8000 <b>−67%</b>、长时程稳健 0.28。</li>
+        <li>三条路（遮低频 / 去表 / 去低频）指向同一个机制：<strong>n-gram 表在低频键上写入 replay 特异记忆，是 gap 的燃料</strong>。</li>
+      </ul>
+
+      <h3 id="chapter-15-1">15.1 逐项对照：svbird vs 本地 vs 理论预期</h3>
+      <table>
+        <tr><th>理论预期</th><th>svbird 结果（复算）</th><th>本地结果</th><th>判定</th></tr>
+        <tr><td>readout 通道必要（屏蔽注入 → 无 gap）</td><td>masked-readout → 0.060 / 0.202（几乎消除）</td><td>p2_readout_mask −89%（0.116）</td><td><span class="tag nogap">一致</span></td></tr>
+        <tr><td>gate 不是主要干预位点</td><td>gate-freeze → 3.779（=不遮，完全无效）</td><td>gate-freeze −21%（次要）</td><td><span class="tag nogap">一致</span>（svbird 更极端）</td></tr>
+        <tr><td>历史行内容必要且有特异性（全量回滚有效、随机/参考行无效）</td><td>reset-all 1.530 vs control 1.666；reset-random 3.750 / reset-reference 3.708 ≈ 无效</td><td>e2 全行回滚 −89%；ref/rand 行 ±10%</td><td><span class="tag nogap">一致</span></td></tr>
+        <tr><td>频率结构在「表/值」里，不在 gate 里</td><td>按精确 count 遮 readout 值：1–5 次 −26%，0–200 压到 0.51</td><td>exp7 遮 gate 失败（1.28/1.69）</td><td><span class="tag nogap">一致且互证</span></td></tr>
+        <tr><td>低频是 gap 主要来源</td><td>低频遮罩有效、高频遮罩只伤绝对 loss</td><td>§9 频次分解：低中频 gap 最大</td><td><span class="tag nogap">一致</span></td></tr>
+        <tr><td>current shell + 注入 + high-order 是关键架构</td><td>no-shell 0.737、no-injection 0.232、no-high-order 0.354；no-unigram 无效果</td><td>架构矩阵：切 current shell 才出现 gap</td><td><span class="tag nogap">一致</span></td></tr>
+        <tr><td>bigram+trigram 组合最强</td><td>B+T 1–5 联合 −25.9% &gt; 单支之和（非加性）</td><td>bigram-only 弱、B+T 最强</td><td><span class="tag nogap">一致</span></td></tr>
+      </table>
+
+      <h3 id="chapter-15-2">15.2 三个对论文有增量的新信息</h3>
+      <div class="note">
+        <ol style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>「按频率遮 readout」是本地没有的新干预维度</strong>：本地只有「整体断 readout」（−89%）和「剪 gate」（失败）。
+              svbird 证明在 readout 值层面按精确 count 分桶遮罩也有效，且低频（1–5 次）单独就有效。
+              这把「频率 → gap」从观测（§9 频次分解）升级成了因果干预——论文里可以从「gap 主要来自低频」进一步说
+              「按频率断注入即可缓解」。</li>
+          <li><strong>高频遮罩 = 性能代价，不是 gap 来源</strong>：遮高频（≥1001 次）后 gap 不降，只是 train/val 两边绝对 loss
+              一起抬（step 338 起 train loss 高 0.29–0.86）。对缓解实验（§14 判断题 3 的 BPE 方向、P7 mitigation）是重要提醒：
+              不能无差别砍高频，剂量要选在低频段（0–200 已够，0–1000 边际收益小）。</li>
+          <li><strong>count=0 干预效应小，与 toy 的「novel 96–100%」要讲清口径</strong>：svbird 遮 count=0 只降一点
+              （3.750 → 3.654）；toy 里 novel 解释 96–100% 的 val 翘起。两者不矛盾：toy 是「loss 贡献分解」维度，
+              svbird 是「干预效应」维度（遮掉 novel 的 readout 后模型可用其它通道照样预测）。论文里需要一句口径说明，
+              否则审稿人会拿这个问。</li>
+        </ol>
+      </div>
+
+      <h3 id="chapter-15-3">15.3 需要统一框架复现的实验（优先级排序）</h3>
+      <div class="note">
+        <p style="margin:0 0 6px;font-size:13.5px;line-height:1.7;">
+          svbird 的 run 在它自己的仓库（<code>remote_training_runs/</code>），不在我们集群，且全部是单 fold。
+          为论文口径一致，以下实验统一到本地 <code>baseline_current</code> 框架
+          （current shell + bigram/trigram RMSProp，seed42，1000 step，vocab=8192，epoch 边界 [338,687]）重跑，每组 3 seeds。
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin:6px 0;">
+          <tr style="background:var(--panel-2);"><th style="padding:5px 8px;text-align:left;">优先级</th><th style="padding:5px 8px;text-align:left;">实验</th><th style="padding:5px 8px;text-align:left;">对应论文位置</th><th style="padding:5px 8px;text-align:left;">说明</th></tr>
+          <tr><td style="padding:5px 8px;"><b>P0</b></td><td style="padding:5px 8px;"><b>readout 频率遮罩复现</b>：no-mask / 1–5 / 6–200 / 0–200 / 0–1000 / ≥1001</td><td style="padding:5px 8px;">§6 因果 + 频率维度</td><td style="padding:5px 8px;"><b>wave1 + wave2 已完成（3 seeds 关键 arm、≥1001 和 grad-keep），见 §15.5</b></td></tr>
+          <tr><td style="padding:5px 8px;"><b>P1</b></td><td style="padding:5px 8px;">P0 多 seed 统一口径表（所有核心 run → compact CSV）</td><td style="padding:5px 8px;">论文表 1/2</td><td style="padding:5px 8px;">compact table 与图表已生成；进入论文整理</td></tr>
+          <tr><td style="padding:5px 8px;"><b>P2</b></td><td style="padding:5px 8px;">P1/P2 剩余：epoch-lag matched probe、frequency-stratified row zero</td><td style="padding:5px 8px;">§6 因果</td><td style="padding:5px 8px;">可选补强；不阻塞当前主线 claims，暂不列为 active backlog</td></tr>
+          <tr><td style="padding:5px 8px;"><b>P3</b></td><td style="padding:5px 8px;">matched probe / 多 train shard 对照</td><td style="padding:5px 8px;">§6 审稿风险</td><td style="padding:5px 8px;">DEFERRED；若复活，用于回应「train 1 shard vs val 10 shard」质疑</td></tr>
+          <tr><td style="padding:5px 8px;"><b>P4</b></td><td style="padding:5px 8px;">collision/hash 系列：table size / hash salt / collision-free</td><td style="padding:5px 8px;">§7 artifact 控制</td><td style="padding:5px 8px;">DEFERRED；article_plan P6 未跑</td></tr>
+          <tr><td style="padding:5px 8px;"><b>P5</b></td><td style="padding:5px 8px;">mitigation：row clipping / gate reg / table freeze / replay 相图</td><td style="padding:5px 8px;">§7 缓解</td><td style="padding:5px 8px;">DEFERRED；剂量参考 svbird：低频段遮罩，不碰高频</td></tr>
+        </table>
+      </div>
+
+      <h3 id="chapter-15-4">15.4 论文组织建议（与 article_plan P0–P7 对齐）</h3>
+      <div class="note nogap-note">
+        <ul style="margin:8px 0 0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>现象 + 架构定位</strong>：§2 现象 + 架构矩阵（bottom-up，含 svbird C 部分曲线版）→ 回答「什么架构组合诱发 gap」。</li>
+          <li><strong>理论</strong>：writer-local self-kernel + historical row state（F1–F10 + ob-th 修正）。</li>
+          <li><strong>因果验证</strong>：P1/P2（本地）+ svbird E 系列（readout mask、reset 特异性、gate 无效）→ 两个独立实现互证。</li>
+          <li><strong>频率维度（svbird F + §9 + exp6 + toy）</strong>：从「观测」到「按频率干预有效」，是本项目相对文献最独特的一块。</li>
+          <li><strong>缓解与讨论</strong>：P7 mitigation + svbird「高频遮罩=性能代价」的剂量结论。</li>
+          <li><strong>与文献关系</strong>：plan-2（N-Grammer / Engram / kNN-LM / hash embedding 均不研究 replay gap）。</li>
+        </ul>
+      </div>
+
+      <h3 id="chapter-15-5">15.5 P0 复现结果：按频率遮 readout（svbird F 本地版，2026-08-04）</h3>
+      <div class="note">
+        <p style="margin:0 0 6px;font-size:13.5px;line-height:1.7;">
+          在本地 <code>baseline_current</code> 框架下重跑 svbird F 的频率遮罩实验：
+          7 个 arm 全部从同一个 step-337 checkpoint fork（同模型/优化器/RNG/loader），
+          从 epoch 2（step 338）起把「精确 context 频次落在指定范围的 n-gram value readout」前向置零
+          （<code>GLOBAL_FREQUENCY_MODE=custom</code> + <code>NGRAM_GLOBAL_FREQUENCY_CUSTOM_RANGES</code>，
+          表/gate/主干照常训练）。口径与 svbird 一致：
+          <code>gap(t)=val(t)-train(t)</code>，最后 100 步 gap = mean over 901–1000，
+          epoch-2/3 平均 gap 同理。图：<code>docs/figs/p0_freqmask_curves.svg</code> /
+          <code>p0_freqmask_gap.svg</code> / <code>p0_freqmask_bars.svg</code>；
+          交互版 <code>docs/interactive/fig_p0_freqmask.html</code>。
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0;">
+          <tr style="background:var(--panel-2);">
+            <th style="padding:5px 8px;text-align:left;">arm（seed42）</th>
+            <th style="padding:5px 8px;">遮罩频段</th>
+            <th style="padding:5px 8px;">last100 gap</th>
+            <th style="padding:5px 8px;">相对 no-mask</th>
+            <th style="padding:5px 8px;">e2 avg</th>
+            <th style="padding:5px 8px;">e3 avg</th>
+            <th style="padding:5px 8px;">final train</th>
+            <th style="padding:5px 8px;">final val</th>
+            <th style="padding:5px 8px;">val 覆盖率 B/T</th>
+          </tr>
+          <tr><td>no-mask</td><td>—</td><td>1.096</td><td>—</td><td>0.155</td><td>0.803</td><td>3.17</td><td>4.55</td><td>—</td></tr>
+          <tr><td>B 1–5</td><td>bigram 1–5</td><td>1.002</td><td>−8.6%</td><td>0.148</td><td>0.725</td><td>3.26</td><td>4.51</td><td>6.2% / —</td></tr>
+          <tr><td>T 1–5</td><td>trigram 1–5</td><td>0.867</td><td>−20.9%</td><td>0.146</td><td>0.650</td><td>3.34</td><td>4.45</td><td>— / 21.7%</td></tr>
+          <tr style="background:var(--panel-2);"><td><b>B+T 1–5</b></td><td>both 1–5</td><td><b>0.778</b></td><td><b>−29.0%</b></td><td>0.132</td><td>0.574</td><td>3.44</td><td>4.42</td><td>6.2% / 21.7%</td></tr>
+          <tr><td>B 6–200</td><td>bigram 6–200</td><td>1.017</td><td>−7.2%</td><td>0.137</td><td>0.741</td><td>3.36</td><td>4.66</td><td>32.8% / —</td></tr>
+          <tr style="background:var(--panel-2);"><td><b>B+T 0–200</b></td><td>both 0–200</td><td><b>0.155</b></td><td><b>−85.9%</b></td><td>0.048</td><td>0.123</td><td>4.15</td><td><b>4.37</b></td><td>43.0% / 88.6%</td></tr>
+          <tr><td>B+T 0–1000</td><td>both 0–1000</td><td>0.087</td><td>−92.1%</td><td>0.037</td><td>0.069</td><td>4.60</td><td>4.73</td><td>73.0% / 97.0%</td></tr>
+          <tr><td><b>B+T ≥1001</b></td><td>both ≥1001</td><td><b>1.095</b></td><td><b>−0.1%</b></td><td>0.160</td><td>0.818</td><td>3.27</td><td><b>4.65</b></td><td>27.1% / 3.0%</td></tr>
+        </table>
+        <p style="margin:10px 0 6px;font-size:13.5px;line-height:1.7;">
+          <strong>3-seed 汇总（s42/s43/s44，同源 fork，mean±std）</strong>：
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0;">
+          <tr style="background:var(--panel-2);">
+            <th style="padding:5px 8px;text-align:left;">arm</th>
+            <th style="padding:5px 8px;">last100 gap</th>
+            <th style="padding:5px 8px;">相对 no-mask</th>
+            <th style="padding:5px 8px;">e2 avg</th>
+            <th style="padding:5px 8px;">e3 avg</th>
+            <th style="padding:5px 8px;">final train</th>
+            <th style="padding:5px 8px;">final val</th>
+          </tr>
+          <tr><td>no-mask</td><td>1.068 ± 0.112</td><td>—</td><td>0.134 ± 0.023</td><td>0.796 ± 0.092</td><td>3.17 ± 0.10</td><td>4.55 ± 0.04</td></tr>
+          <tr style="background:var(--panel-2);"><td><b>B+T 1–5</b></td><td><b>0.781 ± 0.032</b></td><td><b>−26.5% ± 5.2%</b></td><td>0.121 ± 0.010</td><td>0.573 ± 0.027</td><td>3.46 ± 0.05</td><td>4.45 ± 0.02</td></tr>
+          <tr style="background:var(--panel-2);"><td><b>B+T 0–200</b></td><td><b>0.155 ± 0.004</b></td><td><b>−85.4% ± 1.2%</b></td><td>0.050 ± 0.003</td><td>0.118 ± 0.006</td><td>4.17 ± 0.02</td><td><b>4.38 ± 0.01</b></td></tr>
+          <tr><td>B+T 0–1000 (s42)</td><td>0.087</td><td>−92.1%</td><td>0.036</td><td>0.069</td><td>4.60</td><td>4.73</td></tr>
+          <tr><td>B+T ≥1001 (s42)</td><td>1.095</td><td>−0.1%</td><td>0.160</td><td>0.818</td><td>3.27</td><td>4.65</td></tr>
+          <tr><td>B+T 0–200 grad-keep (s42)</td><td>0.153</td><td>−86.0%</td><td>0.049</td><td>0.127</td><td>4.16</td><td>4.38</td></tr>
+        </table>
+        <p style="margin:6px 0 0;font-size:12.5px;line-height:1.65;color:var(--muted);">
+          跨 seed 稳定性：1–5 在三个 seed 上分别 −29.0%/−30.0%/−20.5%（均值 −26.5%，std 5.2%）；
+          0–200 三个 seed 全部 −84–86%（std 仅 1.2%），且三个 seed 的 val 都改善（4.55/4.60/4.52 → 4.37/4.39/4.39）。
+          grad-keep 变体（readout 前向置零但梯度照常流向 table/gate）与默认 masked_fill 结果几乎一致（0.153 vs 0.155）——
+          「遮罩有效」不依赖被遮行是否继续收到梯度，结论对该实现细节稳健。
+        </p>
+        <p style="margin:6px 0;font-size:13.5px;line-height:1.7;">
+          <strong>结论（本地复现，方向与 svbird 完全一致）</strong>：
+        </p>
+        <ul style="margin:4px 0 0;padding-left:20px;font-size:13px;line-height:1.75;">
+          <li><strong>低频 readout 直接参与 gap</strong>：只遮最稀的 1–5 次组合（val 侧覆盖率 B 仅 6.2%、T 仅 21.7%），last100 gap 就降 29.0%（svbird 单 fold：−25.9%）。</li>
+          <li><strong>剂量关系单调</strong>：遮罩覆盖越广、gap 降得越多：1–5（−29%）&lt; 0–200（−86%）&lt; 0–1000（−92%）。</li>
+          <li><strong>遮高频（≥1001）= 性能代价，不是 gap 下降</strong>：只遮 ≥1001 时 last100 gap 1.095（与 no-mask 1.096 几乎相同），但 val 恶化 4.55→4.65，覆盖率 B/T 仅 27.1%/3.0%。与 0–200 的 −86% 形成明确对照：低频是 gap 来源，高频是模型正常预测所需。</li>
+          <li><strong>val 不恶化反而更好</strong>：0–200 的 val（4.37 &lt; no-mask 4.55）——去掉低频 shortcut 后模型在 val 上泛化更好；0–1000 反而把 val 拉差（4.73）——遮到有用中频的「性能代价」，与 svbird 的剂量结论一致。</li>
+          <li><strong>train 塌缩被阻止</strong>：no-mask 的 train 一路塌到 3.17，0–200 停在 4.15、0–1000 停在 4.60——遮罩让「重播样本的记忆 shortcut」失效，这正是 gap 的来源。</li>
+          <li><strong>覆盖率与 svbird 几乎逐位一致</strong>：0–200 的 B/T 遮罩率 43.0%/88.6%（svbird：42.1%/89.0%）；0–1000 为 73.0%/97.0%（svbird：72.5%/97.0%）——两个实现在同一数据分布上的频率结构一致。</li>
+          <li><strong>非加性未复现</strong>：svbird 单 fold 里 B+T 1–5（−25.9%）&gt; 两单支之和（−20.7%）；本地 seed42 为 −29.0% ≈ 单支之和（−8.6% + −20.9% = −29.5%），近似可加。svbird 自己标注单 fold 不足以判断普适，此点按本地结果如实写。</li>
+        </ul>
+        <p style="margin:6px 0 0;font-size:12.5px;line-height:1.65;color:var(--muted);">
+          实现与口径备注：
+          (a) 本实现把 value readout 前向置零（<code>masked_fill</code>），被遮位置的 table 行不再收到梯度（等价于这些行在激活后冻结）；svbird 描述为「table 行仍照常更新」，
+          wave2 已补 grad-keep（forward-only mask）变体做稳健性对照，结果与默认 masked_fill 几乎一致。
+          (b) fork 组 epoch 1 来自共同 source run（带 fixed probe）；probe loader 消耗全局 RNG 使 source 的 epoch-1 数据流与
+          <code>baseline_current</code> 略有不同（step-337 train loss 4.95 vs 5.13），因此 fork no-mask 的绝对 gap（last100 1.096）高于
+          <code>baseline_current</code>（0.788）——组内 7 个 arm 共享同一 checkpoint 与同一数据流，配对比较依然干净。
+          (c) 上表为 3-seed 均值表（wave2a+wave2b 完成；多 seed 仅做 no-mask / 1–5 / 0–200 三个关键 arm）。
+        </p>
+      </div>
+    </section>
+
+
+    <!-- ==================== 16. 2x2 clean proof ==================== -->
+    <section>
+            <h3 id="chapter-15-6">15.6 wave3：叠加遮罩、频次行清零、数据量与重播次数（2026-08-04）</h3>
+      <p>wave3 在同一 fork 框架（或同一 full-run 框架）补四个方向的边界检验；no-ngram/shard/replay 为 seed42，comb 与 rowzero 已补 3 seeds（均值±std）：</p>
+      <table>
+        <tr><th>arm</th><th>操作</th><th>last100 gap</th><th>e2 avg</th><th>e3 avg</th><th>final train</th><th>final val</th><th>结论</th></tr>
+        <tr><td><b>no-mask（对照）</b></td><td>—</td><td>1.096</td><td>0.155</td><td>0.803</td><td>3.17</td><td>4.55</td><td>—</td></tr>
+        <tr><td><b>B+T 0–200+≥1001</b></td><td>只留中频段 201–1000</td><td><b>0.149 ± 0.002</b></td><td>0.054</td><td>0.117</td><td>4.33</td><td>4.54</td><td>两类效应近似可加（≈ 单遮 0–200）</td></tr>
+        <tr><td>rowzero freq-peak</td><td>e1 边界按 gap_contribution 选峰值桶，行清零+冻结</td><td>1.175 ± 0.090</td><td>0.163</td><td>0.874</td><td>3.10</td><td>4.60</td><td>无效（负结果，3 seeds）</td></tr>
+        <tr><td>rowzero freq-large</td><td>≥30% 峰值的全部桶</td><td>1.179 ± 0.087</td><td>0.159</td><td>0.881</td><td>3.13</td><td>4.60</td><td>无效（负结果，3 seeds）</td></tr>
+        <tr><td>shard2（2× 数据）</td><td>train=[1,2]，3 epochs，2025 步</td><td>6.446</td><td>0.162</td><td>1.016</td><td>0.45</td><td>6.88</td><td>gap 爆炸</td></tr>
+        <tr><td>shard3（3× 数据）</td><td>train=[1,2,3]，3 epochs，3037 步</td><td>8.088</td><td>0.230</td><td>1.238</td><td>0.09</td><td>8.16</td><td>gap 进一步爆炸</td></tr>
+        <tr><td>replay4（~4 epochs）</td><td>单 shard，1400 步</td><td>3.473</td><td>0.153</td><td>0.960</td><td>1.78</td><td>5.34</td><td>gap 随重播增长</td></tr>
+        <tr><td>replay6（~6 epochs）</td><td>单 shard，2000 步</td><td>6.165</td><td>0.122</td><td>0.766</td><td>0.43</td><td>6.62</td><td>gap 继续增长</td></tr>
+        <tr style="background:#f4f2ec;"><td><b>replay6 no-ngram</b></td><td>同 replay6，CURRENT_NGRAM_INJECTION_IMPL=none</td><td><b>0.056</b></td><td>0.017</td><td>0.039</td><td>5.22</td><td>5.26</td><td>去表 → gap 接近消失（−99%）</td></tr>
+        <tr style="background:#f4f2ec;"><td><b>shard2 no-ngram</b></td><td>同 shard2，无 ngram 表</td><td><b>0.029</b></td><td>0.015</td><td>—</td><td>5.21</td><td>5.25</td><td>去表 → gap 接近消失（−99.6%）</td></tr>
+        <tr style="background:#f4f2ec;"><td><b>shard3 no-ngram</b></td><td>同 shard3，无 ngram 表</td><td><b>0.020</b></td><td>0.011</td><td>0.027</td><td>5.24</td><td>5.21</td><td>去表 → gap 接近消失（−99.8%）</td></tr>
+        <tr style="background:#f4f2ec;"><td><b>baseline no-ngram（同 setting）</b></td><td>baseline_current 同配置 1000 步，CURRENT_NGRAM_INJECTION_IMPL=none（3 seeds）</td><td><b>0.068</b></td><td>0.033</td><td>0.066</td><td>5.21</td><td>5.33</td><td>去表 → gap 接近消失（final gap 0.125±0.001，−90%，最干净同 setting 对照）</td></tr>
+      </table>
+      <p style="font-size:13px;color:var(--muted);">口径同 §15.5（svbird：gap=val−train，last100 为最后 100 步均值；shard/replay 的 epoch 边界按各自 run 的实际 epoch map）。图：<code>docs/figs/p0_freqmask_conditions.svg</code>（shard/replay 全轨迹）。</p>
+      <ul style="padding-left:20px;font-size:14px;line-height:1.7;">
+        <li><strong>叠加遮罩（comb）证实两类效应可加</strong>：只留中频段 201–1000（遮 0–200 + ≥1001）时，last100 gap = 0.149±0.002 ≈ 单遮 0–200（0.155±0.004），但 final val 4.54 &gt; 0–200 的 4.38——高频遮罩贡献的是「绝对 loss 代价」而非 gap 变化；低频遮罩的 gap 缩减保持住。与 svbird F 的「低频缩减 + 高频性能代价近似可加」逐条吻合。</li>
+        <li><strong>频次行清零是干净负结果（3 seeds 确认）</strong>：在 e1 边界用 fixed-probe 测每个精确频次桶的 gap_contribution（train_loss_increase − val_loss_increase），把贡献最大的桶（peak：bigram 4–7 次、trigram ≥32 次；large：≥30% 峰值）的行清零并冻结，结果 last100 gap 1.175/1.179（s42/43/44 = 1.096+1.157+1.273），与 no-mask 1.068±0.112 无差异。测量到的 e1 边界贡献本身极小（峰值仅 +0.019 nats）。这反过来支持「历史行状态」机制：e3 的 gap 由 <strong>e2 写入、e3 重读的滞后行</strong>承载（对应 p1_reset_all_e2 −89% vs e1 −13%），而不是由 e1 边界就能识别的高贡献桶承载。</li>
+        <li><strong>重播次数是干净的剂量反应</strong>：同数据、同配置只把训练步数从 1000 拉到 1400/2000（3→4→6 epochs），last100 gap 1.07 → 3.47 → 6.17，train 持续塌缩（3.17→1.78→0.43）、val 持续翘起（4.55→5.34→6.62）。gap 不是 3-epoch 的偶然产物，而是随重播单调累积。</li>
+        <li><strong>数据量 shard2/3：训练预算越大、塌缩越彻底</strong>：train=[1,2]/[1,2,3]（2×/3× 数据，仍 3 epochs）→ final train 0.45/0.09（比单 shard 的 3.17 塌得更深）、val 6.88/8.16、gap 6.45/8.09。注意此处与 no-mask 的差异同时包含「更多步数」与「更多上下文」。</li>
+        <li><strong>no-ngram 对照（同一框架最干净的因果点）</strong>：把 replay6/shard2/shard3 的 ngram 注入关掉（CURRENT_NGRAM_INJECTION_IMPL=none），其余完全不变，last100 gap 掉到 0.056 / 0.029 / 0.020（−99%~−99.8%），train 停在 5.2（backbone 背不动）、val 也停在 5.2——只剩接近零的残差。说明 §15.6 里 replay/shard 的 gap 爆炸 <b>主要由 ngram 表贡献</b>，backbone 本身在此规模下不产生同量级的 replay 特异 val 翘起。图中灰色虚线 = 各 no-ngram 对照的 gap 轨迹（<code>docs/figs/p0_freqmask_conditions.svg</code>）。</li>
+        <li><strong>同 setting 的干净去表对照（2026-08-04 补跑）</strong>：baseline_current 同配置（1000 步、seed42–44）只把 ngram 注入关掉（<code>CURRENT_NGRAM_INJECTION_IMPL=none</code>）→ final gap 0.124 / 0.124 / 0.126（mean <b>0.125±0.001</b>，vs 控制 1.21±0.28 的 <b>−90%</b>），train 停在 5.21、val 停在 5.33（backbone 背不动、无翘起）——主 setting 下 gap 全部由 n-gram 表贡献，3 seeds 完全可复现。</li>
+      </ul>
+
+<h2 id="chapter-16">16. 干净证明：只要有「n-gram 表 + 低频 token」就有 gap（2026-08-04）</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        前面所有实验都在真实文本上做，这一章用一个完全受控的「微型语言」把整条因果链压缩成一次 2×2 实验。
+        结论一句话：<strong>低频 token 是「燃料」，n-gram 表是「引擎」；两者同时存在、固定顺序反复重播，就必然出现 gap；
+        去掉任何一个，gap 都显著缓解。</strong>这是全项目最干净的一张因果图。
+      </p>
+
+      <h3 id="chapter-16-1">16.1 这个实验在做什么（一分钟版）</h3>
+      <div class="note">
+        <p style="margin:0 0 8px;">我们造了一个微型世界：32,768 条「双 token 前缀 → 下一个 token」的规则，每条规则 100% 确定。
+        训练和验证各是一批按这些规则生成的文本，训练时把训练集反复重播（和真实实验一致）。关键设计：</p>
+        <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>低频键</strong>：约 3 万个前缀在训练里只出现 1/2/4/8 次；训练里它们后面接的 token 和验证集里接的 token
+          是<strong>独立随机抽的</strong>——模型一旦把训练接续「背下来」，验证时这些键必然做错。</li>
+          <li><strong>共享键</strong>：其余前缀出现 16 次以上，训练和验证接的是<strong>同一个</strong> token——背下来也没错。</li>
+          <li>2×2 开关：低频键 开/关 × n-gram 表 开/关，各 3 个随机种子，共 12 次实验。</li>
+        </ul>
+      </div>
+
+      <h3 id="chapter-16-2">16.2 结果：gap 只在「两个都在」时爆炸</h3>
+      <table>
+        <tr><th>象限</th><th>低频键</th><th>n-gram 表</th><th>headline gap（val−train）</th><th>训练 loss 终点</th><th>验证 loss 终点</th></tr>
+        <tr><td><b>两个都有</b></td><td>有</td><td>有</td><td><b>6.92 ± 0.43</b></td><td>0.004（全背下来了）</td><td>6.92（卡死；s42 为 6.80）</td></tr>
+        <tr><td>去掉 n-gram 表</td><td>有</td><td>无</td><td>2.12 ± 0.003</td><td>2.58</td><td>4.69</td></tr>
+        <tr><td>去掉低频键</td><td>无</td><td>有</td><td>0.84 ± 0.26（核心键上 ≈ 0.001）</td><td>2.28</td><td>3.13</td></tr>
+        <tr><td>都去掉（干净基准）</td><td>无</td><td>无</td><td>0.064 ± 0.000</td><td>3.79</td><td>3.85</td></tr>
+      </table>
+      <p style="font-size:13px;color:var(--muted);">headline gap = 全部 token 位置上 val loss − train loss（nats），3 seeds 均值 ± 标准差。每个 run 的完整记录见 <code>toy/run_meta_table_t5.json</code>。</p>
+      <img src="figs/t5_2x2_headline.svg" style="width:100%;max-width:860px;border:1px solid var(--line);border-radius:8px;" alt="2x2 headline gap"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.1：四个象限的 headline gap（对数坐标）。</p>
+
+      <p>逐行读这张表：</p>
+      <ul style="padding-left:20px;font-size:14px;line-height:1.7;">
+        <li><strong>都去掉</strong>：0.064——两个成分都没有，系统没有 gap（它也没学好，但两边一样差）。</li>
+        <li><strong>只加 n-gram 表</strong>：核心键上的 gap ≈ 0.001——表背的是「训练和验证都成立」的规律，背得越熟越无害。</li>
+        <li><strong>只加低频键</strong>：2.12——backbone（没有表）自己也会去背低频键的巧合接续，这是真实的「底噪」。</li>
+        <li><strong>两个都有</strong>：6.92——表把低频键在训练侧的巧合接续背到 loss≈0，验证侧换了接续，落差被放大 3.3 倍。</li>
+      </ul>
+
+      <h3 id="chapter-16-3">16.3 最关键的一张图：gap 在 r=16 处断崖</h3>
+      <p>按每个键在训练里出现的<strong>精确次数</strong>分桶，看每个桶的 gap：</p>
+      <img src="figs/t5_step_function.svg" style="width:100%;max-width:860px;border:1px solid var(--line);border-radius:8px;" alt="per-r step function"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.2：per-key gap vs 精确重复次数 r（最终 checkpoint，3 seeds 均值）。</p>
+      <ul style="padding-left:20px;font-size:14px;line-height:1.7;">
+        <li><strong>有表（红）</strong>：r&lt;16 的键 gap 15–20（表背下了训练接续，验证接续是另一套）；r≥16 的键 gap ≈ 0–0.01（接续共享，背下无害）。断崖正好落在 r=16。</li>
+        <li><strong>无表（橙）</strong>：低频键 gap 13–15（backbone 也会背）；共享键 gap 1–4（backbone 背不动，两边都没学好）。</li>
+      </ul>
+      <p>这张图说明：表是「低频键过拟合」的<strong>放大器</strong>——它把 backbone 的「半吊子记忆」变成「完美但错误」的记忆。</p>
+
+      <h3 id="chapter-16-4">16.4 轨迹：gap 随重播轮次长出来</h3>
+      <img src="figs/t5_trajectories.svg" style="width:100%;max-width:860px;border:1px solid var(--line);border-radius:8px;" alt="gap trajectories"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.3：gap 随训练步数增长（low 组 2000 步 ≈ 29 个 epoch；high 组 2500 步 ≈ 3 个 epoch）。</p>
+      <img src="figs/t5_loss_curves.svg" style="width:100%;max-width:1040px;border:1px solid var(--line);border-radius:8px;" alt="train/val loss curves"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.4：train / val loss 曲线。注意「两个都有」那组 train 一路塌到 0.004、val 停在 6.9——标准的「阶梯下降 + 翘起」。</p>
+
+      <h3 id="chapter-16-5">16.5 严谨口径（两个说明）</h3>
+      <div class="note nogap-note">
+        <ul style="margin:0;padding-left:20px;font-size:13.5px;line-height:1.7;">
+          <li><strong>「去掉低频」那行 headline 是 0.84 而不是 0</strong>：这 0.84 全部来自「附带位置」（例如 (b,y)→S 这类顺带出现的上下文）的边际差异，不是我们设计的主键——主键上的 gap 在训练后期 ≈ 0.001（前两个 checkpoint 有短暂 0.02–0.08，表把共享 next 背熟后归零）。
+          per-epoch 轨迹里看得很清楚：主键 gap 从一开始就是 0，0.84 是最后三分之一轮次才慢慢长出来的副产品（附带的记忆效应）。若只看 epoch 2 结束（step 1600），on_high 的 headline 只有 0.21（对比 on_low 同期 6.7）——「去低频 → 无 gap」在任何截点上成立。</li>
+          <li><strong>低频键占键总数 94%（30,720 / 32,768）</strong>，所以 headline 被它们主导——这本身说明「低频键才是 gap 的主体」。</li>
+        </ul>
+      </div>
+
+      <h3 id="chapter-16-6">16.6 与真实实验、svbird F 的衔接（结论收敛）</h3>
+      <div class="note">
+        <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>真实数据（§9 / exp6）</strong>：5k+ 高频键 gap ≈ 0、罕见键 gap 最大——toy 的「共享键无 gap」与之一致（真实数据里高频键在验证集里的接续几乎不变）。</li>
+          <li><strong>svbird F（频率遮罩）</strong>：遮低频 readout 有效、遮高频只伤绝对 loss——与 toy「表只在低频键上造成 gap」互相印证，两个独立实现收敛到同一结论。</li>
+          <li><strong>论文一句话</strong>：固定顺序多 epoch 重播 + n-gram 值表 + 低频 token，三者齐备 → 必然出现过拟合 gap；任一缺失都显著缓解。</li>
+        </ul>
+      </div>
+
+
+      <h3 id="chapter-16-7">16.7 因果验证：断掉表的三个「口子」</h3>
+      <p>2×2 证明了「表 + 低频键」是充分条件。随后在「两个都有」的配置上，分别掐掉表的<strong>写入</strong>、<strong>读出</strong>、和<strong>稳定累积</strong>；这些干预均已完成 3 seeds，结果见下表。</p>
+      <table>
+        <tr><th>干预（作用）</th><th>headline gap</th><th>相比 6.92</th><th>人话解读</th></tr>
+        <tr><td>无干预（on_low）</td><td><b>6.92 ± 0.43</b></td><td>—</td><td>基准</td></tr>
+        <tr><td>epoch 1 后屏蔽 readout（表不再注入）</td><td>2.12 ± 0.003</td><td>−69%</td><td>与「去掉表」的 2.12 <b>逐位相等</b>——表贡献的 4.8 nats 全从这条通道走</td></tr>
+        <tr><td>epoch 1 后冻结表（不再写入）</td><td>2.49 ± 0.16</td><td>−64%</td><td>只有第 1 个 epoch 的内容，gap 基本回到无表水平</td></tr>
+        <tr><td>每 epoch 换 hash（表行被打散，无法稳定累积）</td><td>1.96 ± 0.09</td><td>−72%</td><td>对应真实 exp4（−93%）：表的「稳定累积」被破坏，train 停在 3.26 背不动</td></tr>
+        <tr><td>epoch 2 边界全表回滚一次</td><td>7.80 ± 0.10</td><td>+13%</td><td>无效：toy 重播 29 个 epoch，回滚一次很快又被重新写满（真实数据 P1 的 −89% 是因为 e3 只剩 313 步）</td></tr>
+      </table>
+      <img src="figs/t5_interventions.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;" alt="toy interventions"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.5：干预对比。灰色 = 屏蔽 readout（= 无表水平）；黄色 = 冻结表；浅橙 = 无表长训 8000 步。</p>
+      <p style="font-size:13px;"><a href="interactive/fig_t5_2x2.html" target="_blank">打开交互版（loss/gap 曲线 + per-r 阶梯可切换）</a></p>
+      <p>这三个干预直接对应真实数据的 P1/P2 因果实验（e2 回滚 −89%、冻结表 −50%、屏蔽 readout −89%，均 3 seeds），两个层面互相印证：
+      <strong>表的内容是 gap 的载体，持续写入 + readout 注入是传导路径。</strong></p>
+
+      <h3 id="chapter-16-8">16.8 「去掉 ngram」只是减慢，不是根治</h3>
+      <p>没有表时（off_low），gap 是 2.12；如果让 backbone 单独多跑几轮呢？我们把它跑到 8000 步（104 个 epoch，是原来的 4 倍）：</p>
+      <table>
+        <tr><th>run</th><th>步数（epoch）</th><th>headline gap</th><th>train loss</th><th>低频键 r=1 的 gap</th></tr>
+        <tr><td>off_low</td><td>2000（29）</td><td>2.12</td><td>2.58</td><td>13.2</td></tr>
+        <tr><td>off_low_long</td><td>8000（104）</td><td>3.36</td><td>2.49（背不动）</td><td>20.7</td></tr>
+        <tr><td>on_low（有表）</td><td>2000（29）</td><td>6.92</td><td>0.004（全背下）</td><td>15.2</td></tr>
+      </table>
+      <p>关键：没有表时，低频键的过拟合<strong>同样存在且持续加重</strong>（r=1 的 gap 从 13.2 涨到 20.7，甚至超过有表），但整体 gap 只缓慢涨到 3.36——因为 backbone 无法把训练 loss 完全塌陷（停在 2.49 的地板上）。表的作用是让训练侧<strong>彻底背下来</strong>（0.004），把「半吊子过拟合」放大成「完美但错误的记忆」，gap 因此翻倍以上。</p>
+      <p>所以论文的准确表述是：<strong>低频键是过拟合的根源（必要条件），n-gram 表是放大器（把 gap 从 2–3 推上 7，并把验证侧从 5.85 恶化到 6.92）</strong>。去掉低频键 → 根治；去掉表 → 显著缓解但不根治。</p>
+
+      <h3 id="chapter-16-9">16.9 公平考卷变体：val 与 train 完全同序（same-order，2026-08-04）</h3>
+      <p>§16.10 的 shuffled-val 口径里，headline gap 被「train 里没出现过的 novel 上下文」钉在 ~7，把真实剂量抹平了。为了得到干净的 replay 特异口径，这里用<strong>公平考卷</strong>：val 就是 train 的那条流，只把「巧合键」的答案换成另一个合法值（val_order=same）。这样 val 的附带上下文与 train 完全一致，唯一差异就是设计好的巧合键答案——headline gap 直接度量「训练记住了 A、验证却问 B」的纯记忆错误。</p>
+      <table>
+        <tr><th>象限</th><th>headline gap（3 seeds）</th><th>train loss</th><th>val loss</th><th>人话</th></tr>
+        <tr><td>表 + 低频键（on × low）</td><td><b>3.94 ± 0.23</b></td><td>0.010</td><td>3.95</td><td>表把训练答案 A 背死，验证问 B → 全错</td></tr>
+        <tr><td>无表（off × low）</td><td>1.40 ± 0.002</td><td>2.57</td><td>3.98</td><td>backbone 背不动（train 停在 2.57），过拟合半吊子</td></tr>
+        <tr><td>表 + 全共享键（on × high16）</td><td>0.000</td><td>0.02</td><td>0.02</td><td>没有低频键就没有「背错」的对象</td></tr>
+        <tr><td>无表 + 全共享键（off × high16）</td><td>0.000</td><td>3.56</td><td>3.56</td><td>两个都去掉：无 gap（但 train 也背不下来）</td></tr>
+      </table>
+      <img src="figs/t5s_2x2.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;" alt="t5s 2x2"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.7：same-order 公平考卷 2×2。只有「表 + 低频键」同时在场才有大 gap（3.94）；掐掉表掉到 1.40，掐掉低频键掉到 0.000。off×high16 的 train=val=3.56 说明 backbone 本来就没能力背共享键，但因为没有「背错」对象，gap 恒为 0。</p>
+      <p style="font-size:13px;"><a href="interactive/fig_t5s_2x2.html" target="_blank">打开交互版（loss/gap 曲线 + 4 象限可切换）</a></p>
+      <ul style="padding-left:20px;font-size:14px;line-height:1.7;">
+        <li><strong>2×2 给出论文主 claim 的完整支撑</strong>：ngram 表 + 低频 token 是 gap 的<strong>充分组合</strong>（3.94）；去掉任何一个都显著缓解（表→1.40，低频→0.000）。「表是放大器、低频键是根源」的两层归因在这里直接可见：无表时 gap 剩 1.40 但 train 无法塌陷（2.57），有表时 train 塌到 0.010 而 gap 涨到 3.94。</li>
+        <li><strong>on×high16 为什么也是 0</strong>：same-order 下 val 问的就是 train 见过的问题，全共享键没有换答案，表完美背下（train 0.02）且验证问一样的问题 → 无 gap。这排除了「表本身导致泛化差」的解释。</li>
+        <li><strong>fair-exam 口径是 gap 数字的权威口径</strong>：它只度量 replay 特异性记忆错误，不被顺序混杂污染；§16.10 的剂量扫描用 per-context（seen）口径逼近它。</li>
+      </ul>
+
+      <h3 id="chapter-16-10">16.10 剂量反应：低频键占多少，gap 就有多大（t5f 扫描，2026-08-04）</h3>
+      <p>2×2 只比了「全有/全无」两端。为了证明这是<strong>连续剂量</strong>而不是开关效应，把巧合低频键的占比从 0% 扫到 93.75%（其余键全部是共享 r=16），表开启、epoch 对齐（26–28 epochs）、每档 2–3 seeds：</p>
+      <table>
+        <tr><th>巧合低频键占比</th><th>0%（high16）</th><th>25%</th><th>50%</th><th>75%</th><th>93.75%（low）</th></tr>
+        <tr><td>per-context gap（seen，干净口径）</td><td><b>0.005</b></td><td>0.86 ± 0.01</td><td>2.36 ± 0.08</td><td>5.33 ± 0.58</td><td>7.08 ± 0.42</td></tr>
+        <tr><td>headline gap（val−train，shuffled val）</td><td>7.10 ± 0.24</td><td>7.63 ± 0.10</td><td>7.17 ± 0.32</td><td>7.18 ± 0.17</td><td>6.92 ± 0.43</td></tr>
+        <tr><td>final train loss</td><td>0.06</td><td>0.04</td><td>0.004</td><td>0.01</td><td>0.004</td></tr>
+        <tr><td>same-order headline（公平考卷口径）</td><td>0.000</td><td>0.40 ± 0.01</td><td>0.98 ± 0.08</td><td>2.56 ± 0.21</td><td>3.94 ± 0.23</td></tr>
+      </table>
+      <img src="figs/t5f_dose.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;" alt="t5f dose"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.6：左 = per-context（seen）gap 随低频键占比单调上升（干净口径）；右 = headline gap 被顺序混杂抹平成 ~7（val 的 novel 上下文噪音主导），这就是为什么需要 §16.9 的 same-order 公平考卷变体。注：93.75% 点来自 v5 low（2000 步 ≈ 29 epochs），与 t5f 的 epoch 数近似对齐。</p>
+      <ul style="padding-left:20px;font-size:14px;line-height:1.7;">
+        <li><strong>per-context gap 是干净剂量</strong>：低频键占比 0 → 25 → 50 → 75 → 94%，seen gap = 0.005 → 0.86 → 2.36 → 5.33 → 7.08，单调上升且几乎线性；低频键占多少，表就按比例制造多少「背对了训练、答不对验证」的错误记忆。</li>
+        <li><strong>headline 为什么是平的</strong>：shuffled val 里 ~30% 上下文在 train 从未出现（§9 真实数据同款），novel 位置 loss 恒定 ~10，把 headlne 钉在 ~7 附近、掩盖剂量。同一个实验、两个口径结论相反——口径选错会得出「低频没关系」的错误结论，这也是 §15.6 no-ngram 对照里「去表后 seen gap 反而上升（2.5）」的原因（探针口径下 backbone 记忆的键分布不同）。</li>
+        <li><strong>train 全部塌到 ≈0</strong>：只要表开着，任何剂量下训练 loss 都塌到 0.004–0.06（表容量足够背下所有键）；剂量只改变「背错的部分占多少」，即 val 侧损失。</li>
+      </ul>
+
+      <h3 id="chapter-16-11">16.11 真实数据「去低频」：BPE 代理重映射（2026-08-04，剂量完成）</h3>
+      <p>§16.9/16.10 的 toy 证明是合成的；真实 BPE 数据里「低频 token」天然存在（over-encoding 的产物）。为了在<strong>真实数据 + baseline_current 同一 setting</strong> 下检验「去掉低频 token → gap 显著降低」，做一个 BPE 代理干预：统计 train split 的全局 token 频次，把所有频次低于阈值 T 的 token 重映射为最高频 token，然后「解码 → 重编码」做 fixpoint 迭代直到行内不再有稀有 token（有回退保护，round-trip 不稳定就保留原行）。这仍是 token-remapping proxy，不是真正 BPE tokenizer 或 Engram/Over-Encoding 直接重训。</p>
+      <table>
+        <tr><th>数据</th><th>bigram 唯一上下文</th><th>trigram 唯一上下文</th><th>说明</th></tr>
+        <tr><td>原始 cache（baseline_current）</td><td>4,025,582</td><td>22,775,841</td><td>toy 键只到 2–3 gram，键空间越大低频键越多</td></tr>
+        <tr><td>nofreq_t3000（T=3000，稀有流占比 13.1%）</td><td>1,837,446（−54%）</td><td>14,197,400（−38%）</td><td>重映射后</td></tr>
+        <tr><td>nofreq_t8000（T=8000，fixpoint 后幸存稀有行 0.002%）</td><td>535,632（−87%）</td><td>5,785,371（−75%）</td><td>重映射后</td></tr>
+      </table>
+      <p>训练配置与 baseline_current 完全相同（current shell、bigram+trigram RMSProp、TOTAL_BATCH_SIZE=147456、1000 步、seed 42/43/44），只是数据 cache 换成重映射后的版本、频次索引换成对应的 freqidx，表保持开启（injection=current）。epoch 边界几乎不变（nofreq_t8000 为 [337, 685]，baseline 为 [338, 687]）→ 同一 setting 下完全公平对拍。</p>
+      <table>
+        <tr><th>配置（3 seeds）</th><th>epoch-3 final gap</th><th>final train</th><th>final val</th><th>相比 baseline</th></tr>
+        <tr><td>baseline_current（原始 BPE）</td><td><b>1.21 ± 0.28</b>（1.10 / 1.53 / 1.00）</td><td>3.31</td><td>4.52</td><td>—</td></tr>
+        <tr><td>nofreq_t3000（T=3000，bigram 键 −54%）</td><td><b>0.69 ± 0.20</b>（0.88 / 0.71 / 0.47）</td><td>3.42</td><td>4.11</td><td><b>−43%</b>（−20% / −54% / −53%）</td></tr>
+        <tr><td>nofreq_t8000（T=8000，bigram 键 −87%）</td><td><b>0.40 ± 0.05</b>（0.44 / 0.42 / 0.34）</td><td>3.00</td><td>3.40</td><td><b>−67%</b>（−60% / −72% / −66%）</td></tr>
+      </table>
+      <img src="figs/nofreq_gap.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;" alt="nofreq gap"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.8：真实数据去掉低频 token 后 epoch-3 gap 随去除强度单调塌缩：1.21 → 0.69（T=3000）→ 0.40（T=8000）。</p>
+      <p style="font-size:13px;"><a href="interactive/fig_nofreq.html" target="_blank">打开交互版（train/val/gap 曲线，可切换）</a></p>
+      <ul style="padding-left:20px;font-size:14px;line-height:1.7;">
+        <li><strong>真实数据复现 toy 方向</strong>：低频 token 就是表「背错」的燃料。把 train 全局频次 &lt; 8000 的稀有 token 全部重映射成最高频 token（bigram 键空间 −87%、trigram −75%），表仍然开着、训练完全相同的步数，gap 降低约 2/3——与 toy 2×2 的「去低频 → 0.000」方向一致（真实数据里 backbone 仍有少量自身过拟合底噪，对应 toy off×low 的 1.40 残差）。</li>
+        <li><strong>与 svbird F、P0 遮罩实验三线收敛</strong>：F 的 frequency-mask（0–200 低频桶清零）→ gap 缩减可加；P0 no-ngram → gap ≈ 0；这里「物理删掉低频 token」→ gap −67%。三条路都指向同一机制：n-gram 表在低频键上写入 replay 特异记忆。</li>
+        <li><strong>这不是「数据变简单」的假象</strong>：final train 3.00 vs 3.31、val 3.40 vs 4.52——绝对 loss 都更低（token 分布更集中），但 gap 是内部口径（val−train），不随绝对水平漂移；epoch 边界一致（[337,685] vs [338,687]）排除「重播次数不同」的混杂。</li>
+      </ul>
+      <h4>长时程对照（2000 步 ≈ 6 epochs，seed42）：激进去除才稳健</h4>
+      <table>
+        <tr><th>配置（2000 步）</th><th>final gap</th><th>final train</th><th>final val</th><th>解读</th></tr>
+        <tr><td>baseline_long（原始 BPE）</td><td>1.07</td><td>3.41</td><td>4.48</td><td>与 1000 步的 1.10 持平——gap 在 epoch 3 后进入平台（LR 已衰减）</td></tr>
+        <tr><td>nofreq_t3000_long</td><td>1.23</td><td>3.14</td><td>4.37</td><td><b>反而超过 baseline</b>：T=3000 只删掉 −54% 键，剩余中低频键在更多重播下继续积累记忆，gap 在 epoch 3 后半追上并反超</td></tr>
+        <tr><td>nofreq_t8000_long</td><td><b>0.28</b></td><td>3.06</td><td>3.35</td><td>保持低位（0.28–0.40），甚至随训练继续略降——键空间 −87% 后没有足够的「背错」燃料</td></tr>
+      </table>
+      <p style="font-size:13.5px;line-height:1.7;">这一组回答「去低频是否只是把 gap 推迟」：<strong>T=8000 的激进去除是稳健的</strong>（6 epochs 仍 0.28），T=3000 的部分去除只是推迟——多出来的重播轮次会把剩余的低频键继续喂给表。与 toy §16.8 的 off_low_long（无表长训 gap 从 2.12 涨到 3.36）同构：燃料越多、时间越长，gap 越长。论文里的准确表述：<strong>低频键是 replay 特异性记忆的燃料，去除强度必须大到键空间塌缩（−87%）才能在更长重播下保持抑制</strong>。</p>
+      <img src="figs/nofreq_gap_long.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;margin-top:10px;" alt="nofreq gap long"/>
+      <p style="font-size:13px;color:var(--muted);">图 16.9：长时程对照（2000 步 ≈ 6 epochs，seed42）。T=3000 只把 gap 推迟（epoch 3 后半反超 baseline），T=8000 的激进去除保持低位（final 0.28）。虚线为 epoch 边界。</p>
+      <p style="font-size:13px;"><a href="interactive/fig_nofreq_long.html" target="_blank">打开交互版（长时程 train/val/gap 曲线，可切换）</a></p>
+
+
+    </section>
+
+    <section class="chapter" id="chapter-17">
+      <h2>17. 证据链总表：一句话结论与每条证据（2026-08-04）</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        一句话：<strong>可训练 n-gram 表 + 低频 token，在固定顺序多轮 replay 下必然产生 replay-specific gap；去掉任何一个（或断掉注入/写入通道）即可消除或大幅缓解。</strong>
+        下面每条证据都给出了「去掉什么 → 降多少」的因果数字，全部基于统一基线 baseline_current（current shell + bigram/trigram RMSProp，seed42–44，1000 步，vocab 8192，epoch 边界 ≈[338,687]）。
+      </p>
+      <table>
+        <tr><th>层</th><th>实验</th><th>关键数字</th><th>对应章节</th></tr>
+        <tr><td>toy 2×2</td><td>on×low / off×low / on×high16 / off×high16（same-order 公平考卷，3 seeds）</td><td><b>3.94</b> vs 1.40 / 0.000 / 0.000</td><td>§16.9</td></tr>
+        <tr><td>toy 剂量</td><td>巧合低频键占比 0→25→50→75→94%</td><td>same-order headline：0.000 → 0.40 → 0.98 → 2.56 → 3.94（单调）</td><td>§16.10</td></tr>
+        <tr><td>真实去低频</td><td>token 重映射 T=3000 / T=8000（表保持开启）</td><td>epoch-3 gap：<b>1.21</b> → <b>0.69</b>（−43%）→ <b>0.40</b>（−67%）</td><td>§16.11</td></tr>
+        <tr><td>真实去表</td><td>injection=none（no-ngram 对照）</td><td>同 setting 1000 步：final gap <b>0.125±0.001</b>（−90%，3 seeds）；replay/shard 变体 last100 0.056/0.029/0.020（−99%）</td><td>§15.6</td></tr>
+        <tr><td>P0 遮罩</td><td>低频 readout 值清零（0–200 / 0–1000）</td><td>gap −86% / −92%</td><td>§15.5</td></tr>
+        <tr><td>svbird F</td><td>独立实现同款频率遮罩</td><td>1–5 次 −25.9%，0–200 → 0.514，0–1000 → 0.232</td><td>§15.1</td></tr>
+        <tr><td>P1/P2</td><td>e2 全行回滚 / readout mask / freeze table@e1 / freeze reader@e1（3 seeds）</td><td>−89% / −89% / −50% / −59%；ref/rand 小规模行回滚 null（toy 互证：−69%/−64%）</td><td>§12、§16.7</td></tr>
+        <tr><td>exp4</td><td>每 epoch hash 错位（打散表行）</td><td>−79% ~ −93%</td><td>§10</td></tr>
+      </table>
+      <p style="font-size:13.5px;line-height:1.7;margin-top:10px;">
+        <strong>口径说明（论文必写）</strong>：shuffled-val 的 headline gap 会被「train 未出现的 novel 上下文」钉在 ~7、掩盖剂量（§16.10）；本文权威口径是 same-order 公平考卷（§16.9）与真实数据的 obs 口径（val−train，epoch 边界对齐）。绝对 loss 水平在干预间不同（去低频后 train/val 都更低），但 gap 是内部差，不受绝对水平漂移影响。
+      </p>
+    </section>
+
+        <section class="chapter" id="chapter-18">
+      <h2>18. Exact-frequency baseline：主结果（2026-08-06）</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        这一节合并<strong>collision-free exact trigram baseline</strong>：频率定义修复为「真实 trigram context 在完整 train epoch 中的出现次数」后，
+        用 2000-step NanoGPTOriginal（input injection，bigram + trigram）跑出的主结果。
+        这是下一节样本量复播与 trunk 对照（§19）的母实验。
+      </p>
+      <div class="note anchor-note">
+        <strong>数据账本</strong>：22,759,032 个 distinct exact contexts；62,931,706 个 train context instances；
+        P50=1，P99=28，最大频率=77,928；NanoGPTOriginal，input injection，bigram + trigram，seed 42，2000 steps。
+        频率定义：<code>frequency_definition=exact_train_epoch_context_count</code>、<code>frequency_source_split=train</code>、
+        <code>frequency_key_type=exact_context</code>；hash bucket occupancy 不参与频率或 gap 定义；
+        val 中未在 train 出现的 context 计为 <code>r=0</code>（novel）。
+      </div>
+      <p>
+        完整报告（训练曲线、频率直方图、final gap scatter、分 bin gap、gap trajectory 与 norm trace）内嵌如下；
+        也可<a href="ngram5-trigram-exact-frequency-report.html">单独打开</a>。
+      </p>
+      <iframe src="ngram5-trigram-exact-frequency-report.html" style="width:100%;height:900px;border:1px solid var(--line);border-radius:8px;background:#fff;" title="Exact trigram frequency-gap baseline report"></iframe>
+      <p style="font-size:13px;color:var(--muted);">
+        真实频率分布高度 Zipf（P50=1）；gap 与真实 trigram frequency 单调反比，频率越低 gap 越大。
+        独立报告由 <code>docs/build_ngram5_trigram_report.py</code> 从 <code>remote_training_runs/ngram5_trigram_exact_final/</code> 重新生成。
+      </p>
+    </section>
+
+<section class="chapter" id="chapter-19">
+      <h2>19. 受控样本量复播：Transformer 与 MLP trunk 对照（2026-08-06）</h2>
+      <p style="color:var(--anchor);font-weight:600;font-size:15px;margin-bottom:10px">
+        这一节记录的是<strong>同一个 5-gram 项目的 trigram controlled baseline 的样本量重采样与 trunk 对照</strong>。
+        它不是新的频率定义，也不是新的数据语料：先从完整、对齐的 train/val block 流中固定随机抽取样本，
+        让一个 epoch 恢复到旧实验的 285 个 optimizer steps；然后在完全相同的数据、表、优化器和训练预算下，
+        比较标准 NanoGPT Transformer trunk 与 position-wise MLP trunk。所有频率统计都只使用完整上游 train epoch 的真实 trigram context count，
+        不使用 hash bucket occupancy。
+      </p>
+
+      <h3 id="chapter-19-1">19.1 实验到底做了什么</h3>
+      <div class="note anchor-note">
+        <p style="margin:0 0 8px;"><strong>一条主线，两个 trunk。</strong> 两个 run 共享同一份随机采样后的 block 流、固定 validation batches、seed=42 和全部 n-gram 参数；
+        唯一改变的是 n-gram 注入表之后的 backbone：Transformer 保留原始 attention block，MLP 版本将每个 block 换成 position-wise MLP-only block。</p>
+        <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.7;">
+          <li><strong>任务</strong>：真实文本中抽取的 <code>[c0,c1,c2] → next</code> controlled blocks；每个 block 为 <code>[c0,c1,c2,next,SEP]</code>。</li>
+          <li><strong>样本量</strong>：train 为 20,520 行、val 为 288 行；device batch=72，batch tokens=147,456；因此严格为 <b>285 steps/epoch</b>。</li>
+          <li><strong>训练</strong>：2000 steps，约 7 个完整 replay epochs；input-position bigram + trigram VE，unigram/fourgram 关闭，mixed n-gram optimizer，learning rate=0.004，seed=42。</li>
+          <li><strong>频率口径</strong>：从完整上游 train epoch 预先统计 exact trigram frequency，P50=1、P90=4、P99=28、max=77,928；之后的 block 下采样不改变这份 frequency index。</li>
+          <li><strong>可比性</strong>：两组使用完全相同的 train/validation batch hashes；最终频率图只保留两组都有有效 validation loss 的 1,282 个 exact-frequency points。</li>
+        </ul>
+      </div>
+
+      <h3 id="chapter-19-2">19.2 先看训练曲线：285 steps 一个 epoch，gap 在 replay 中逐步长出来</h3>
+      <img src="figs/ngram5_sample285/loss_epoch_replay.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;" alt="Transformer and MLP train validation loss over repeated epochs"/>
+      <p style="font-size:13px;color:var(--muted);">图 19.1：同一数据流上的 train / validation loss。颜色区分 trunk（蓝=Transformer，橙=MLP），实线=train，虚线=validation；灰色竖虚线是 epoch 边界（285 的整数倍）。</p>
+      <table>
+        <tr><th>trunk</th><th>step 2000 train</th><th>step 2000 val</th><th>headline gap（val−train）</th><th>频率点 gap 均值 / 中位数</th><th>解释</th></tr>
+        <tr><td>Transformer</td><td class="td-num">0.578</td><td class="td-num">4.860</td><td class="td-num"><b>+4.282</b></td><td class="td-num">+2.745 / +2.894</td><td>训练侧快速塌缩，重播后验证侧明显翘起。</td></tr>
+        <tr><td>MLP-only</td><td class="td-num">1.897</td><td class="td-num">5.534</td><td class="td-num"><b>+3.637</b></td><td class="td-num">+1.672 / +1.833</td><td>仍然产生 gap，但 trunk 拟合能力更弱，绝对 loss 更高。</td></tr>
+      </table>
+      <p>这张训练曲线回答了前一个 epoch 问题：不是数据 loader 的 batch size 变了，而是之前完整数据约有 1709 steps/epoch；这里用整行随机下采样把 train stream 固定回 <strong>285 steps/epoch</strong>，所以 step 285、570、855、1140、1425、1710、1995 都是可读的 replay 边界。两组的 gap 都在这些 replay 之后持续增大，Transformer 的分叉更早、更陡。</p>
+
+      <h3 id="chapter-19-3">19.3 最后一轮的分 bin gap：低频更大，高频逐步减弱</h3>
+      <p>在 step 2000，按真实 train frequency <code>r(c)</code> 分 bin；每个 bin 的 gap 是该频率区间内 exact-frequency points 的平均 <code>val_loss − train_loss</code>。画法与第 5 章一致：左图 log-x、右图 log-log，x 为每个 bin 频率区间的几何中点；蓝线是 Transformer，橙线是 MLP，所有 bin 的 gap 均为正，因此两图都不需要排除点。</p>
+      <img src="figs/ngram5_sample285/final_gap_by_frequency.svg" style="width:100%;max-width:900px;border:1px solid var(--line);border-radius:8px;" alt="Final gap by exact trigram frequency"/>
+      <p style="font-size:13px;color:var(--muted);">图 19.2：step 2000 的 exact-frequency 分 bin final gap。频率越低，Transformer gap 越大；进入 1k–5k 与 5k+ 后 MLP gap 接近 0，而 Transformer 仍保留约 2 nats 的残余 gap。保留两组都有有效 validation loss 的 1,282 个 exact-frequency points；113 个高频点无有效 val probe，因此不伪造 gap。</p>
+      <table>
+        <tr><th>真实频率 bin</th><th>有效点数</th><th>Transformer gap</th><th>MLP gap</th></tr>
+        <tr><td>1</td><td class="td-num">1</td><td class="td-num">7.17</td><td class="td-num">7.82</td></tr>
+        <tr><td>2–5</td><td class="td-num">4</td><td class="td-num">6.48</td><td class="td-num">7.23</td></tr>
+        <tr><td>6–10</td><td class="td-num">5</td><td class="td-num">6.02</td><td class="td-num">7.23</td></tr>
+        <tr><td>11–20</td><td class="td-num">10</td><td class="td-num">5.40</td><td class="td-num">6.55</td></tr>
+        <tr><td>21–50</td><td class="td-num">30</td><td class="td-num">4.78</td><td class="td-num">5.57</td></tr>
+        <tr><td>51–100</td><td class="td-num">50</td><td class="td-num">4.26</td><td class="td-num">4.32</td></tr>
+        <tr><td>101–200</td><td class="td-num">100</td><td class="td-num">3.58</td><td class="td-num">3.01</td></tr>
+        <tr><td>201–500</td><td class="td-num">296</td><td class="td-num">2.66</td><td class="td-num">1.68</td></tr>
+        <tr><td>501–1k</td><td class="td-num">345</td><td class="td-num">2.62</td><td class="td-num">1.40</td></tr>
+        <tr><td>1k–5k</td><td class="td-num">391</td><td class="td-num">2.29</td><td class="td-num">0.82</td></tr>
+        <tr><td>5k+</td><td class="td-num">50</td><td class="td-num">2.10</td><td class="td-num">0.37</td></tr>
+      </table>
+
+      <h3 id="chapter-19-5">19.5 这个对照能说明什么，不能说明什么</h3>
+      <div class="note gap-note">
+        <p style="margin:0 0 8px;"><strong>能说明：</strong>在相同 exact-frequency 定义、相同数据流和相同 n-gram 注入表下，去掉 attention、改用 position-wise MLP 后，gap 仍然存在；
+        因此 gap 不是 attention 才能产生的现象。Transformer 的 gap 更大，同时 train loss 更低，说明更强的 trunk 拟合能力会放大表中低频 context 的 replay-specific 记忆。</p>
+        <p style="margin:0;"><strong>不能说明：</strong>MLP 已经“完全复现”了 Transformer 的机制。MLP 的绝对 train/val loss 都更高，存在明显欠拟合；所以本实验是<strong>存在性/边界验证</strong>，不是容量匹配后的机制等价证明。</p>
+      </div>
+      <ul style="padding-left:20px;font-size:14px;line-height:1.7;">
+        <li>这仍然是一个 baseline 数据任务的两个 trunk 条件，不应写成两个独立语料实验。</li>
+        <li>图 19.2 的频率统计来自完整 upstream train epoch；图 19.3 的 gap 来自 step 2000 的 paired exact-frequency probe，113 个只有 train、没有有效 val 的高频点被排除。</li>
+        <li>下一步如果要把“5-gram context”严格实现为五个 context token，应重新生成 <code>order=5</code> 数据；本节当前的真实 context 是 trigram，不能把项目目录名当成 context order。</li>
+      </ul>
+
+      <h3 id="chapter-19-6">19.6 后续的人造转移任务（设计草案，不与本节结果混合）</h3>
+      <p>为了把真实文本中的不确定性与 replay 记忆机制分开，下一步可以生成严格 5-gram context 的人造序列。建议先保留一个最干净的主方案，再用两个数学对照做稳健性验证：</p>
+      <table>
+        <tr><th>方案</th><th>转移矩阵结构</th><th>可解释参数</th><th>要检验的点</th></tr>
+        <tr><td>稀疏 Markov + restart</td><td>每个状态只连接少数候选后继，并以小概率回到全局背景分布</td><td>out-degree、restart probability、temperature</td><td>局部稀疏性与长尾频率是否产生同样的 gap。</td></tr>
+        <tr><td>低秩 + 稀疏扰动</td><td><code>P = softmax(UVᵀ/τ + S)</code>，<code>S</code> 只保留少量局部边</td><td>rank、sparsity、τ、扰动强度</td><td>共享低维结构与偶然局部边谁主导泛化。</td></tr>
+        <tr><td>层级社区 block-Markov</td><td>先采 latent community，再以 community-level transition 和 within-community transition 生成 token</td><td>社区数、in/out mixing、层级深度</td><td>可复用的主题结构是否降低低频 context 的不确定性。</td></tr>
+      </table>
+      <p>这三个方案都能生成概率可控、可重复采样的 next-token 分布；第一阶段建议只跑“稀疏 Markov + restart”，固定矩阵后分别改变训练重复次数和 context frequency，再把另外两种矩阵作为结构稳健性检查。</p>
+    </section>
+
+
+  </main>
+</body>
+</html>
