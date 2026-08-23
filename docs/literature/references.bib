@@ -1,0 +1,277 @@
+% OPHIS Gap 文献清单
+% 核实日期：2026-08-02（arXiv API + 论文原文/ACL Anthology 复核）
+% 规则：所有条目均含 arXiv 编号（或 DOI）；venue 未确认的只写 arXiv preprint + 年份。
+
+% ===== n-gram memory 方法 =====
+
+@inproceedings{scone,
+  title     = {Scaling Embedding Layers in Language Models},
+  author    = {Yu, Da and Cohen, Edith and Ghazi, Badih and Huang, Yangsibo and Others},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2025},
+  note      = {arXiv:2502.01637; v3 is NeurIPS 2025 camera-ready}
+}
+
+@inproceedings{overtoken,
+  title     = {Over-Tokenized Transformer: Vocabulary is Generally Worth Scaling},
+  author    = {Huang, Hongzhi and Zhu, Defa and Wu, Banggu and Zeng, Yutao and Others},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2025},
+  note      = {arXiv:2501.16975}
+}
+
+@article{engram,
+  title   = {Conditional Memory via Scalable Lookup: A New Axis of Sparsity for Large Language Models},
+  author  = {Cheng, Xin and Tian, Rui and Zeng, Wangding and Dai, Damai and Others},
+  journal = {arXiv preprint arXiv:2601.07372},
+  year    = {2026},
+  note    = {First author is Xin Cheng (NOT Tian). 21 authors total.}
+}
+
+@article{tngram,
+  title   = {Tensorizing Engram: Sharing Latents Across N-Gram Embeddings is Beneficial in LLMs},
+  author  = {Zhou, Wuyang and Gu, Yuxuan and Iacovides, Giorgos and Qiu, Yuning and Others},
+  journal = {arXiv preprint arXiv:2606.08347},
+  year    = {2026}
+}
+
+@article{longcat,
+  title   = {Scaling Embeddings Outperforms Scaling Experts in Language Models},
+  author  = {Liu, Hong and Zhang, Jiaqi and Wang, Chao and Hu, Xing and Others},
+  journal = {arXiv preprint arXiv:2601.21204},
+  year    = {2026},
+  note    = {N-gram Embedding integrated into the Longcat-Flash (Meituan) architecture. 16 authors total.}
+}
+
+@inproceedings{infini_gram,
+  title     = {Infini-gram: Scaling Unbounded n-gram Language Models to a Trillion Tokens},
+  author    = {Liu, Jiacheng and Min, Sewon and Zettlemoyer, Luke and Choi, Yejin and Others},
+  booktitle = {Conference on Language Modeling (COLM)},
+  year      = {2024},
+  note      = {arXiv:2401.17377; spotlight paper}
+}
+
+@inproceedings{ngrammer,
+  title     = {N-Grammer: Augmenting Transformers with latent n-grams},
+  author    = {Roy, Aurko and Anil, Rohan and Lai, Guangda and Lee, Benjamin and Others},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2023},
+  note      = {arXiv:2207.06366 (2022)}
+}
+
+@inproceedings{hash_embeddings,
+  title     = {Hash Embeddings for Efficient Word Representations},
+  author    = {Svenstrup, Dan and Hansen, Jonas Meinertz and Winther, Ole},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2017},
+  note      = {arXiv:1709.03933}
+}
+
+@inproceedings{blt,
+  title     = {Byte Latent Transformer: Patches Scale Better Than Tokens},
+  author    = {Pagnoni, Artidoro and Pasunuru, Ram and Rodriguez, Pedro and Nguyen, John and Others},
+  booktitle = {Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (ACL)},
+  year      = {2025},
+  note      = {arXiv:2412.09871 (2024); Appendix 14 documents the abandoned frequency-based byte-gram embeddings}
+}
+
+@article{xgram,
+  title   = {Beyond N-gram: Data-Aware X-GRAM Extraction for Efficient Embedding Parameter Scaling},
+  author  = {Chen, Yilong and Xie, Yanxi and Gao, Zitian and Xin, He and Others},
+  journal = {arXiv preprint arXiv:2604.21724},
+  year    = {2026},
+  note    = {v2 latest; code at github.com/Longyichen/X-gram}
+}
+
+@article{engram_nine,
+  title   = {A Collision-Free Hot-Tier Extension for Engram-Style Conditional Memory: A Controlled Study of Training Dynamics},
+  author  = {Lin, Tao},
+  journal = {arXiv preprint arXiv:2601.16531},
+  year    = {2026}
+}
+
+@article{lngram,
+  title   = {Lngram: N-gram Conditional Memory in Latent Space},
+  author  = {Zheng, Yunao and Xia, Guoyang and Wang, Xiaojie and Ren, Lei and Others},
+  journal = {arXiv preprint arXiv:2605.24869},
+  year    = {2026}
+}
+
+% ===== 高频≠高价值：信息量 / 影响函数 / 数据选择 =====
+
+@article{levy2008,
+  title   = {Expectation-based syntactic comprehension},
+  author  = {Levy, Roger},
+  journal = {Cognition},
+  volume  = {106},
+  number  = {3},
+  pages   = {1126--1177},
+  year    = {2008}
+}
+
+@article{rsi,
+  title   = {Which Tokens Matter? Adaptive Token Selection for RLVR with the Relative Surprisal Index},
+  author  = {Lv, Outongyi and Zheng, Yanzhao and Zhang, Yuanwei and Huang, Zhenghao and Others},
+  journal = {arXiv preprint arXiv:2606.31575},
+  year    = {2026}
+}
+
+@article{entropy_uid,
+  title   = {Entropy-UID: A Method for Optimizing Information Density},
+  author  = {Shou, Xinpeng},
+  journal = {arXiv preprint arXiv:2502.14366},
+  year    = {2025}
+}
+
+@article{content_reduction,
+  title   = {Content Reduction, Surprisal and Information Density Estimation for Long Documents},
+  author  = {Ji, Shaoxiong and Sun, Wei and Marttinen, Pekka},
+  journal = {arXiv preprint arXiv:2309.06009},
+  year    = {2023}
+}
+
+@inproceedings{kohliang2017,
+  title     = {Understanding Black-box Predictions via Influence Functions},
+  author    = {Koh, Pang Wei and Liang, Percy},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2017}
+}
+
+@inproceedings{trak,
+  title     = {TRAK: Attributing Model Behavior at Scale},
+  author    = {Park, Sung Min and Georgiev, Kristian and Ilyas, Andrew and Leclerc, Guillaume and Others},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2023},
+  note      = {arXiv:2303.14186}
+}
+
+@inproceedings{less,
+  title     = {LESS: Selecting Influential Data for Targeted Instruction Tuning},
+  author    = {Xia, Mengzhou and Malladi, Sadhika and Gururangan, Suchin and Arora, Sanjeev and Others},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2024},
+  note      = {arXiv:2402.04333}
+}
+
+@inproceedings{findr,
+  title     = {FINDR: A Fast Influential Data Selector for NL2Code Pretraining},
+  author    = {Zhang, Xinliang (Frederick) and Wang, Lu},
+  booktitle = {Proceedings of the 11th International Joint Conference on Natural Language Processing and the 21st Pacific Asia Conference on Language, Information and Computation (IJCNLP-AACL)},
+  year      = {2025},
+  doi       = {10.18653/v1/2025.ijcnlp-long.184}
+}
+
+@inproceedings{yangpedersen1997,
+  title     = {A Comparative Study on Feature Selection in Text Categorization},
+  author    = {Yang, Yiming and Pedersen, Jan O.},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {1997}
+}
+
+@inproceedings{ccnet,
+  title     = {CCNet: Extracting High Quality Monolingual Datasets from Web Crawl Data},
+  author    = {Wenzek, Guillaume and Lachaux, Marie-Anne and Conneau, Alexis and Chaudhary, Vishrav and Others},
+  booktitle = {Proceedings of the 12th Language Resources and Evaluation Conference (LREC)},
+  year      = {2020},
+  note      = {arXiv:1911.00359 (2019)}
+}
+
+@inproceedings{dsir,
+  title     = {Data Selection for Language Models via Importance Resampling},
+  author    = {Xie, Sang Michael and Santurkar, Shibani and Ma, Tengyu and Liang, Percy},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  note      = {arXiv:2302.03169}
+}
+
+@inproceedings{silo,
+  title     = {SILO Language Models: Isolating Legal Risk In a Nonparametric Datastore},
+  author    = {Min, Sewon and Gururangan, Suchin and Wallace, Eric and Shi, Weijia and Hajishirzi, Hannaneh and Smith, Noah A. and Zettlemoyer, Luke},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  note      = {arXiv:2308.04430; spotlight. NOTE: the previously noted ID 2308.06184 is wrong.}
+}
+
+% ===== 重复训练 / 记忆化 / 过拟合 =====
+
+@inproceedings{repeat_or_not,
+  title     = {To Repeat or Not To Repeat: Insights from Scaling LLM under Token-Crisis},
+  author    = {Xue, Fuzhao and Fu, Yao and Zhou, Wangchunshu and Zheng, Zangwei and Others},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  note      = {arXiv:2305.13230}
+}
+
+@inproceedings{reward_overopt,
+  title     = {Scaling Laws for Reward Model Overoptimization},
+  author    = {Gao, Leo and Schulman, John and Hilton, Jacob},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2023},
+  note      = {arXiv:2210.10760 (2022)}
+}
+
+@inproceedings{mem_without_overfit,
+  title     = {Memorization Without Overfitting: Analyzing the Training Dynamics of Large Language Models},
+  author    = {Tirumala, Kushal and Markosyan, Aram H. and Zettlemoyer, Luke and Aghajanyan, Armen},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2022},
+  note      = {arXiv:2205.10770}
+}
+
+% ===== 冻结 / 参数高效微调 / 只读记忆 =====
+
+@inproceedings{knnlm,
+  title     = {Generalization through Memorization: Nearest Neighbor Language Models},
+  author    = {Khandelwal, Urvashi and Levy, Omer and Jurafsky, Dan and Zettlemoyer, Luke and Others},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2020},
+  note      = {arXiv:1911.00172 (2019)}
+}
+
+@inproceedings{bitfit,
+  title     = {BitFit: Simple Parameter-efficient Fine-tuning for Transformer-based Masked Language-models},
+  author    = {Ben-Zaken, Elad and Ravfogel, Shauli and Goldberg, Yoav},
+  booktitle = {Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (ACL)},
+  year      = {2022},
+  note      = {arXiv:2106.10199 (2021)}
+}
+
+@article{lora_forgets,
+  title   = {LoRA Learns Less and Forgets Less},
+  author  = {Biderman, Dan and Portes, Jacob and Gonzalez Ortiz, Jose Javier and Paul, Mansheej and Others},
+  journal = {Transactions on Machine Learning Research (TMLR)},
+  year    = {2024},
+  note    = {arXiv:2405.09673}
+}
+
+@inproceedings{longtail_knn,
+  title     = {Long-Tail Crisis in Nearest Neighbor Language Models},
+  author    = {Nishida, Yuto and Morishita, Makoto and Deguchi, Hiroyuki and Kamigaito, Hidetaka and Watanabe, Taro},
+  booktitle = {Findings of the Association for Computational Linguistics: NAACL},
+  year      = {2025},
+  note      = {arXiv:2503.22426; aclanthology 2025.findings-naacl.331}
+}
+
+@inproceedings{great_memory,
+  title     = {Great Memory, Shallow Reasoning: Limits of kNN-LMs},
+  author    = {Geng, Shangyi and Zhao, Wenting and Rush, Alexander M.},
+  booktitle = {Proceedings of the 2025 Conference of the North American Chapter of the Association for Computational Linguistics (NAACL), Short Papers},
+  year      = {2025},
+  note      = {arXiv:2408.11815 (2024)}
+}
+
+@inproceedings{mem_transformers,
+  title     = {Memorizing Transformers},
+  author    = {Wu, Yuhuai and Rabe, Markus N. and Hutchins, DeLesley and Szegedy, Christian},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2022},
+  note      = {arXiv:2203.08913; spotlight}
+}
+
+@inproceedings{why_knnlm,
+  title     = {Why do Nearest Neighbor Language Models Work?},
+  author    = {Xu, Frank F. and Alon, Uri and Neubig, Graham},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2023},
+  note      = {arXiv:2301.02828}
+}

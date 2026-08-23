@@ -11,7 +11,7 @@ import sys
 import glob
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs")
+RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
 OUT_HTML = os.path.join(REPO_ROOT, "docs", "figs", "injpos_ablation.html")
 
 RUNS = {

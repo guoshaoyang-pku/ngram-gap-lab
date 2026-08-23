@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs")
+RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
 FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs")
 MIRROR_FIGS_DIR = os.environ.get("NGRAM_GAP_BLOG_FIGS_DIR")
 FALLBACK_BLOG_DIR = os.environ.get(
@@ -35,9 +35,9 @@ FALLBACK_BLOG_DIR = os.environ.get(
 )
 
 RUNS = {
-    "v": {"label": "v (ResFormer, add to V)", "color": "#2196F3", "dir": "nglab1x_v10_v"},
-    "y": {"label": "y (post-attn residual)", "color": "#F44336", "dir": "nglab1x_v10_y"},
-    "input": {"label": "input (over-encoding)", "color": "#4CAF50", "dir": "nglab1x_v10_input"},
+    "v": {"label": "v (ResFormer, add to V)", "color": "#2196F3", "dir": "nglab1x_v10_v_fixed"},
+    "y": {"label": "y (post-attn residual)", "color": "#F44336", "dir": "nglab1x_v10_y_fixed"},
+    "input": {"label": "input (over-encoding)", "color": "#4CAF50", "dir": "nglab1x_v10_input_fixed"},
 }
 
 
@@ -718,6 +718,83 @@ def gen_static_log_figures(data):
         save_svg(fig, name)
 
 
+SLICE_STEPS = [300, 500, 750, 1000, 1250, 2000]
+SLICE_BRANCH_COLORS = {
+    "bigram": ["#c6cfe8", "#94a3d1", "#7484bd", "#55619f", "#3f4985", "#353d79"],
+    "trigram": ["#efcfcb", "#e5a8a1", "#dc8a81", "#d26b60", "#c9564a", "#b53a2e"],
+}
+BUCKET_BOUNDS = {
+    "novel": (0, 0), "1": (1, 1), "2": (2, 2), "3": (3, 3),
+    "4": (4, 4), "5": (5, 5), "6-10": (6, 10), "11-20": (11, 20),
+    "21-50": (21, 50), "51-100": (51, 100), "101-200": (101, 200),
+    "201-500": (201, 500), "501-1k": (501, 1000),
+    "1k-5k": (1000, 5000), "5k+": (5000, 10000),
+}
+
+
+def fit_power_law(xs, ys):
+    lx = np.log(np.asarray(xs, float))
+    ly = np.log(np.asarray(ys, float))
+    alpha, logc = np.polyfit(lx, ly, 1)
+    return alpha, np.exp(logc)
+
+
+def gen_static_step_slice_figures(data):
+    """Gap vs frequency at multiple step slices (log-log), to test whether the
+    power-law exponent is stable across training."""
+    points = data.get("input", {}).get("freq_bin", [])
+    if not points:
+        return
+    by_step = {p["step"]: p for p in points}
+    missing = [s for s in SLICE_STEPS if s not in by_step]
+    if missing:
+        print(f"[fig] fig_gap_vs_frequency_steps: missing steps {missing}, skipping")
+        return
+    branches = ["bigram", "trigram"]
+    fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.8), facecolor=PAPER)
+    for ax, branch in zip(axes, branches):
+        style_axis(ax)
+        handles = []
+        for i, step in enumerate(SLICE_STEPS):
+            pt = by_step[step]
+            xs, ys = [], []
+            for bucket in BUCKET_ORDER:
+                if bucket == "novel":
+                    continue
+                low, high = BUCKET_BOUNDS[bucket]
+                train = pt["train"][branch].get(bucket, {})
+                val = pt["val"][branch].get(bucket, {})
+                if not train.get("token_count") or not val.get("token_count"):
+                    continue
+                gap = val.get("mean_loss", 0) - train.get("mean_loss", 0)
+                if gap <= 0:
+                    continue
+                xs.append((low * high) ** 0.5)
+                ys.append(gap)
+            color = SLICE_BRANCH_COLORS[branch][i]
+            if len(xs) >= 3:
+                alpha, _ = fit_power_law(xs, ys)
+                label = f"step {step} · α={alpha:.2f}"
+            else:
+                label = f"step {step} · no positive gap yet" if not xs else f"step {step}"
+            handle, = ax.plot(xs, ys, "o-", color=color, linewidth=1.8,
+                              markersize=3.8, label=label)
+            handles.append(handle)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("training hit count")
+        ax.set_ylabel("gap = val loss − train loss")
+        ax.set_title(f"Gap vs frequency · {branch}", loc="left",
+                     fontsize=13, fontweight="bold")
+        ax.legend(handles=handles, frameon=False, fontsize=8.5, loc="upper center",
+                  bbox_to_anchor=(0.5, -0.16), ncol=3, columnspacing=1.2,
+                  title="slice · power-law α")
+        ax.get_legend().get_title().set_fontsize(8.5)
+        ax.get_legend().get_title().set_color(MUTED)
+    fig.tight_layout(w_pad=2.2, rect=(0, 0.06, 1, 1))
+    save_svg(fig, "fig_gap_vs_frequency_steps.svg")
+
+
 def final_bucket_values(point, branch):
     values = {}
     for bucket in BUCKET_ORDER:
@@ -1166,11 +1243,14 @@ def main():
     gen_static_combined_norm_figure(data)
     gen_static_frequency_figures(data)
     gen_static_log_figures(data)
+    gen_static_step_slice_figures(data)
     gen_fig_gap_loss(data)
     gen_fig_loss_norm(data)
     gen_fig_gap_by_freq(data)
+    gen_fig_hitcount_dist(data)
     gen_fig_gap_log(data, "fig_gap_vs_frequency_loglog.html", y_log=True)
     gen_fig_gap_log(data, "fig_gap_vs_frequency_logx.html", y_log=False)
+    gen_fig_gap_log(data, "fig_gap_vs_frequency_log.html", y_log=False)
     if MIRROR_FIGS_DIR:
         os.makedirs(MIRROR_FIGS_DIR, exist_ok=True)
         for name in ["fig_gap_loss.html", "fig_loss_norm.html",

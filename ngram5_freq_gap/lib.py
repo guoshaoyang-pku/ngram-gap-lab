@@ -403,12 +403,19 @@ def _ngram5_block_dataloader(B, T, split, *, return_metadata=False, data_seed=42
     rank = int(_os.environ.get("NGRAM5_RANK", "0"))
     world_size = int(_os.environ.get("NGRAM5_WORLD_SIZE", "1"))
     # Per-rank rng: ranks see disjoint row subsets with different shuffles.
+    # NGRAM5_BLOCK_SHUFFLE=0 disables the per-epoch row shuffle entirely
+    # (deterministic fixed-order replay: rows visited in the same order every
+    # epoch).  Default 1 preserves the existing per-epoch shuffle behaviour.
+    shuffle_rows = _os.environ.get("NGRAM5_BLOCK_SHUFFLE", "1") != "0"
     rng = random.Random(data_seed + rank)
     epoch = 1
     row_buffer = torch.empty((B, row_capacity), dtype=torch.long)
     while True:
-        row_order = list(range(n_rows))
-        rng.shuffle(row_order)
+        if shuffle_rows:
+            row_order = list(range(n_rows))
+            rng.shuffle(row_order)
+        else:
+            row_order = list(range(n_rows))
         if world_size > 1:
             row_order = row_order[rank::world_size]
         for batch_start in range(0, len(row_order), B):

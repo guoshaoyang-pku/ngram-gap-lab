@@ -81,6 +81,7 @@ class Config:
     val_batches: int = 4
     table_norm_interval_steps: int = 10
     warmdown_ratio: float = 0.65  # last 65% of steps decays LR
+    lr_schedule_epochs: int = 0    # >0: anchor LR schedule to epoch count (ignores max_steps)
     # data (paths)
     data_dir: str = ""          # directory with train.bin / val.bin
     train_shards: list = field(default_factory=list)  # list of shard indices for train
@@ -531,7 +532,9 @@ class MixedOptimizer:
             self.rms_exp_avg_sq[name] = torch.zeros_like(p)
         self.rms_steps[name] += 1
         step = self.rms_steps[name]
-        b2 = self.ngram_beta2
+        # beta2 for RMSProp EMA comes from table_betas (default 0.999);
+        # pass --table_betas 0.0,0.9999 to lengthen the grad^2 EMA window.
+        b2 = self.table_betas[1]
         exp_avg_sq = self.rms_exp_avg_sq[name]
         # no weight decay on n-gram tables
         exp_avg_sq.lerp_(g.square(), 1 - b2)
@@ -628,8 +631,12 @@ class TokenizedShardDataset:
         self.seed = seed
         self._buffers = {}
         self._epoch = 0
+        self._batch_in_epoch = 0
         # total tokens per shard (lazy)
         self._shard_lens = {}
+        # yielded batches per full epoch (drop_last per shard), for epoch-anchored LR
+        self._batches_per_epoch = sum(
+            self.shard_chunks(sid) // self.device_batch_size for sid in self.shard_ids)
 
     def _load_shard(self, sid):
         if sid not in self._buffers:
@@ -659,6 +666,10 @@ class TokenizedShardDataset:
                 tgt = torch.from_numpy(chunk[1:])
                 yield inp, tgt
 
+    def epoch_progress(self) -> float:
+        """Fraction of the current epoch completed (0..1 within an epoch)."""
+        return self._batch_in_epoch / max(1, self._batches_per_epoch)
+
     def iter_batches(self, device: torch.device):
         """Yield (inputs, targets) batches of shape (B, T) in fixed order, looping forever."""
         batch_inp, batch_tgt = [], []
@@ -670,7 +681,9 @@ class TokenizedShardDataset:
                     yield (torch.stack(batch_inp).to(device),
                            torch.stack(batch_tgt).to(device))
                     batch_inp, batch_tgt = [], []
+                    self._batch_in_epoch += 1
             self._epoch += 1
+            self._batch_in_epoch = 0
             # fixed mode: no shuffle, deterministic replay
 
 
@@ -732,8 +745,11 @@ def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
         "trigram": FreqBinLossAccumulator(freq_index, vocab_size, "trigram"),
     }
     with torch.no_grad():
-        for i, (inp, tgt) in enumerate(loader):
-            if i >= n_batches:
+        loader_iter = iter(loader)
+        for _ in range(n_batches):
+            try:
+                inp, tgt = next(loader_iter)
+            except StopIteration:
                 break
             ptl = compute_per_token_loss(model, inp, tgt)
             for branch in accs:
@@ -780,6 +796,8 @@ def main():
                         help="path to freq_index.npz; if set, enables freq-bin eval")
     parser.add_argument("--freq_eval_interval", type=int, default=10)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
+    parser.add_argument("--lr_schedule_epochs", type=int, default=0,
+                        help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
     args = parser.parse_args()
 
     cfg = Config(
@@ -799,6 +817,7 @@ def main():
         val_interval_steps=args.val_interval,
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
+        lr_schedule_epochs=args.lr_schedule_epochs,
         nanogpt_adam_lr=args.lr,
         table_optimizer=args.table_optimizer,
         table_lr_scale=args.table_lr_scale,
@@ -866,6 +885,15 @@ def main():
         freq_index_obj = GlobalFrequencyIndex.load(args.freq_index)
         freq_bin_log = open(os.path.join(cfg.out_dir, "freq_bin_loss.jsonl"), "w")
         print(f"[nglab] freq-bin eval enabled (index: {args.freq_index})")
+        # Independent train-side diagnostic iterator: reads the same shards in
+        # the same fixed order but owns its own dataset state, so freq-bin
+        # diagnostics never consume training batches and never advance the
+        # training epoch counter.
+        freq_train_ds = TokenizedShardDataset(cfg.data_dir, cfg.train_shards,
+                                              cfg.sequence_len,
+                                              cfg.device_batch_size,
+                                              cfg.data_seed)
+        freq_train_iter = freq_train_ds.iter_batches(device)
     last_val_loss = float("nan")
     last_train_loss = float("nan")
 
@@ -885,7 +913,11 @@ def main():
             loss.backward()
             accum_loss += loss.item()
         train_loss = accum_loss
-        progress = (step + 1) / cfg.max_steps
+        if cfg.lr_schedule_epochs > 0:
+            # epoch-anchored LR: all runs share the same per-epoch trajectory
+            progress = min(1.0, (train_ds._epoch + train_ds.epoch_progress()) / cfg.lr_schedule_epochs)
+        else:
+            progress = (step + 1) / cfg.max_steps
         lr_mult = get_lr_multiplier(progress, cfg.warmdown_ratio)
         optimizer.step(lr_mult=lr_mult)
 
@@ -910,8 +942,9 @@ def main():
 
         # periodic freq-bin eval (train + val)
         if freq_bin_log is not None and ((step + 1) % args.freq_eval_interval == 0 or step == cfg.max_steps - 1):
-            # train freq-bin (use fresh train batches, not the ones already consumed)
-            train_freq = evaluate_freq_bins(model, train_iter, freq_index_obj,
+            # train freq-bin (independent diagnostic iterator: fresh train
+            # batches, never touches the training stream)
+            train_freq = evaluate_freq_bins(model, freq_train_iter, freq_index_obj,
                                             args.freq_eval_batches, cfg.vocab_size)
             # val freq-bin (same fixed val data every eval)
             val_freq = evaluate_freq_bins(model, fixed_freq_val_batches, freq_index_obj,

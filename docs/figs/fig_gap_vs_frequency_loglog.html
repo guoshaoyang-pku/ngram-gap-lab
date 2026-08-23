@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Log–log frequency → gap</title>
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 12px; background: #fafafa; }
+  h2 { font-size: 1.1em; }
+  .chart { width: 100%; max-width: 900px; height: 320px; margin: 10px 0; }
+  .controls { margin: 8px 0; font-size: 0.9em; }
+  .controls button { padding: 4px 10px; margin: 2px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+  .controls button.active { background: #333; color: #fff; }
+  .note { font-size: 0.85em; color: #666; margin: 8px 0; }
+</style></head><body>
+<h2>Log–log frequency → gap</h2>
+<p class="note">使用原始 15 个真实频率桶；novel 被排除，因为 train hit count=0 时没有 train token loss，无法定义同桶 gap。x、y 两轴均为对数尺度，仅显示正 gap。</p>
+
+    <div class="controls">
+      <b>context:</b>
+      <button class="active" onclick="setVisible('both', this)">both</button>
+      <button onclick="setVisible('bigram', this)">bigram</button>
+      <button onclick="setVisible('trigram', this)">trigram</button>
+    </div>
+    <div id="log_gap_chart" class="chart"></div>
+    
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+    var logData = {"bigram": [{"bucket": "1", "x": 1.0, "x_low": 1, "x_high": 1, "gap": 5.97206363784553, "train_count": 20948, "val_count": 12927, "train_frac": 0.035515679253472224, "val_frac": 0.021916707356770832, "train_loss": 1.311069898055323, "val_loss": 7.283133535900853}, {"bucket": "2", "x": 2.0, "x_low": 2, "x_high": 2, "gap": 5.042769607986561, "train_count": 12920, "val_count": 9163, "train_frac": 0.021904839409722224, "val_frac": 0.015535142686631944, "train_loss": 1.613182135996215, "val_loss": 6.655951743982777}, {"bucket": "3", "x": 3.0, "x_low": 3, "x_high": 3, "gap": 4.468146921282487, "train_count": 9295, "val_count": 7403, "train_frac": 0.015758938259548612, "val_frac": 0.012551201714409722, "train_loss": 1.8453994039022588, "val_loss": 6.3135463251847455}, {"bucket": "4", "x": 4.0, "x_low": 4, "x_high": 4, "gap": 4.2235542840851075, "train_count": 7781, "val_count": 6249, "train_frac": 0.013192070855034722, "val_frac": 0.010594685872395834, "train_loss": 1.986807300748414, "val_loss": 6.210361584833522}, {"bucket": "5", "x": 5.0, "x_low": 5, "x_high": 5, "gap": 3.851333133227747, "train_count": 6548, "val_count": 5309, "train_frac": 0.011101616753472222, "val_frac": 0.009000990125868056, "train_loss": 2.097720560381467, "val_loss": 5.949053693609214}], "trigram": [{"bucket": "1", "x": 1.0, "x_low": 1, "x_high": 1, "gap": 2.235115409285144, "train_count": 163779, "val_count": 49539, "train_frac": 0.2776743570963542, "val_frac": 0.08398946126302083, "train_loss": 2.5239500385415985, "val_loss": 4.7590654478267425}, {"bucket": "2", "x": 2.0, "x_low": 2, "x_high": 2, "gap": 1.8750050576552941, "train_count": 56061, "val_count": 29415, "train_frac": 0.0950469970703125, "val_frac": 0.049870808919270836, "train_loss": 2.655868590450105, "val_loss": 4.530873648105399}, {"bucket": "3", "x": 3.0, "x_low": 3, "x_high": 3, "gap": 1.6249142556332665, "train_count": 31812, "val_count": 20443, "train_frac": 0.053934733072916664, "val_frac": 0.034659491644965276, "train_loss": 2.814628447425417, "val_loss": 4.439542703058684}, {"bucket": "4", "x": 4.0, "x_low": 4, "x_high": 4, "gap": 1.434882062694157, "train_count": 22709, "val_count": 15919, "train_frac": 0.03850131564670139, "val_frac": 0.026989407009548612, "train_loss": 2.8906778231360533, "val_loss": 4.32555988583021}, {"bucket": "5", "x": 5.0, "x_low": 5, "x_high": 5, "gap": 1.3204720404862718, "train_count": 17314, "val_count": 12984, "train_frac": 0.029354519314236112, "val_frac": 0.022013346354166668, "train_loss": 3.0062733017070995, "val_loss": 4.326745342193371}]};
+    var colors = {bigram: "#353d79", trigram: "#c4493d"};
+    function makeTrace(branch) {
+      var d = logData[branch];
+      return {
+        x: d.map(function(x){return x.x}),
+        y: d.map(function(x){return x.gap}),
+        customdata: d.map(function(x){return [x.bucket, x.x_low, x.x_high, x.train_count, x.val_count, x.train_frac, x.val_frac, x.train_loss, x.val_loss]}),
+        mode: "lines+markers",
+        name: branch,
+        line: {color: colors[branch], width: 2.5},
+        marker: {color: colors[branch], size: 8},
+        error_x: {
+          type: "data",
+          symmetric: false,
+          array: d.map(function(x){return x.x_high - x.x}),
+          arrayminus: d.map(function(x){return x.x - x.x_low}),
+          color: colors[branch],
+          thickness: 1.2,
+          width: 4
+        },
+        hovertemplate: "bucket=%{customdata[0]}<br>frequency range=%{customdata[1]}–%{customdata[2]}<br>gap=%{y:.3f}<br>train tokens=%{customdata[3]:,}<br>val tokens=%{customdata[4]:,}<br>train fraction=%{customdata[5]:.2%}<br>val fraction=%{customdata[6]:.2%}<br>train mean token loss=%{customdata[7]:.3f}<br>val mean token loss=%{customdata[8]:.3f}<extra></extra>"
+      };
+    }
+    function setVisible(which, button) {
+      if (button) {
+        document.querySelectorAll('.controls button').forEach(function(b){b.classList.remove('active')});
+        button.classList.add('active');
+      }
+      var visibility = which === "both" ? [true, true] :
+        (which === "bigram" ? [true, "legendonly"] : ["legendonly", true]);
+      Plotly.restyle("log_gap_chart", {visible: visibility});
+    }
+    Plotly.newPlot("log_gap_chart", [makeTrace("bigram"), makeTrace("trigram")], {
+      title: "Final per-bucket gap vs training hit count",
+      xaxis: {title: "training hit count (log scale)", type: "log", dtick: 1},
+      yaxis: {title: "final gap = val loss − train loss (log scale)", type: "log"},
+      margin: {l:70,r:30,t:50,b:65}, showlegend: true,
+      legend: {x: 0.02, y: 0.98}
+    });
+    </script>
+</body></html>
