@@ -962,11 +962,23 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
 在 `code/train.py` 干净复现上重跑标准极简设置，确认 gap 现象可复现
 （历史参考：`nglab1x_v10_input` 1.931@2000，`nglab1x_v10_nogram` 0.231@2000）。
 
-### 结果（回填中）
-| run | gap@999 | 说明 |
-|---|---|---|
-| `vanilla_input_1000_seed42` | 待填 | input 注入主臂 |
-| `vanilla_nogram_1000_seed42` | 待填 | 无 n-gram 对照 |
+### 结果（已完成 2026-08-23）
+
+| run | gap@999 | gap@1000 | train@1000 | val@1000 | 说明 |
+|---|---:|---:|---:|---:|---|
+| `vanilla_input_1000_seed42` | +0.803 | **+0.858** | 3.608 | 4.466 | input 注入主臂，epoch 2 起 fork |
+| `vanilla_nogram_1000_seed42` | +0.022 | **+0.038** | 5.305 | 5.342 | 无 n-gram 对照，全程无 fork |
+
+**关键观察 / 结论**
+
+1. **gap 现象在干净 vanilla 上成功复现**：input 臂 gap 从 epoch 2（step 337 边界）起单调 fork，
+   step 430 时 +0.07 → step 1000 时 +0.86；nogram 对照全程 ±0.04 内波动。
+2. **gap 的来源确认为 n-gram 表**：input 臂 train 压到 3.61（表记住训练 token 的 over-encoding），
+   val 只降到 4.47；nogram 臂 train/val 同步停在 5.3 附近（纯 backbone 泛化）。
+3. 与历史口径一致（`nglab1x_v10_input` 1.931@2000 / `nglab1x_v10_nogram` 0.231@2000），
+   1000 步的 fork 幅度约为 2000 步的一半，趋势吻合。
 
 ### 产物
-- 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/`
+- 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/vanilla_input_1000_seed42/`（train_log.jsonl + summary.json）
+- 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/vanilla_nogram_1000_seed42/`
+- 训练代码 `code/train.py`（未改动），数据生成 `code/prepare_data.py`（shard 1/2 现生成）
