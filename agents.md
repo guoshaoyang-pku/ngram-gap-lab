@@ -97,11 +97,11 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | 项 | 值 | 说明 |
 |---|---|---|
 | n-gram table | **RMSProp，无动量** | `table_optimizer=rmsprop` |
-| table betas | `(0.0, 0.999)` | β₁=0 即无动量；β₂=0.999 是原始设置 |
-| **β₂ 备选** | `0.99` | 用户认为 0.99 更合理；已有反向扫描 `nglab*_b2_099` / `_b2_098`，见 `docs/experiment-log.md` §9d |
+| table betas | `(0.0, 0.99)` | **scaling 主实验默认（用户 2026-08-24 拍板）**；β₁=0 即无动量。所有新 launcher 必须显式传 `--table_betas 0.0,0.99` |
+| 历史 β₂=0.999 | 仅保留历史身份 | 早期 run 用 `(0.0, 0.999)`；那批 run 的 β₂ 对比因 B2 bug 无有效证据（见 `docs/experiment-log.md` §9d） |
 | backbone | AdamW，betas `(0.8, 0.95)`，weight_decay 0.1 | |
 | lr | 0.004 | table_lr_scale = 1.0 |
-| lr schedule | warmdown_ratio 0.65 | |
+| lr schedule | warmdown_ratio 0.65 | step-anchored；`--lr_schedule_epochs N` 可切 epoch-anchored |
 
 ### 1.4 数据与训练
 
@@ -131,6 +131,20 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 实验线全景见 `docs/experiment-lines.md`；数值细节见 `docs/experiment-log.md`
 （⚠️ 该文件数值尚未从 pre-fix 回填）。
+
+### 1.6 测量基础设施（scaling 实验专用）
+
+> 计划 `docs/notes/plans/plan-3-fix-and-backfill.md` §P2 的测量系统。scaling run 统一开启。
+
+| 项 | 说明 |
+|---|---|
+| `--epoch_batches B` | 一个 epoch 精确等于 B 个 device batches（**嵌套前缀**：所有 L 都是同一 shard 1 数据流的前缀）。L1=42 / L2=84 / L3=168 / L4=336 |
+| fixed train probe | `--fixed_train_probe 4`：独立 dataset 实例抓取固定 4 个 train batches，全程复用；SHA256 记账于 `summary.json`。**不消费训练流、不推进 epoch 计数器**（防 B1 复发）。输出 `fixed_train_loss.jsonl`（每 `--probe_eval_interval 50` 步 + epoch 边界） |
+| exact-frequency | `exact_freq_loss.jsonl`：按 exact f 存 train/val 的 token count、distinct contexts、loss sum/sum²、mean loss；`shared` 字段给 context-matched gap。索引 = `GlobalFrequencyIndex.build_from_chunks`，与模型 hash 逐位置一致 |
+| table occupancy | `code/table_occupancy.py`：每 branch/layer/hash 的 physical rows R、逻辑地址 2R、distinct contexts K、occupancy、collision rate、singleton fraction、freq-weighted load。hash 复用 `train.py` primes（单一来源） |
+| β₂ | 所有 scaling run 显式 `--table_betas 0.0,0.99`（train.py 默认值已同步为 0.99） |
+| 分析脚本 | `docs/plot_scripts/analyze_scaling_epoch.py` / `_frequency.py` / `_table.py`；launcher `code/cluster/run_scaling_epoch.sh` / `run_scaling_table.sh` |
+| 结果目录 | `data/runs_scaling/`（新 namespace，不与历史 `runs_fixed/` 混用） |
 
 ---
 
