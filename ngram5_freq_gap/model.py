@@ -1,13 +1,8 @@
 """Model entry point for the 5-gram frequency-gap experiment.
 
 This module provides a single ``GPT`` / ``GPTConfig`` / ``MODEL_PROVENANCE``
-interface to the trainer.  It tries, in order:
-
-  1. The cluster's ``NanoGPTOriginal`` (imported from the cluster ``train.py``
-     when running on the cluster — the n-gram injection tables are live).
-  2. The vanilla decoder-only Transformer from
-     ``nanogpt_gap_vanilla_control.vanilla_model`` (for local CPU smoke tests
-     without the full cluster codebase).
+interface to the trainer.  It loads the repository's minimal ``NanoGPT`` first,
+then keeps the historical cluster source as an explicit compatibility fallback.
 
 When the user supplies a new architecture, replace the body of this file with
 that implementation; the trainer only depends on the three names above plus a
@@ -24,11 +19,9 @@ from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Try to import the cluster's NanoGPTOriginal.  On the cluster, train.py is in
-# the repo root and exposes NanoGPTOriginal at module scope.  We attempt the
-# import in a way that does not crash if the cluster deps (pyarrow, rustbpe,
-# the full train.py) are unavailable — we fall back to the vanilla model.
-_CLUSTER_TRAIN_PY = _PROJECT_ROOT / "train.py"
+# Try to load the repository's minimal model first.  The historical cluster
+# source remains available only for compatibility with old remote launchers.
+_MAIN_TRAIN_PY = _PROJECT_ROOT / "code" / "train.py"
 _NGRAM_GAP_EXP = Path("/data3/guoshaoyang/ngram-gap-exp/train.py")
 
 NanoGPTOriginal = None
@@ -36,22 +29,19 @@ NanoGPTMLPTrunk = None
 _cluster_model_loaded = False
 _cluster_model_source = None
 
-for _candidate in (_CLUSTER_TRAIN_PY, _NGRAM_GAP_EXP):
+for _candidate in (_MAIN_TRAIN_PY, _NGRAM_GAP_EXP):
     if _candidate.exists():
         try:
-            # ``train.py`` is a script: importing the whole file also builds a
-            # second model, optimizer and dataloaders, and can even enter its
-            # training loop.  Execute only the definition-only prefix ending
-            # immediately before the hyperparameter/setup section instead.
             source = _candidate.read_text(encoding="utf-8")
             marker = (
                 "# ---------------------------------------------------------------------------\n"
                 "# Hyperparameters (edit these directly, no CLI flags needed)\n"
                 "# ---------------------------------------------------------------------------"
             )
-            if marker not in source:
-                raise RuntimeError(f"definition boundary not found in {_candidate}")
-            definition_source = source.split(marker, 1)[0]
+            definition_source = (
+                source if _candidate == _MAIN_TRAIN_PY
+                else source.split(marker, 1)[0]
+            )
 
             # The prefix imports sibling modules (observable, lib, ...), so
             # make its directory importable.  Register the temporary module as
@@ -73,10 +63,19 @@ for _candidate in (_CLUSTER_TRAIN_PY, _NGRAM_GAP_EXP):
                 exec(compile(definition_source, str(_candidate), "exec"), _mod.__dict__)
             finally:
                 builtins.print = _orig_print
+            if hasattr(_mod, "NanoGPT") and hasattr(_mod, "Config"):
+                NanoGPTOriginal = _mod.NanoGPT
+                NanoGPTMLPTrunk = None
+                GPTConfig = _mod.Config
+                MixedOptimizer = getattr(_mod, "MixedOptimizer", None)
+                _cluster_model_loaded = True
+                _cluster_model_source = str(_candidate)
+                break
             if hasattr(_mod, "NanoGPTOriginal"):
                 NanoGPTOriginal = _mod.NanoGPTOriginal
                 NanoGPTMLPTrunk = getattr(_mod, "NanoGPTMLPTrunk", None)
                 GPTConfig = getattr(_mod, "NanoGPTConfig", None) or getattr(_mod, "GPTConfig", None)
+                MixedOptimizer = None
                 _cluster_model_loaded = True
                 _cluster_model_source = str(_candidate)
                 break
@@ -104,23 +103,45 @@ if NanoGPTOriginal is not None:
             "trunk": "mlp",
         }
     elif TRUNK_VARIANT in ("transformer", "baseline"):
-        GPT = NanoGPTOriginal
+        if _cluster_model_source == str(_MAIN_TRAIN_PY):
+            _BaseGPT = NanoGPTOriginal
+
+            class GPT(_BaseGPT):
+                def setup_optimizer(self, **kwargs):
+                    if MixedOptimizer is None:
+                        raise RuntimeError("repository MixedOptimizer is unavailable")
+                    return MixedOptimizer(
+                        self,
+                        lr=kwargs.get("nanogpt_adam_lr", 0.004),
+                        ngram_betas=kwargs.get("ngram_ve_betas", (0.0, 0.999)),
+                        adam_betas=kwargs.get("adam_betas", (0.8, 0.95)),
+                        weight_decay=kwargs.get("weight_decay", 0.1),
+                        table_optimizer="rmsprop",
+                        table_lr_scale=kwargs.get("ngram_ve_lr_scale", 1.0),
+                        table_betas=kwargs.get("ngram_ve_betas", (0.0, 0.999)),
+                    )
+
+                def num_scaling_params(self):
+                    total = sum(parameter.numel() for parameter in self.parameters())
+                    return {"total": total}
+        else:
+            GPT = NanoGPTOriginal
         MODEL_PROVENANCE = {
             "source": _cluster_model_source,
-            "source_description": "cluster NanoGPTOriginal with n-gram injection tables",
-            "note": "loaded from the definition-only prefix of cluster train.py",
+            "source_description": "repository NanoGPT with n-gram injection tables"
+            if _cluster_model_source == str(_MAIN_TRAIN_PY)
+            else "historical cluster NanoGPTOriginal with n-gram injection tables",
+            "note": "loaded from the repository model definition"
+            if _cluster_model_source == str(_MAIN_TRAIN_PY)
+            else "loaded from the historical cluster definition-only prefix",
             "trunk": "transformer",
         }
     else:
         raise ValueError(f"unknown NGRAM5_TRUNK: {TRUNK_VARIANT!r}")
 else:
-    # Fallback: vanilla transformer for local CPU smoke tests.
-    sys.path.insert(0, str(_PROJECT_ROOT / "nanogpt_gap_vanilla_control"))
-    from vanilla_model import GPT, GPTConfig, MODEL_PROVENANCE  # noqa: E402,F401
-    MODEL_PROVENANCE = {
-        **MODEL_PROVENANCE,
-        "note": "vanilla fallback (no n-gram tables); cluster NanoGPTOriginal unavailable",
-        "trunk": TRUNK_VARIANT,
-    }
+    raise RuntimeError(
+        "cannot load the repository model from code/train.py or the "
+        "historical cluster compatibility source"
+    )
 
 __all__ = ["GPT", "GPTConfig", "MODEL_PROVENANCE", "NanoGPTOriginal", "NanoGPTMLPTrunk", "TRUNK_VARIANT"]

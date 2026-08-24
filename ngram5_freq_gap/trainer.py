@@ -32,7 +32,7 @@ Env vars (all optional; defaults shown):
   WARMDOWN_RATIO        0.95  (used for the late n-gram beta2 ramp)
   FINAL_LR_FRAC         0.05
   WEIGHT_DECAY          0.1
-  VAL_LOSS_INTERVAL_STEPS 50
+  VAL_LOSS_INTERVAL_STEPS 10
   VAL_LOSS_BATCHES      4
   TORCH_COMPILE         1
   REMOTE_RESULT_DIR     (optional) mirror jsonl here
@@ -126,10 +126,10 @@ MUON_WARMDOWN_RATIO = float(os.environ.get("WARMDOWN_RATIO", "0.95"))
 FINAL_LR_FRAC = float(os.environ.get("FINAL_LR_FRAC", "0.05"))
 ADAM_BETAS = (0.8, 0.95)
 DEMON_FINAL_BETA1 = 0.55
-NGRAM_VE_BETAS = (0.5, 0.999)
+NGRAM_VE_BETAS = (0.0, 0.999)
 NGRAM_VE_BETA2_WARMDOWN = 0.9999
 
-VAL_LOSS_INTERVAL_STEPS = int(os.environ.get("VAL_LOSS_INTERVAL_STEPS", "50"))
+VAL_LOSS_INTERVAL_STEPS = int(os.environ.get("VAL_LOSS_INTERVAL_STEPS", "10"))
 VAL_LOSS_BATCHES = int(os.environ.get("VAL_LOSS_BATCHES", "4"))
 PROBE_BATCHES = max(1, int(os.environ.get("NGRAM5_PROBE_BATCHES", "2")))
 PROBE_FREQUENCY_MODE = os.environ.get(
@@ -970,7 +970,7 @@ def main() -> None:
     print(f"[trainer] model provenance: {MODEL_PROVENANCE.get('source_description', '?')}",
           flush=True)
 
-    if hasattr(model, "setup_optimizer") and not CPU_SMOKE:
+    if hasattr(model, "setup_optimizer"):
         optimizer = model.setup_optimizer(
             unembedding_lr=0.004,
             embedding_lr=0.6,
@@ -999,12 +999,13 @@ def main() -> None:
         for group in optimizer.param_groups:
             group.setdefault("initial_lr", group["lr"])
 
-    ngram_groups = [g for g in optimizer.param_groups if g.get("is_ngram_ve", False)]
-    adam_groups = [g for g in optimizer.param_groups if not g.get("is_ngram_ve", False)]
+    optimizer_groups = getattr(optimizer, "param_groups", [])
+    ngram_groups = [g for g in optimizer_groups if g.get("is_ngram_ve", False)]
+    adam_groups = [g for g in optimizer_groups if not g.get("is_ngram_ve", False)]
     adam_demon_groups = [
         g for g in adam_groups if g.get("demon_beta1", False) and "betas" in g
     ]
-    for group in optimizer.param_groups:
+    for group in optimizer_groups:
         group.setdefault("initial_lr", group["lr"])
 
     # ---- resume: load model + optimizer weights ----
@@ -1232,26 +1233,29 @@ def main() -> None:
         lrm = lr_multiplier(step, MAX_TRAINING_STEPS, WARMUP_RATIO,
                             ADAM_WARMDOWN_RATIO, FINAL_LR_FRAC)
         current_lr = LEARNING_RATE * lrm
-        for group in adam_groups:
-            group["lr"] = group["initial_lr"] * lrm
-        adam_warmdown_start = 1.0 - ADAM_WARMDOWN_RATIO
-        if progress >= adam_warmdown_start:
-            adam_frac = (progress - adam_warmdown_start) / ADAM_WARMDOWN_RATIO
-            beta1 = ADAM_BETAS[0] + (DEMON_FINAL_BETA1 - ADAM_BETAS[0]) * adam_frac
-            for group in adam_demon_groups:
-                group["betas"] = (beta1, group["betas"][1])
-        muon_frac = max(
-            0.0,
-            (progress - (1.0 - MUON_WARMDOWN_RATIO)) / MUON_WARMDOWN_RATIO,
-        )
-        late_frac = max(0.0, (muon_frac - 0.7) / 0.3)
-        if late_frac > 0.0:
-            ve_beta2 = NGRAM_VE_BETAS[1] + late_frac * (
-                NGRAM_VE_BETA2_WARMDOWN - NGRAM_VE_BETAS[1]
+        if optimizer_groups:
+            for group in adam_groups:
+                group["lr"] = group["initial_lr"] * lrm
+            adam_warmdown_start = 1.0 - ADAM_WARMDOWN_RATIO
+            if progress >= adam_warmdown_start:
+                adam_frac = (progress - adam_warmdown_start) / ADAM_WARMDOWN_RATIO
+                beta1 = ADAM_BETAS[0] + (DEMON_FINAL_BETA1 - ADAM_BETAS[0]) * adam_frac
+                for group in adam_demon_groups:
+                    group["betas"] = (beta1, group["betas"][1])
+            muon_frac = max(
+                0.0,
+                (progress - (1.0 - MUON_WARMDOWN_RATIO)) / MUON_WARMDOWN_RATIO,
             )
-            for group in ngram_groups:
-                group["beta2"] = ve_beta2
-        optimizer.step()
+            late_frac = max(0.0, (muon_frac - 0.7) / 0.3)
+            if late_frac > 0.0:
+                ve_beta2 = NGRAM_VE_BETAS[1] + late_frac * (
+                    NGRAM_VE_BETA2_WARMDOWN - NGRAM_VE_BETAS[1]
+                )
+                for group in ngram_groups:
+                    group["beta2"] = ve_beta2
+            optimizer.step()
+        else:
+            optimizer.step(lr_mult=lrm)
         optimizer.zero_grad(set_to_none=True)
 
         train_loss_f = float(train_loss_val.item())
