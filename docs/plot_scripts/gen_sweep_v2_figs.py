@@ -12,7 +12,6 @@ Outputs (warm paper language, ngram-gap-plotting skill):
                                power-law exponent α in the gap legend
   fig_sweep_v2_dose_resp.svg — gap @ step 2000 vs dose: log-x + log-log panels
   fig_sweep_v2_injpos.svg    — log-log gap curves by injection point (v2)
-  fig_sweep_v2_epoch_map.svg — observed epoch boundaries by dose (v2 logs)
 
 Log-log gap panels exclude non-positive gap values (log undefined) — noted.
 """
@@ -330,35 +329,6 @@ def main():
                     **({"dpi": 150} if ext == "png" else {}))
     plt.close(fig)
     print("[v2] wrote fig_sweep_v2_injpos")
-
-    # ---- Fig 5: epoch boundary map from v2 logs ----
-    fig, ax = plt.subplots(figsize=(10, 6.6), facecolor=PAPER)
-    style_axis(ax)
-    ypos = np.arange(len(keys))
-    for y, k in zip(ypos, keys):
-        s = series[k]
-        col = colors[k]
-        ax.plot([0, s["final_step"]], [y, y], color=col, linewidth=2.0, alpha=0.75)
-        for step, ep in s["boundaries"]:
-            ax.plot([step, step], [y - 0.34, y + 0.34], color=col, linewidth=1.8)
-    ax.set_yticks(ypos)
-    ax.set_yticklabels([f"{k} · {labels[k]}M" for k in keys])
-    ax.invert_yaxis()
-    ax.set_xlim(0, 2100)
-    ax.set_xlabel("step")
-    ax.set_ylabel("shard dose · dataset size")
-    ax.set_title("v2 observed epoch boundaries by dose", loc="left",
-                 fontsize=13, fontweight="bold")
-    ax.grid(axis="x", color=LINE, linewidth=0.7, alpha=0.55)
-    fig.text(0.5, 0.012, STD_FOOT + " · | = start of a new pass over the dose's set.",
-             ha="center", fontsize=9, color=MUTED)
-    fig.tight_layout(rect=[0, 0.04, 1, 1])
-    for ext in ("svg", "png"):
-        fig.savefig(os.path.join(FIGS_DIR, f"fig_sweep_v2_epoch_map.{ext}"),
-                    facecolor=PAPER, bbox_inches="tight",
-                    **({"dpi": 150} if ext == "png" else {}))
-    plt.close(fig)
-    print("[v2] wrote fig_sweep_v2_epoch_map")
 
 
 if __name__ == "__main__":

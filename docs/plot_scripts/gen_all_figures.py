@@ -360,6 +360,56 @@ BUCKET_COLORS = {"novel": "#E91E63", "1": "#F44336", "2": "#FF5722", "3": "#FF98
                  "21-50": "#4CAF50", "51-100": "#009688", "101-200": "#00BCD4",
                  "201-500": "#03A9F4", "501-1k": "#2196F3", "1k-5k": "#3F51B5", "5k+": "#673AB7"}
 
+
+def _parse_bound(bucket):
+    if bucket == "novel":
+        return (0, 0)
+    if bucket.endswith("+"):  # open-ended, e.g. "5k+" / "10k+"
+        base = bucket[:-1]
+        v = int(float(base[:-1]) * 1000) if base.endswith("k") else int(base)
+        return (v, v * 2)
+    if "-" not in bucket:
+        v = int(bucket)
+        return (v, v)
+    lo_s, hi_s = bucket.split("-")
+
+    def val(tok):
+        if tok.endswith("k"):
+            return int(float(tok[:-1]) * 1000)
+        return int(tok)
+
+    lo = val(lo_s)
+    if hi_s.endswith("k+"):
+        hi = int(float(hi_s[:-2]) * 1000) * 2
+    elif hi_s.endswith("k"):
+        hi = int(float(hi_s[:-1]) * 1000)
+    else:
+        hi = int(hi_s)
+    return (lo, hi)
+
+
+def sync_buckets(data):
+    """Adopt the bucket scheme actually present in the run data (v2 wave uses
+    24 finer buckets instead of the historical 15)."""
+    global BUCKET_ORDER, BUCKET_BOUNDS, BUCKET_COLORS
+    d = data.get("input", {})
+    pts = d.get("freq_bin", [])
+    if not pts:
+        return
+    branches = pts[-1].get("train", {})
+    order = list(branches.get("bigram", {}).keys())
+    if not order or order == BUCKET_ORDER:
+        return
+    BUCKET_ORDER = order
+    BUCKET_BOUNDS = {b: _parse_bound(b) for b in order}
+    ramp = plt.cm.viridis(np.linspace(0.15, 0.9, max(1, len(order) - 1)))
+    colors = {"novel": "#E91E63"}
+    for i, b in enumerate(order[1:]):
+        r, g, bl, _ = ramp[i]
+        colors[b] = f"#{int(r*255):02X}{int(g*255):02X}{int(bl*255):02X}"
+    BUCKET_COLORS = colors
+    print(f"[fig] bucket scheme synced from data: {len(order)} buckets")
+
 PAPER = "#f7f5ef"
 PANEL = "#fffdf8"
 INK = "#232426"
@@ -646,13 +696,7 @@ def gen_static_log_figures(data):
     if not points:
         return
     last = points[-1]
-    bounds = {
-        "novel": (0, 0), "1": (1, 1), "2": (2, 2), "3": (3, 3),
-        "4": (4, 4), "5": (5, 5), "6-10": (6, 10), "11-20": (11, 20),
-        "21-50": (21, 50), "51-100": (51, 100), "101-200": (101, 200),
-        "201-500": (201, 500), "501-1k": (501, 1000),
-        "1k-5k": (1000, 5000), "5k+": (5000, 10000),
-    }
+    bounds = BUCKET_BOUNDS
     fig, axes = plt.subplots(1, 2, figsize=(12.0, 4.5), facecolor=PAPER)
     for ax, y_log, title in [
         (axes[0], False, "Final gap vs frequency · log-x"),
@@ -1128,13 +1172,7 @@ def gen_fig_gap_log(data, output_name="fig_gap_vs_frequency_log.html", y_log=Tru
         print("[fig] fig_gap_vs_frequency_log: no freq_bin data, skipping")
         return
     last = fb_pts[-1]
-    bounds = {
-        "1": (1, 1), "2": (2, 2), "3": (3, 3), "4": (4, 4), "5": (5, 5),
-        "6-10": (6, 10), "11-20": (11, 20), "21-50": (21, 50),
-        "51-100": (51, 100), "101-200": (101, 200),
-        "201-500": (201, 500), "501-1k": (501, 1000),
-        "1k-5k": (1000, 5000), "5k+": (5000, 10000),
-    }
+    bounds = BUCKET_BOUNDS
     log_data = {}
     for branch in ["bigram", "trigram"]:
         rows = []
@@ -1238,6 +1276,7 @@ def gen_fig_gap_log(data, output_name="fig_gap_vs_frequency_log.html", y_log=Tru
 def main():
     os.makedirs(FIGS_DIR, exist_ok=True)
     data = load_all()
+    sync_buckets(data)
     for key, d in data.items():
         print(f"{key}: train_log={len(d['train_log'])} table_norm={len(d['table_norm'])} freq_bin={len(d['freq_bin'])}")
     gen_static_loss_figures(data)

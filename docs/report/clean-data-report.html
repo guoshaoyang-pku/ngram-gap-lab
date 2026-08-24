@@ -80,8 +80,18 @@ tr:hover td{background:rgba(53,61,121,.04)}
 </div>
 
 <div class="figure-card">
-<img src="../figs/epoch_scale/fig_sweep_v2_epoch_map.svg" alt="v2 epoch boundaries by dose">
-<div class="fig-caption"><strong>图 5 · Epoch 边界图（v2）</strong>：每行一个 dose，竖线 = 完整遍历一遍训练集的位置。可直接读出：0.25× 每 80 步一遍（2000 步 24 遍），1× 每 340 步一遍，≥3× 在 2000 步内不足一遍 —— dose 通过「每个 context 的重复次数」起作用。</div>
+<img src="../figs/main/fig_freq_bigram.svg" alt="Bigram frequency decomposition, dual-axis">
+<div class="fig-caption"><strong>图 5 · Bigram 分 bin（v2 · skill 规范双轴图）</strong>：左轴 = token fraction 分组柱（train <code>#2d6f9f</code> / val <code>#c4493d</code>，含 novel）；右轴 = 各 bin 平均 loss（train 虚线 / val 实线）+ 最终 per-bin gap（<code>#353d79</code> 点线，novel 处断开，因为 train 无 token）。低频 bin 的 val−train gap 最大：gap 集中在低频区。</div>
+</div>
+
+<div class="figure-card">
+<img src="../figs/main/fig_freq_trigram.svg" alt="Trigram frequency decomposition, dual-axis">
+<div class="fig-caption"><strong>图 6 · Trigram 分 bin（v2）</strong>：同图 5 结构。trigram context 更稀疏，novel/低频 bin 占比更高，per-bin gap 绝对值更大、随频率衰减更陡。</div>
+</div>
+
+<div class="figure-card">
+<img src="../figs/main/fig_gap_vs_frequency.svg" alt="Final gap versus context frequency, log-x and log-log panels">
+<div class="fig-caption"><strong>图 7 · Gap vs frequency（log-x + log-log 双面板）</strong>：最终 per-bin gap 对 context 频率（几何中点）。log-log 下近似幂律 gap ∝ f^α（α&lt;0）——「gap 是低频现象」在 v2 新标准下依然成立。非正 gap 已剔除（图内注明）。</div>
 </div>
 
 <div class="data-table"><table>
