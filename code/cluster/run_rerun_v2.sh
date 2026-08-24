@@ -36,6 +36,9 @@ pick_freq_index() {
     1,2)     name="freq_index_train2x_fine" ;;
     1,2,3)   name="freq_index_train3x" ;;
     1,2,3,4) name="freq_index_train4x" ;;
+    1,2,3,4,5) name="freq_index_train5x" ;;
+    1,2,3,4,5,6) name="freq_index_train6x" ;;
+    1,2,3,4,5,6,7,8) name="freq_index_train8x" ;;
     *)       name="freq_index" ;;
   esac
   if [ -f "$ROOT/data/${name}.npz" ]; then
