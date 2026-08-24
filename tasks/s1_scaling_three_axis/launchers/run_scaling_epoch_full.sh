@@ -66,10 +66,15 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
   echo "[epoch-full] $RUN_ID done (exit=$?) at $(date)"
 }
 
-# run_wave <label> <schedule_epochs> <steps_fn> -- one arm per module, each on
-# its own GPU from the GPUS list (round-robin; waits for all before returning).
+# run_wave <label> <schedule_epochs> <steps_fn> -- schedule every arm across
+# the GPUS list with a slot counter so that at most one training process runs
+# per GPU at any time (avoids CUDA OOM when len(GPUS) < #arms).
 run_wave() {
-  local LABEL="$1" SCHED="$2" STEPS_FN="$3" L BI TRI GPUS_IDX=0
+  local LABEL="$1" SCHED="$2" STEPS_FN="$3"
+  local NGPU=${#GPUS[@]}
+  local ACTIVE=0                     # number of training jobs currently running
+  local SLOT=0                       # next GPU slot to use (round-robin)
+  local L ARM BI TRI STEPS GPU
   for L in L1 L2 L3 L4; do
     for ARM in bigram trigram both nogram; do
       case "$ARM" in
@@ -78,14 +83,24 @@ run_wave() {
         both) BI=1 TRI=1 ;;
         nogram) BI=0 TRI=0 ;;
       esac
-      local GPU="${GPUS[$GPUS_IDX]}"
-      GPUS_IDX=$(( (GPUS_IDX + 1) % ${#GPUS[@]} ))
-      local STEPS
+      # Wait until a GPU slot is free (at most NGPU concurrent jobs).
+      while [ "$ACTIVE" -ge "$NGPU" ]; do
+        wait -n
+        ACTIVE=$((ACTIVE - 1))
+      done
+      GPU="${GPUS[$SLOT]}"
+      SLOT=$(( (SLOT + 1) % NGPU ))
       STEPS=$("$STEPS_FN" "$L")
       run_arm "$GPU" "ep_${L}_${ARM}_${LABEL}" "${EPB[$L]}" "$STEPS" "$SCHED" "$BI" "$TRI" &
+      ACTIVE=$((ACTIVE + 1))
     done
-    wait
-    GPUS_IDX=0
+    # Wait for all arms of this L to finish before the next L (keeps the
+    # no-ngram baseline of each L on the same timeline).
+    while [ "$ACTIVE" -gt 0 ]; do
+      wait -n
+      ACTIVE=$((ACTIVE - 1))
+    done
+    SLOT=0
   done
 }
 

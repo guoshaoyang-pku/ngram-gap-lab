@@ -58,8 +58,11 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
 }
 
 # 7 table sizes x 3 modules (mult=64 and 8 and 1 already in pilot; rerun all
-# for uniform naming & full collision curve)
-GPUS_IDX=0
+# for uniform naming & full collision curve).  Slot scheduling: at most one
+# training job per GPU (avoids CUDA OOM when len(GPUS) < #arms).
+NGPU=${#GPUS[@]}
+ACTIVE=0
+SLOT=0
 for TM in 64 32 16 8 4 2 1; do
   for ARM in bigram trigram both; do
     case "$ARM" in
@@ -67,12 +70,20 @@ for TM in 64 32 16 8 4 2 1; do
       trigram) BI=0 TRI=1 ;;
       both) BI=1 TRI=1 ;;
     esac
-    GPU="${GPUS[$GPUS_IDX]}"
-    GPUS_IDX=$(( (GPUS_IDX + 1) % ${#GPUS[@]} ))
+    while [ "$ACTIVE" -ge "$NGPU" ]; do
+      wait -n
+      ACTIVE=$((ACTIVE - 1))
+    done
+    GPU="${GPUS[$SLOT]}"
+    SLOT=$(( (SLOT + 1) % NGPU ))
     run_arm "$GPU" "tbl_${TM}_${ARM}" "$TM" "$BI" "$TRI" &
+    ACTIVE=$((ACTIVE + 1))
   done
-  wait
-  GPUS_IDX=0
+  while [ "$ACTIVE" -gt 0 ]; do
+    wait -n
+    ACTIVE=$((ACTIVE - 1))
+  done
+  SLOT=0
 done
 
 echo "=== table full grid done at $(date) ==="
