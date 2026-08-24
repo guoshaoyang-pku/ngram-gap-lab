@@ -11,7 +11,9 @@
 # Both fixed-step (1000 steps) and fixed-epoch (6 epochs, 2022 steps) are run
 # so G(E,f) can be read at epoch 3 and epoch 6 cross-sections.
 #
-# Usage: ./run_scaling_frequency_axis.sh [gpu1] [gpu2] [gpu3] [gpu4]
+# Usage: ./run_scaling_frequency_axis.sh <gpu_id1> [gpu_id2] [gpu_id3] [gpu_id4]
+#   Pass the CUDA device ids of the free GPUs (any number >= 1).  Arms are
+#   slot-scheduled (at most one training job per GPU at a time).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,12 +23,17 @@ PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 OUT_DIR="$ROOT/data/runs_scaling"
 FREQ_IDX="$ROOT/data/freq_index.npz"
-G1="${1:-0}" G2="${2:-1}" G3="${3:-2}" G4="${4:-3}"
+GPUS=("$@")
+if [ "${#GPUS[@]}" -eq 0 ]; then GPUS=(0 1 2 3); fi
 mkdir -p "$OUT_DIR"
 
 run_arm() {  # run_arm <gpu> <run_id> <steps> <schedule_epochs> <bigram> <trigram>
   local GPU="$1" RUN_ID="$2" STEPS="$3" SCHED="$4" BI="$5" TRI="$6"
   local RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
+  if [ -f "$RESULT_DIR/summary.json" ]; then
+    echo "[freq-axis] SKIP $RUN_ID (summary.json already present)"
+    return 0
+  fi
   mkdir -p "$RESULT_DIR"
   echo "[freq-axis] $RUN_ID steps=$STEPS sched=$SCHED bi=$BI tri=$TRI -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \
@@ -52,18 +59,34 @@ run_arm() {  # run_arm <gpu> <run_id> <steps> <schedule_epochs> <bigram> <trigra
   echo "[freq-axis] $RUN_ID done (exit=$?) at $(date)"
 }
 
+# Slot-scheduled launch: max one training job per GPU at any time.
+NGPU=${#GPUS[@]}
+ACTIVE=0
+SLOT=0
+launch() {  # launch <run_id> <steps> <schedule_epochs> <bigram> <trigram>
+  local RUN_ID="$1" STEPS="$2" SCHED="$3" BI="$4" TRI="$5"
+  while [ "$ACTIVE" -ge "$NGPU" ]; do
+    wait -n
+    ACTIVE=$((ACTIVE - 1))
+  done
+  local GPU="${GPUS[$SLOT]}"
+  SLOT=$(( (SLOT + 1) % NGPU ))
+  run_arm "$GPU" "$RUN_ID" "$STEPS" "$SCHED" "$BI" "$TRI" &
+  ACTIVE=$((ACTIVE + 1))
+}
+
 # Fixed-step arms (1000 steps, step-anchored LR): 4 module arms
-run_arm "$G1" freq_bigram_fs  1000 0 1 0 &
-run_arm "$G2" freq_trigram_fs 1000 0 0 1 &
-run_arm "$G3" freq_both_fs    1000 0 1 1 &
-run_arm "$G4" freq_nogram_fs  1000 0 0 0 &
-wait
+launch freq_bigram_fs  1000 0 1 0
+launch freq_trigram_fs 1000 0 0 1
+launch freq_both_fs    1000 0 1 1
+launch freq_nogram_fs  1000 0 0 0
+while [ "$ACTIVE" -gt 0 ]; do wait -n; ACTIVE=$((ACTIVE - 1)); done
 
 # Fixed-epoch arms (6 full epochs, epoch-anchored LR): 4 module arms
-run_arm "$G1" freq_bigram_fe  2022 6 1 0 &
-run_arm "$G2" freq_trigram_fe 2022 6 0 1 &
-run_arm "$G3" freq_both_fe    2022 6 1 1 &
-run_arm "$G4" freq_nogram_fe  2022 6 0 0 &
-wait
+launch freq_bigram_fe  2022 6 1 0
+launch freq_trigram_fe 2022 6 0 1
+launch freq_both_fe    2022 6 1 1
+launch freq_nogram_fe  2022 6 0 0
+while [ "$ACTIVE" -gt 0 ]; do wait -n; ACTIVE=$((ACTIVE - 1)); done
 
 echo "=== frequency axis done at $(date) ==="
