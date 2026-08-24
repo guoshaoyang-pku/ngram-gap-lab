@@ -3,7 +3,11 @@
 > **目的**：在唯一极简 setting 下，正式验证 epoch length、exact context
 > frequency、table size 三条 scaling。  
 > **交接对象**：`ngram-gap-lab` 中的 agents。  
-> **当前状态**：基础 QC 已完成；正式 full grid 尚未启动。  
+> **当前状态**：seed 42 正式 full grid 与 **seed 43/44 三 seed 复现（epoch /
+> table / frequency）均已完成**，261/261 个 run 通过 QC；H1–H4 猜想检验已
+> 回填（附录报告 §7）：ΔG 方向 seed-stable、trigram table 幂律无饱和、
+> 两因素 β 可辨识（cv 4–13%）、模块交互不可合并。仍缺 frequency 的
+> epoch-dependent fit 与最终 scaling 定律提升。
 > **前置提交**：`1f59ffc fix: decouple frequency diagnostics from fixed probes`
 
 ## 1. 先看哪里：极简报告与当前证据
@@ -113,7 +117,7 @@ python -m py_compile \
 | L1 | 42 | 1/8 |
 | L2 | 84 | 1/4 |
 | L3 | 168 | 1/2 |
-| L4 | 336 | 1 |
+| L4 | 337 | 1 |
 
 固定步数：
 
@@ -186,10 +190,26 @@ G_l,E(f) = A_l f^(-beta_l)
 | `table_mult` | physical `R` | logical `2R` |
 |---:|---:|---:|
 | 64 | 524,288 | 1,048,576 |
+| 56 | 458,752 | 917,504 |
+| 48 | 393,216 | 786,432 |
+| 40 | 327,680 | 655,360 |
+| 36 | 294,912 | 589,824 |
 | 32 | 262,144 | 524,288 |
+| 28 | 229,376 | 458,752 |
+| 24 | 196,608 | 393,216 |
+| 20 | 163,840 | 327,680 |
+| 18 | 147,456 | 294,912 |
 | 16 | 131,072 | 262,144 |
+| 14 | 114,688 | 229,376 |
+| 12 | 98,304 | 196,608 |
+| 10 | 81,920 | 163,840 |
+| 9 | 73,728 | 147,456 |
 | 8 | 65,536 | 131,072 |
+| 7 | 57,344 | 114,688 |
+| 6 | 49,152 | 98,304 |
+| 5 | 40,960 | 81,920 |
 | 4 | 32,768 | 65,536 |
+| 3 | 24,576 | 49,152 |
 | 2 | 16,384 | 32,768 |
 | 1 | 8,192 | 16,384 |
 
@@ -202,10 +222,12 @@ G_l,E(f) = A_l f^(-beta_l)
 - 1M 默认点复用合格的 epoch-grid L4 run；
 - no-ngram 共享基线，不随 table size 重跑。
 
-每个 table run 必须生成：
+每个 table run 的正式测量产物包括：
 
 - `table_occupancy.json`；
-- exact-frequency 日志；
+- fixed train/validation probe 日志；原始 7 个 table size 的 21 个 dense run
+  每 10 步记录，另 37 个加密 sparse run 只在最终 step 1000 记录；exact-frequency 只在
+  独立 frequency 轴 run 中记录；
 - 实际参数量、physical rows、logical addresses；
 - collision rate、singleton fraction、mean/p95 co-occupants；
 - frequency-weighted row load。
@@ -231,12 +253,45 @@ G_l,E(f) = A_l f^(-beta_l)
 - fixed probe token hash 跨 run 一致；
 - train / val 零重叠；
 - beta2 实际读取 `table_betas[1]`；
-- exact-frequency key 与模型逐位置一致；
+- frequency 轴 run 的 exact-frequency key 与模型逐位置一致；
 - table occupancy 的 numpy / torch hash 一致；
 - 无 NaN/OOM/异常 loss；
 - 每个实验变量有对应 no-ngram 或共享 baseline；
 - 至少 seed 42/43/44；
 - 所有 run 有 manifest、代码 commit、机器/GPU、数据 prefix。
+
+### seed 42 正式网格回填（2026-08-24）
+
+- epoch full grid：32/32 完成；`epoch_batches` 为 42/84/168/337；
+- table full grid + 两轮加密取点：69/69 完成，覆盖
+  `table_mult=64,56,48,40,36,32,28,24,20,18,16,14,12,10,9,8,7,6,5,4,3,2,1`；
+- frequency axis：8/8 完成，exact-frequency 每 100 步；
+- `bb_safety_L1_nogram_5000` 完成，final fixed gap 为 +16.66 @5000，
+  但该 run 是旧 cadence + fp32/no compile，只作量级参考；
+- 正式 109 个 `_fixed` run 的统一 QC 全部通过：无 NaN/坏行；dense run 为
+  10 步 validation/probe cadence，48 个 table sparse run 只在最终 step
+  1000 监测；bf16 + compile，probe hash 一致；
+- 三轴图和摘要位于 `docs/appendices/s1_scaling_three_axis/figs/`，
+  频率拟合和排除 manifest 位于 `figs/fit_manifest.json`；
+- **三 seed 复现完成（2026-08-25）**：seed 43/44 的 epoch（32×2）、table
+  加密（36×2）、frequency（8×2）共 152 个新 run 全部完成并通过 QC，三 seed
+  正式 run 合计 261 个；H1–H4 判定见附录报告 §7 与实验登记 §17.2；
+- **尚未完成**：frequency 的 epoch-dependent fit（epoch 3/6 截面）、跨 seed
+  profile-likelihood，以及把三轴结果提升为主报告 scaling 定律。
+
+### table 加密取点（2026-08-24）
+
+table 原始 7 个规模只有 7 个横坐标，双对数图难以判断中间形状。为保持
+最终 gap 口径不变，同时避免重复计算完整训练曲线，第一轮新增
+`table_mult=48,24,12,6,3` 五个规模；每个规模跑 bigram/trigram/both 三个
+module，共 15 个 run。第二轮继续新增
+`table_mult=56,40,36,28,20,18,14,10,9,7,5` 十一个规模，
+每个只跑 bigram/trigram，共 22 个 run。两轮均使用 `MONITOR=sparse`：
+`--val_steps 1000 --probe_eval_interval 1000 --table_norm_interval 1000`，
+因此每个 run 只保存最终 fixed train/val/gap 和 occupancy，不把中间点补画
+成曲线。原始 21 个 dense run 与两轮合计 48 个 sparse run 合并为 69 个最终
+table 点（bigram/trigram/both 各 23 点）；图 `table_gap_vs_2R.png`
+和 `table_gap_vs_collision.png` 均使用这 69 个点。
 
 若 QC 不通过：
 
@@ -294,6 +349,7 @@ G_l,E(f) = A_l f^(-beta_l)
 7. 每个逻辑阶段单独 commit；
 8. 未经用户明确授权，不执行 `git push`。
 
-**handoff 结论**：当前基础 QC 已证明“新极简 setting 下 1000 步可以出现
-清晰 forking，table 缩小时 gap 可显著下降，exact-frequency 形状存在”，
-但尚未证明 epoch scaling 定律、frequency 两因素公式或 table saturation。
+**当前结论边界**：seed 42 的图形和探索性频率拟合已完成，但至少 seed
+43/44、跨 seed uncertainty、frequency 的 epoch-dependent fit 和
+table saturation 仍未完成。因此不能把当前结果写成已确认的三轴 scaling
+定律；主报告 `docs/report/index.html` 仍不应更新。

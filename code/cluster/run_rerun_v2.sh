@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rerun V2 单 run 执行器 —— 新标准：β₂=0.99（无动量）· 表学习率 ×2 · bf16+torch.compile
+# Rerun V2 单 run 执行器 —— 新标准：β₂=0.99（无动量）· 表学习率 ×2 · bf16（不 compile）
 # 用户 2026-08-24 拍板；所有参数显式传递，不依赖默认值。
 #
 # Usage: ./run_rerun_v2.sh <gpu_id> <run_id> <train_shards> <val_shards> <steps> <extra...>
@@ -7,7 +7,7 @@
 #                  --enable_bigram 0 --enable_trigram 0（nogram 臂）
 #                  --intervention reset_table --intervention_epoch 1（因果臂）
 #                  --table_mult 16（表大小扫描臂）
-#   compute dtype 固定 bf16 + torch.compile（新标准 §1.4，~5.3x 提速）。
+#   compute dtype 固定 bf16（新标准 §1.4，~5.6x 提速；torch.compile 在 28.8B 上为负优化，禁用）。
 set -euo pipefail
 
 GPU="${1:?gpu id}"
@@ -75,7 +75,6 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --table_lr_scale 2.0 \
   --table_mult 64 \
   --dtype bf16 \
-  --compile \
   --freq_index "$FREQ_INDEX" \
   --freq_eval_interval 10 \
   --freq_eval_batches 4 \

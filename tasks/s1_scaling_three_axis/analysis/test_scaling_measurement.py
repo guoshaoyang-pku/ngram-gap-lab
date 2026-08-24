@@ -8,6 +8,7 @@ Covers:
   - L1 ⊂ L2 ⊂ L3 ⊂ L4 nested prefixes
   - table_occupancy hash matches the model's hash
   - β₂ real read of table_betas[1]
+  - launchers/analysis honour the current online-gap, multi-seed, freq-10 contract
 """
 
 from __future__ import annotations
@@ -355,6 +356,70 @@ def test_beta2_uses_table_betas():
     # exp_avg_sq should have been updated as b2*0 + (1-b2)*1 = 0.01
     ema = opt.rms_exp_avg_sq[name]
     assert abs(ema.flatten()[0].item() - 0.01) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# launcher / analysis contract
+# ---------------------------------------------------------------------------
+
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+
+
+def _read_text(*parts):
+    with open(os.path.join(ROOT, *parts), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_launchers_support_multi_seed_and_online_gap():
+    for name in ("run_scaling_epoch_full.sh", "run_scaling_table_full.sh", "run_scaling_frequency_axis.sh"):
+        text = _read_text("launchers", name)
+        assert 'SEED="${SEED:-42}"' in text, name
+        assert '--seed "$SEED"' in text, name
+        assert 'RUN_SUFFIX' in text, name
+        assert '--fixed_train_probe 0' in text, name
+
+    epoch = _read_text("launchers", "run_scaling_epoch_full.sh")
+    assert 'MONITOR="${MONITOR:-dense}"' in epoch
+    assert '--val_interval 10' in epoch
+    assert '--table_norm_interval 10' in epoch
+    assert '--val_steps "$STEPS"' in epoch
+
+    table = _read_text("launchers", "run_scaling_table_full.sh")
+    assert 'MONITOR="${MONITOR:-dense}"' in table
+    assert '--val_steps "$MAX_STEPS"' in table
+    assert '--table_norm_interval "$MAX_STEPS"' in table
+
+    freq = _read_text("launchers", "run_scaling_frequency_axis.sh")
+    assert 'MONITOR="${MONITOR:-dense}"' in freq
+    assert '--val_interval 10' in freq
+    assert '--table_norm_interval 10' in freq
+    assert '--exact_freq_eval_interval 10' in freq
+
+
+def test_train_defaults_match_s1_contract():
+    text = _read_text("code", "train.py")
+    assert 'parser.add_argument("--dtype", default="bf16"' in text
+    assert 'default=True' in text and '--no_compile' in text
+
+
+def test_analysis_scripts_accept_multi_seed_online_contract():
+    epoch = _read_text("analysis", "analyze_scaling_epoch.py")
+    table = _read_text("analysis", "analyze_scaling_table.py")
+    freq = _read_text("analysis", "analyze_scaling_frequency.py")
+
+    assert "SEED_ORDER = (42, 43, 44)" in epoch
+    assert "sparse_monitor" in epoch and "dense_monitor" in epoch
+    assert 'torch_compile") is True' in epoch
+
+    assert "def parse_table_run" in table
+    assert 'torch_compile") is True' in table
+    assert '"seed": parsed["seed"]' in table
+    assert "SEED_MARKERS" in table
+
+    assert "def parse_run_key" in freq
+    assert 'torch_compile") is True' in freq
+    assert "exact_interval in {10, 100}" in freq
+    assert '"seed": seed' in freq
 
 
 if __name__ == "__main__":

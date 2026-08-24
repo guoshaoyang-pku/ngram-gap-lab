@@ -2,16 +2,15 @@
 """ngram-gap-lab · epoch-length scaling analysis (plan §3).
 
 Reads data/runs_scaling/<run>/:
-  - fixed_train_loss.jsonl : {step, epoch, fixed_train_loss, fixed_val_loss, fixed_gap}
+  - train_log.jsonl        : {step, epoch, train_loss, val_loss, gap}
   - exact_freq_loss.jsonl  : per-exact-f train/val/shared stats
-  - train_log.jsonl        : online loss + epoch (diagnostic)
   - summary.json           : run metadata (epoch_batches, module flags, betas)
 
 Produces:
-  - fig: fixed-gap vs step, per epoch length (fixed-step alignment)
-  - fig: fixed-gap vs epoch, per epoch length (fixed-epoch alignment)
+  - fig: online-gap vs step, per epoch length (fixed-step alignment)
+  - fig: online-gap vs epoch, per epoch length (fixed-epoch alignment)
   - fig: delta-G (module - no-ngram) vs step / epoch
-  - table: final fixed-gap per (L, module, alignment)
+  - table: final online-gap per (L, module, alignment)
 
 Usage: python3 docs/plot_scripts/analyze_scaling_epoch.py [runs_dir]
 """
@@ -38,7 +37,7 @@ FIGS_DIR = os.path.join(
 )
 os.makedirs(FIGS_DIR, exist_ok=True)
 
-EPB = {"L1": 42, "L2": 84, "L3": 168, "L4": 336}
+EPB = {"L1": 42, "L2": 84, "L3": 168, "L4": 337}  # L4 = full shard 1 (user 2026-08-24)
 MODULES = {
     "bigram": {"bigram": 1, "trigram": 0, "label": "bigram-only", "color": "#9C27B0"},
     "trigram": {"bigram": 0, "trigram": 1, "label": "trigram-only", "color": "#FF9800"},
@@ -46,10 +45,11 @@ MODULES = {
     "nogram": {"bigram": 0, "trigram": 0, "label": "no-ngram", "color": "#4CAF50"},
 }
 ALIGN = {"fs": "fixed-step", "fe": "fixed-epoch"}
+SEED_ORDER = (42, 43, 44)
 
 
-def load_probe(run_dir):
-    path = os.path.join(run_dir, "fixed_train_loss.jsonl")
+def load_online(run_dir):
+    path = os.path.join(run_dir, "train_log.jsonl")
     if not os.path.exists(path):
         return []
     out = []
@@ -62,9 +62,9 @@ def load_probe(run_dir):
             out.append({
                 "step": int(e["step"]),
                 "epoch": float(e["epoch"]),
-                "fixed_train": float(e["fixed_train_loss"]),
-                "fixed_val": float(e["fixed_val_loss"]),
-                "fixed_gap": float(e["fixed_gap"]),
+                "train": float(e["train_loss"]),
+                "val": float(e["val_loss"]),
+                "gap": float(e["gap"]),
             })
     return out
 
@@ -79,14 +79,18 @@ def load_summary(run_dir):
 
 def is_current_scaling_summary(summary, physical_id):
     config = summary.get("config", {})
+    dense_monitor = (
+        config.get("val_interval_steps") == 10
+        and config.get("table_norm_interval_steps") == 10
+        and not config.get("val_steps")
+    )
+    sparse_monitor = bool(config.get("val_steps"))
     return (
         summary.get("run_id") == physical_id
         and config.get("table_optimizer") == "rmsprop"
         and config.get("table_lr_scale") == 2.0
         and config.get("table_betas") == [0.0, 0.99]
-        and config.get("val_interval_steps") == 10
-        and config.get("table_norm_interval_steps") == 10
-        and summary.get("probe_eval_interval") == 10
+        and (dense_monitor or sparse_monitor)
         and summary.get("compute_dtype") == "bf16"
         and summary.get("torch_compile") is True
     )
@@ -103,8 +107,16 @@ def canonical_run_dirs(runs_dir):
 
 
 def match_run(run_id):
-    """Parse run_id into (L, module, alignment)."""
-    m = {}
+    """Parse run_id into (L, module, alignment, seed)."""
+    m = {"seed": 42}
+    suffix = None
+    if run_id.endswith(tuple(f"_s{s}" for s in SEED_ORDER if s != 42)):
+        base, suffix = run_id.rsplit("_s", 1)
+        run_id = base
+        try:
+            m["seed"] = int(suffix)
+        except ValueError:
+            return {}
     for k in EPB:
         if f"_{k}_" in run_id:
             m["L"] = k
@@ -121,7 +133,7 @@ def match_run(run_id):
 
 
 def collect(runs_dir):
-    """Return {run_id: {probe, summary, meta}} for all scaling epoch runs."""
+    """Return {run_id: {online, summary, meta}} for all scaling epoch runs."""
     out = {}
     legacy_count = 0
     rejected_count = 0
@@ -133,11 +145,14 @@ def collect(runs_dir):
         if not is_current_scaling_summary(summary, physical_id):
             rejected_count += 1
             continue
-        probe = load_probe(run_dir)
-        if not probe:
+        if int(summary.get("seed", meta.get("seed", 42))) != int(meta.get("seed", 42)):
+            rejected_count += 1
+            continue
+        online = load_online(run_dir)
+        if not online:
             continue
         out[run_id] = {
-            "probe": probe,
+            "online": online,
             "summary": summary,
             "meta": meta,
             "run_id": physical_id,
@@ -154,10 +169,15 @@ def collect(runs_dir):
 
 
 def final_gap(run):
-    probe = run["probe"]
-    if not probe:
+    online = run["online"]
+    if not online:
         return None
-    return probe[-1]["fixed_gap"]
+    return online[-1]["gap"]
+
+
+def base_run_id(L, mod, align, seed):
+    suffix = "" if seed == 42 else f"_s{seed}"
+    return f"ep_{L}_{mod}_{align}{suffix}"
 
 
 def main():
@@ -167,54 +187,96 @@ def main():
         return
     print(f"found {len(runs)} runs")
 
-    # ---- fixed-step: gap vs step ----
+    available_seeds = sorted({r["meta"]["seed"] for r in runs.values()})
+
+    # ---- fixed-step / fixed-epoch curves (seed 42 canonical view) ----
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     for align, ax in (("fs", axes[0]), ("fe", axes[1])):
         for L in ["L1", "L2", "L3", "L4"]:
             for mod in ["bigram", "trigram", "both", "nogram"]:
-                run_id = f"ep_{L}_{mod}_{align}"
+                run_id = base_run_id(L, mod, align, 42)
                 if run_id not in runs:
                     continue
-                probe = runs[run_id]["probe"]
-                x = [p["step"] for p in probe] if align == "fs" else [p["epoch"] for p in probe]
-                y = [p["fixed_gap"] for p in probe]
+                online = runs[run_id]["online"]
+                x = [p["step"] for p in online] if align == "fs" else [p["epoch"] for p in online]
+                y = [p["gap"] for p in online]
                 ax.plot(x, y, label=f"{L} {mod}", color=MODULES[mod]["color"],
                         linestyle="-", marker=".", markersize=3, alpha=0.9)
         ax.set_xlabel("step" if align == "fs" else "epoch")
-        ax.set_ylabel("fixed gap (val - train probe)")
-        ax.set_title(f"{ALIGN[align]} alignment")
+        ax.set_ylabel("online gap (val - train)")
+        ax.set_title(f"{ALIGN[align]} alignment (seed 42)")
         ax.legend(fontsize=7, ncol=2)
         ax.grid(alpha=0.3)
-    fig.suptitle("Epoch-length scaling: fixed-train-probe gap")
+    fig.suptitle("Epoch-length scaling: online train/validation gap")
     fig.tight_layout()
     fig.savefig(os.path.join(FIGS_DIR, "epoch_gap_by_alignment.png"), dpi=150)
     plt.close(fig)
     print(f"saved {FIGS_DIR}/epoch_gap_by_alignment.png")
 
-    # ---- delta-G: module - no-ngram (fixed-step) ----
+    # ---- multi-seed final ΔG summary: module - no-ngram, fixed-step ----
+    fig, ax = plt.subplots(figsize=(9, 5))
+    x_positions = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
+    offsets = {"bigram": -0.22, "trigram": 0.0, "both": 0.22}
+    for L in ["L1", "L2", "L3", "L4"]:
+        for mod in ["bigram", "trigram", "both"]:
+            vals = []
+            for seed in available_seeds:
+                mod_id = base_run_id(L, mod, "fs", seed)
+                base_id = base_run_id(L, "nogram", "fs", seed)
+                if mod_id not in runs or base_id not in runs:
+                    continue
+                g_mod = final_gap(runs[mod_id])
+                g_base = final_gap(runs[base_id])
+                if g_mod is None or g_base is None:
+                    continue
+                vals.append((seed, g_mod - g_base))
+            if not vals:
+                continue
+            xs = [x_positions[L] + offsets[mod]] * len(vals)
+            ys = [v for _, v in vals]
+            ax.scatter(xs, ys, color=MODULES[mod]["color"], alpha=0.75, s=28)
+            mean_y = float(np.mean(ys))
+            ax.plot([x_positions[L] + offsets[mod]], [mean_y], marker="_",
+                    markersize=14, markeredgewidth=2.5, color=MODULES[mod]["color"])
+    for mod in ["bigram", "trigram", "both"]:
+        ax.scatter([], [], color=MODULES[mod]["color"], label=mod)
+    ax.axhline(0, color="gray", lw=0.8)
+    ax.set_xticks([1, 2, 3, 4])
+    ax.set_xticklabels(["L1", "L2", "L3", "L4"])
+    ax.set_xlabel("epoch length")
+    ax.set_ylabel("final ΔG = G(module) − G(no-ngram)")
+    ax.set_title("Fixed-step final ΔG by seed (points = seeds, tick = mean)")
+    ax.legend()
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(os.path.join(FIGS_DIR, "epoch_deltaG_fs_multiseed.png"), dpi=150)
+    plt.close(fig)
+    print(f"saved {FIGS_DIR}/epoch_deltaG_fs_multiseed.png")
+
+    # ---- seed 42 delta-G curve (kept for continuity with existing report) ----
     fig, ax = plt.subplots(figsize=(8, 5))
     for L in ["L1", "L2", "L3", "L4"]:
-        base_id = f"ep_{L}_nogram_fs"
+        base_id = base_run_id(L, "nogram", "fs", 42)
         if base_id not in runs:
             continue
-        base = runs[base_id]["probe"]
-        base_map = {p["step"]: p["fixed_gap"] for p in base}
+        base = runs[base_id]["online"]
+        base_map = {p["step"]: p["gap"] for p in base}
         for mod in ["bigram", "trigram", "both"]:
-            run_id = f"ep_{L}_{mod}_fs"
+            run_id = base_run_id(L, mod, "fs", 42)
             if run_id not in runs:
                 continue
-            probe = runs[run_id]["probe"]
+            online = runs[run_id]["online"]
             xs, ys = [], []
-            for p in probe:
+            for p in online:
                 if p["step"] in base_map:
                     xs.append(p["step"])
-                    ys.append(p["fixed_gap"] - base_map[p["step"]])
+                    ys.append(p["gap"] - base_map[p["step"]])
             ax.plot(xs, ys, label=f"{L} {mod}", color=MODULES[mod]["color"],
                     marker=".", markersize=3, alpha=0.9)
     ax.axhline(0, color="gray", lw=0.8)
     ax.set_xlabel("step")
     ax.set_ylabel("ΔG = G(module) − G(no-ngram)")
-    ax.set_title("Fixed-step: table-induced gap vs epoch length")
+    ax.set_title("Fixed-step: table-induced online gap vs epoch length (seed 42)")
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
     fig.tight_layout()
@@ -234,6 +296,7 @@ def main():
             "L": m["L"],
             "module": m["module"],
             "align": m["align"],
+            "seed": m["seed"],
             "final_gap": round(g, 4),
             "epb": run["summary"].get("epoch_batches"),
         })
@@ -245,8 +308,8 @@ def main():
             f.write("\n".join(lines) + "\n")
         print(f"saved {out_csv}")
         print("final gaps:")
-        for r in sorted(rows, key=lambda x: (x["align"], x["L"], x["module"])):
-            print(f"  {r['run']:<28} gap={r['final_gap']:+.4f}")
+        for r in sorted(rows, key=lambda x: (x["align"], x["L"], x["module"], x["seed"])):
+            print(f"  {r['run']:<34} seed={r['seed']} gap={r['final_gap']:+.4f}")
 
 
 if __name__ == "__main__":

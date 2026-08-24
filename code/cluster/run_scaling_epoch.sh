@@ -3,11 +3,11 @@
 #
 # All runs: vanilla nanoGPT 8L·6H·768D + input n-gram injection,
 # natural corpus nested-prefix shard 1, train/val zero overlap,
-# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), fixed train probe +
+# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), online gap +
 # exact-frequency + freq-bin diagnostics.
 #
 # Nested-prefix epoch lengths (batches/epoch × 72 device batch):
-#   L1=42 (3024 chunks)  L2=84 (6048)  L3=168 (12096)  L4=336 (24192)
+#   L1=42 (3024 chunks)  L2=84 (6048)  L3=168 (12096)  L4=337 (24264)
 #
 # Two alignments:
 #   A) fixed-step:  steps=1000, step-anchored LR (same compute budget)
@@ -28,7 +28,7 @@ G1="${1:-0}" G2="${2:-1}" G3="${3:-2}" G4="${4:-3}"
 mkdir -p "$OUT_DIR"
 
 # L -> batches per epoch (nested prefix of shard 1; 24264 chunks available)
-declare -A EPB=( [L1]=42 [L2]=84 [L3]=168 [L4]=336 )
+declare -A EPB=( [L1]=42 [L2]=84 [L3]=168 [L4]=337 )
 
 # module -> enable flags
 run_arm() {  # run_guard <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> <bigram> <trigram>
@@ -48,10 +48,10 @@ run_arm() {  # run_guard <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
     --epoch_batches "$EPB" \
-    --fixed_train_probe 4 --probe_eval_interval 10 \
+    --fixed_train_probe 0 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
-    --dtype bf16 --compile \
+    --dtype bf16 \
     ${SCHED:+--lr_schedule_epochs "$SCHED"} \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[epoch] $RUN_ID done (exit=$?) at $(date)"
@@ -64,15 +64,15 @@ run_arm() {  # run_guard <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs
 # --- Pilot gate (seed 42, quick signal check) ---
 # Fixed-step: L1 & L4, both + no-ngram
 run_arm "$G1" pilot_ep_L1_both_fs       42  1000 0 1 1 &
-run_arm "$G2" pilot_ep_L4_both_fs      336  1000 0 1 1 &
+run_arm "$G2" pilot_ep_L4_both_fs      337  1000 0 1 1 &
 run_arm "$G3" pilot_ep_L1_nogram_fs     42  1000 0 0 0 &
-run_arm "$G4" pilot_ep_L4_nogram_fs    336  1000 0 0 0 &
+run_arm "$G4" pilot_ep_L4_nogram_fs    337  1000 0 0 0 &
 wait
 # Fixed-epoch: L1 & L4, both + no-ngram
 run_arm "$G1" pilot_ep_L1_both_fe       42  252 6 1 1 &
-run_arm "$G2" pilot_ep_L4_both_fe      336 2016 6 1 1 &
+run_arm "$G2" pilot_ep_L4_both_fe      337 2022 6 1 1 &
 run_arm "$G3" pilot_ep_L1_nogram_fe     42  252 6 0 0 &
-run_arm "$G4" pilot_ep_L4_nogram_fe    336 2016 6 0 0 &
+run_arm "$G4" pilot_ep_L4_nogram_fe    337 2022 6 0 0 &
 wait
 
 # --- Full grid (after pilot QC) ---
@@ -86,7 +86,7 @@ done
 # Fixed-epoch full: L1/L2/L3/L4 × {bigram, trigram, both}
 for L in L1 L2 L3 L4; do
   case "$L" in
-    L1) ST=252;; L2) ST=504;; L3) ST=1008;; L4) ST=2016;;
+    L1) ST=252;; L2) ST=504;; L3) ST=1008;; L4) ST=2022;;
   esac
   run_arm "$G1" "ep_${L}_bigram_fe"  "${EPB[$L]}" "$ST" 6 1 0 &
   run_arm "$G2" "ep_${L}_trigram_fe" "${EPB[$L]}" "$ST" 6 0 1 &

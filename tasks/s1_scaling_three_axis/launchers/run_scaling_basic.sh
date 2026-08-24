@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Basic-scaling gate (user decision 2026-08-24): LR x2 + bf16 + torch.compile.
+# Basic-scaling gate (user decision 2026-08-24): LR x2 + bf16, no compile.
 #
 # Goal: quickly re-derive the three axis curves under the NEW standard
-# (table_lr_scale=2.0, beta2=0.99, bf16+compile) before the full grid.
+# (table_lr_scale=2.0, beta2=0.99, bf16) before the full grid.
 # This launcher only spawns the ANCHOR points:
 #   epoch axis : L1 & L4 x {both, no-ngram} @ 1k steps (fixed-step)
 #   table axis : 1M & 16K logical x bigram-only @ L4 (1k steps)
 #
 # Everything else is frozen: vanilla nanoGPT 8L/6H/768D, input injection,
 # natural corpus nested-prefix shard 1, train/val zero overlap,
-# table RMSProp(0.0,0.99), backbone AdamW(0.8,0.95), fixed train probe +
+# table RMSProp(0.0,0.99), backbone AdamW(0.8,0.95), online gap +
 # exact-frequency + freq-bin diagnostics.
 #
 # Usage: ./run_scaling_basic.sh
@@ -28,7 +28,7 @@ mkdir -p "$OUT_DIR"
 G1="${1:-0}" G2="${2:-1}" G3="${3:-2}" G4="${4:-3}"
 
 # L -> batches per epoch (nested prefix of shard 1)
-declare -A EPB=( [L1]=42 [L2]=84 [L3]=168 [L4]=336 )
+declare -A EPB=( [L1]=42 [L2]=84 [L3]=168 [L4]=337 )
 
 run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <bigram> <trigram> [table_mult]
   local GPU="$1" RUN_ID="$2" EPB="$3" STEPS="$4" BI="$5" TRI="$6" TM="${7:-64}"
@@ -48,19 +48,19 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <bigram> <trigram>
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
     --epoch_batches "$EPB" \
-    --fixed_train_probe 4 --probe_eval_interval 25 \
+    --fixed_train_probe 0 \
     --table_betas 0.0,0.99 --table_lr_scale 2.0 \
     --table_mult "$TM" \
-    --dtype bf16 --compile \
+    --dtype bf16 \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[basic] $RUN_ID done (exit=$?) at $(date)"
 }
 
 # Anchor points (fixed-step, 1k steps)
 run_arm "$G1" basic_L1_both_fs       42 1000 1 1 64 &
-run_arm "$G2" basic_L4_both_fs      336 1000 1 1 64 &
+run_arm "$G2" basic_L4_both_fs      337 1000 1 1 64 &
 run_arm "$G3" basic_L1_nogram_fs     42 1000 0 0 64 &
-run_arm "$G4" basic_L4_nogram_fs    336 1000 0 0 64 &
+run_arm "$G4" basic_L4_nogram_fs    337 1000 0 0 64 &
 wait
 
 echo "=== basic epoch anchors done at $(date) ==="

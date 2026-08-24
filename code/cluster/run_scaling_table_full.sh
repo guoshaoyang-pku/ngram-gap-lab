@@ -4,7 +4,7 @@
 # Downward-only from default 1M logical addresses (2R):
 #   mult=64->2R=1M (reuse pilot run), 32->512K, 16->256K, 8->128K (pilot),
 #   4->64K, 2->32K, 1->16K (pilot).  Modules {bigram, trigram, both}.
-# L4 = 336 batches/epoch, 1000 steps, step-anchored LR, beta2=0.99.
+# L4 = 337 batches/epoch, 1000 steps, step-anchored LR, beta2=0.99.
 #
 # Usage: ./run_scaling_table_full.sh [gpu1] [gpu2] [gpu3]
 set -euo pipefail
@@ -34,17 +34,17 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
     --freq_eval_interval 10 --freq_eval_batches 4 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
-    --epoch_batches 336 \
-    --fixed_train_probe 4 --probe_eval_interval 10 \
+    --epoch_batches 337 \
+    --fixed_train_probe 0 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
     --table_mult "$TM" \
-    --dtype bf16 --compile \
+    --dtype bf16 \
     > "$RESULT_DIR/train.log" 2>&1
   "$PY" -u "$ROOT/code/table_occupancy.py" \
     --data_dir "$DATA_DIR" --train_shards 1 \
     --vocab_size 8192 --sequence_len 2048 \
-    --device_batch_size 72 --epoch_batches 336 \
+    --device_batch_size 72 --epoch_batches 337 \
     --table_mult "$TM" --out "$RESULT_DIR/table_occupancy.json" \
     > "$RESULT_DIR/occupancy.log" 2>&1 || echo "[table-full] occupancy failed $RUN_ID"
   echo "[table-full] $RUN_ID done (exit=$?) at $(date)"

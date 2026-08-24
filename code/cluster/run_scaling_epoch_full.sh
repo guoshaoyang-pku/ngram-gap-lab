@@ -3,7 +3,7 @@
 #
 # All runs: vanilla nanoGPT 8L·6H·768D + input n-gram injection,
 # natural corpus nested-prefix shard 1, train/val zero overlap,
-# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), fixed train probe +
+# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), online gap +
 # exact-frequency diagnostics.
 #
 # Fixed-step (fs): 1000 steps, step-anchored LR, all L1-L4 x 3 modules.
@@ -42,10 +42,10 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
     --epoch_batches "$EPB" \
-    --fixed_train_probe 4 --probe_eval_interval 10 \
+    --fixed_train_probe 0 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
-    --dtype bf16 --compile \
+    --dtype bf16 \
     ${SCHED:+--lr_schedule_epochs "$SCHED"} \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[epoch-full] $RUN_ID done (exit=$?) at $(date)"

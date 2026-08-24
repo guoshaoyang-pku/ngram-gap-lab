@@ -83,6 +83,7 @@ class Config:
     device_batch_size: int = 72
     total_batch_size: int = 147456
     val_interval_steps: int = 10
+    val_steps: list = field(default_factory=list)  # exact steps to eval val (overrides interval if set)
     val_batches: int = 4
     table_norm_interval_steps: int = 10
     warmdown_ratio: float = 0.65  # last 65% of steps decays LR
@@ -884,8 +885,8 @@ def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe, dtype: str = "fp32")
     """Loss on the FIXED train probe (same train batches every eval).
 
     Returns the mean loss over the probe.  Used with evaluate_val to form
-    fixed-train gap = fixed_val − fixed_train_probe, which is the scaling
-    main quantity (never the online batch-averaged train loss)."""
+    the optional fixed-probe diagnostic gap = fixed_val − fixed_train_probe.
+    The standard scaling gap is the online batch-averaged train loss."""
     model.eval()
     losses = []
     ctx = _autocast_ctx(dtype)
@@ -1017,6 +1018,10 @@ def main():
     parser.add_argument("--device_batch_size", type=int, default=72)
     parser.add_argument("--total_batch_size", type=int, default=147456)
     parser.add_argument("--val_interval", type=int, default=10)
+    parser.add_argument("--val_steps", default="",
+                        help="comma-separated exact steps at which to run val eval, "
+                             "e.g. '1000' to measure gap only at the end; "
+                             "overrides --val_interval when set")
     parser.add_argument("--val_batches", type=int, default=4)
     parser.add_argument("--table_norm_interval", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.004)
@@ -1055,18 +1060,23 @@ def main():
     parser.add_argument("--epoch_batches", type=int, default=0,
                         help=">0: fix one epoch to exactly this many device batches "
                              "(nested-prefix epoch length); 0 = full shard length")
-    parser.add_argument("--fixed_train_probe", type=int, default=4,
+    parser.add_argument("--fixed_train_probe", type=int, default=0,
                         help="number of fixed train batches to hold for the "
                              "fixed-train probe (0 disables)")
     parser.add_argument("--probe_eval_interval", type=int, default=10,
                         help="steps between fixed-train/val probe evals (also fired "
                              "at every epoch boundary)")
-    parser.add_argument("--dtype", default="fp32", choices=["fp32", "bf16", "fp8"],
+    parser.add_argument("--dtype", default="bf16", choices=["fp32", "bf16", "fp8"],
                         help="compute dtype for the forward pass (autocast; "
                              "weights/optimizer stay fp32): fp32 | bf16 | fp8")
-    parser.add_argument("--compile", action="store_true",
-                        help="wrap the model with torch.compile (default off; "
-                             "recommended with --dtype bf16)")
+    parser.add_argument("--compile", dest="compile", action="store_true", default=True,
+                        help="wrap the model with torch.compile (default true for S1 scaling runs)")
+    parser.add_argument("--no_compile", dest="compile", action="store_false",
+                        help="disable torch.compile explicitly")
+    parser.add_argument("--save_final_model", action="store_true",
+                        help="save the final model.state_dict() to final_model.pt "
+                             "and the fixed train/val probe tokens to probe_tokens.npz "
+                             "for offline per-token / row-level loss analysis")
     args = parser.parse_args()
 
     cfg = Config(
@@ -1084,6 +1094,7 @@ def main():
         device_batch_size=args.device_batch_size,
         total_batch_size=args.total_batch_size,
         val_interval_steps=args.val_interval,
+        val_steps=[int(x) for x in args.val_steps.split(",") if x.strip()],
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
         lr_schedule_epochs=args.lr_schedule_epochs,
@@ -1188,9 +1199,9 @@ def main():
             fixed_train_freq_log = open(
                 os.path.join(cfg.out_dir, "fixed_train_freq_bin_loss.jsonl"), "w"
             )
-            exact_freq_log = open(
-                os.path.join(cfg.out_dir, "exact_freq_loss.jsonl"), "w"
-            )
+        exact_freq_log = open(
+            os.path.join(cfg.out_dir, "exact_freq_loss.jsonl"), "w"
+        )
         print(f"[nglab] freq-bin eval enabled (index: {args.freq_index})")
         # Independent train-side diagnostic iterator: reads the same shards in
         # the same fixed order but owns its own dataset state, so freq-bin
@@ -1201,6 +1212,13 @@ def main():
                                               cfg.device_batch_size,
                                               cfg.data_seed)
         freq_train_iter = freq_train_ds.iter_batches(device)
+        # exact-frequency diagnostics need a fixed train-side reference even when
+        # --fixed_train_probe is 0: grab a small fixed set from the independent
+        # diagnostic iterator (never touches the training stream or epoch counter).
+        if not fixed_train_probe:
+            exact_freq_train_batches = [next(freq_train_iter) for _ in range(4)]
+        else:
+            exact_freq_train_batches = fixed_train_probe
     last_val_loss = float("nan")
     last_train_loss = float("nan")
     last_fixed_train_loss = float("nan")
@@ -1237,7 +1255,12 @@ def main():
         optimizer.step(lr_mult=lr_mult)
 
         # periodic val
-        if (step + 1) % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
+        val_due = (
+            (cfg.val_steps and (step + 1) in cfg.val_steps)
+            or (not cfg.val_steps and (step + 1) % cfg.val_interval_steps == 0)
+            or step == cfg.max_steps - 1
+        )
+        if val_due:
             last_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
             last_train_loss = train_loss
             entry = {
@@ -1258,11 +1281,17 @@ def main():
         epoch_boundary = (train_ds._batch_in_epoch == 0 and step > 0)
 
         # periodic fixed-train probe eval (interval + epoch boundary)
-        probe_due = (
-            (step + 1) % args.probe_eval_interval == 0
-            or epoch_boundary
-            or step == cfg.max_steps - 1
-        )
+        if cfg.val_steps:
+            probe_due = (
+                (step + 1) in cfg.val_steps
+                or step == cfg.max_steps - 1
+            )
+        else:
+            probe_due = (
+                (step + 1) % args.probe_eval_interval == 0
+                or epoch_boundary
+                or step == cfg.max_steps - 1
+            )
         if probe_log is not None and fixed_train_probe and probe_due:
             fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe, dtype=args.dtype)
             fixed_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
@@ -1282,9 +1311,10 @@ def main():
                   f"| fval {fixed_val_loss:.4f} | fgap {fixed_val_loss-fixed_train_loss:+.4f} "
                   f"| epoch {train_ds._epoch+1}")
         fixed_freq_due = (
-            (step + 1) % args.freq_eval_interval == 0
-            or epoch_boundary
-            or step == cfg.max_steps - 1
+            ((cfg.val_steps and (step + 1) in cfg.val_steps)
+             or (not cfg.val_steps and (step + 1) % args.freq_eval_interval == 0)
+             or epoch_boundary
+             or step == cfg.max_steps - 1)
         )
         if fixed_train_freq_log is not None and fixed_freq_due:
             fixed_train_freq = evaluate_freq_bins(
@@ -1308,18 +1338,18 @@ def main():
             or step == cfg.max_steps - 1
         )
         if exact_freq_log is not None and exact_freq_due:
-            # exact-frequency marginal on the fixed train probe and the
-            # fixed val batches, plus context-matched gap statistics.
+            # exact-frequency marginal on the fixed diagnostic train batches and
+            # the fixed val batches, plus context-matched gap statistics.
             ef_train = {b: evaluate_exact_freq(
-                model, fixed_train_probe, freq_index_obj,
-                len(fixed_train_probe), cfg.vocab_size, b)
+                model, exact_freq_train_batches, freq_index_obj,
+                len(exact_freq_train_batches), cfg.vocab_size, b)
                 for b in ("bigram", "trigram")}
             ef_val = {b: evaluate_exact_freq(
                 model, validation_batches, freq_index_obj,
                 len(validation_batches), cfg.vocab_size, b)
                 for b in ("bigram", "trigram")}
             shared = {b: compute_shared_contexts(
-                model, fixed_train_probe, validation_batches,
+                model, exact_freq_train_batches, validation_batches,
                 freq_index_obj, cfg.vocab_size, b)
                 for b in ("bigram", "trigram")}
             exact_freq_log.write(json.dumps({
@@ -1334,9 +1364,10 @@ def main():
 
         # periodic freq-bin eval (train + val)
         if freq_bin_log is not None and (
-            (step + 1) % args.freq_eval_interval == 0
-            or epoch_boundary
-            or step == cfg.max_steps - 1
+            ((cfg.val_steps and (step + 1) in cfg.val_steps)
+             or (not cfg.val_steps and (step + 1) % args.freq_eval_interval == 0)
+             or epoch_boundary
+             or step == cfg.max_steps - 1)
         ):
             # train freq-bin (independent diagnostic iterator: fresh train
             # batches, never touches the training stream)
@@ -1371,6 +1402,26 @@ def main():
         freq_bin_log.close()
     if exact_freq_log is not None:
         exact_freq_log.close()
+
+    # save final model + probe tokens for offline per-token / row-level analysis
+    if args.save_final_model:
+        raw_model = getattr(model, "_orig_mod", model)
+        torch.save(raw_model.state_dict(), os.path.join(cfg.out_dir, "final_model.pt"))
+        print(f"[nglab] saved final_model.pt ({sum(p.numel() for p in raw_model.parameters())/1e6:.1f}M params)")
+        if fixed_train_probe:
+            # Save the full chunk (input + the single next token as target tail)
+            # so downstream row-level analysis can rebuild exact (inp, tgt)
+            # pairs and hash contexts without off-by-one.
+            probe_chunk = torch.stack([
+                torch.cat([b[0].cpu(), b[1][:, -1:].cpu()], dim=1)
+                for b in fixed_train_probe
+            ]).numpy()  # (n_probe, B, T+1)
+            np.savez(
+                os.path.join(cfg.out_dir, "probe_tokens.npz"),
+                fixed_train_probe_chunk=probe_chunk,
+                fixed_train_probe_sha256=probe_hash,
+            )
+            print(f"[nglab] saved probe_tokens.npz (fixed train probe chunk {probe_chunk.shape}, sha={probe_hash})")
 
     # summary
     summary = {

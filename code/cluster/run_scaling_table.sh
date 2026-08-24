@@ -8,7 +8,7 @@
 #   mult=2  -> 32,768     mult=1 -> 16,384
 # Downward-only from 1M.
 #
-# Training: L4 = 336 batches/epoch (nested prefix of shard 1), 1000 steps,
+# Training: L4 = 337 batches/epoch (nested prefix of shard 1), 1000 steps,
 # step-anchored LR, β₂=0.99, modules {bigram-only, trigram-only, both}.
 # Each run outputs exact-frequency + occupancy diagnostics.
 #
@@ -41,18 +41,18 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
     --freq_eval_interval 10 --freq_eval_batches 4 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
-    --epoch_batches 336 \
-    --fixed_train_probe 4 --probe_eval_interval 10 \
+    --epoch_batches 337 \
+    --fixed_train_probe 0 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
     --table_mult "$TM" \
-    --dtype bf16 --compile \
+    --dtype bf16 \
     > "$RESULT_DIR/train.log" 2>&1
   # occupancy diagnostic (offline, cheap, per run)
   "$PY" -u "$ROOT/code/table_occupancy.py" \
     --data_dir "$DATA_DIR" --train_shards 1 \
     --vocab_size 8192 --sequence_len 2048 \
-    --device_batch_size 72 --epoch_batches 336 \
+    --device_batch_size 72 --epoch_batches 337 \
     --table_mult "$TM" --out "$RESULT_DIR/table_occupancy.json" \
     > "$RESULT_DIR/occupancy.log" 2>&1 || echo "[table] occupancy failed for $RUN_ID"
   echo "[table] $RUN_ID done (exit=$?) at $(date)"

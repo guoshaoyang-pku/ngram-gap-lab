@@ -110,7 +110,7 @@ frequency 分支是 observational consistency，不是频率因果证明。
 | 报告目录 | `docs/appendices/s1_scaling_three_axis/`（报告、三视图组图、结果摘要） |
 | 变量控制 | 每个组图只改变一个变量，并固定 module、seed、optimizer、数据前缀与训练预算 |
 | 观测口径 | 固定 train probe、固定 val probe、`gap = val − train`；在线 train loss 仅作诊断 |
-| 状态 | Pilot 已完成；full grid 与多 seed 待运行 |
+| 状态 | seed 42 正式 full grid 已完成（61 run，QC 通过）；seed 43/44 待运行 |
 
 ---
 

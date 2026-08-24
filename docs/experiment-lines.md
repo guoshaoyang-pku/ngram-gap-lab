@@ -84,18 +84,24 @@ run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有�
 
 | 轴 | 科学问题 | run_id 前缀 | launcher | 状态 |
 |---|---|---|---|---|
-| epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs`（L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | 🟡 seed 42 首轮（running） |
-| epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe`（L1=252/L2=504/L3=1008/L4=2022 步） | `run_scaling_epoch_full.sh` | 🟡 seed 42 首轮（running） |
-| table size | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}`（7 sizes × bigram/trigram/both，L4） | `run_scaling_table_full.sh` | 🟡 seed 42 首轮（running） |
-| frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `freq_{arm}_{fs/fe}`（L4 + 1M × 4 arms） | `run_scaling_frequency_axis.sh` | 🟡 seed 42 首轮（running） |
-| backbone safety | 长训 no-ngram backbone 是否产生 gap | `bb_safety_L1_nogram_5000` | 手工（旧 cadence 50 步 + fp32） | 🔄 running（360-2 GPU7，~4500/5000） |
+| epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs[_s{43,44}]`（L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | ✅ 三 seed 完成（48/48，QC 通过） |
+| epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe[_s{43,44}]`（L1=252/L2=504/L3=1008/L4=2022 步） | `run_scaling_epoch_full.sh` | ✅ 三 seed 完成（48/48，QC 通过） |
+| table size | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（seed 42：23 sizes；seed 43/44：12 sizes × 3 module，L4） | `run_scaling_table_full.sh`（dense + sparse） | ✅ 三 seed 完成（141/141，QC 通过） |
+| frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `freq_{arm}_{fs/fe}[_s{43,44}]`（L4 + 1M × 4 arms） | `run_scaling_frequency_axis.sh` | ✅ 三 seed 完成（24/24，QC 通过；exact-freq 每 10 步） |
+| backbone safety | 长训 no-ngram backbone 是否产生 gap | `bb_safety_L1_nogram_5000` | 手工（旧 cadence 50 步 + fp32） | ✅ done（旧口径；final +16.66 @5000，仅量级参考） |
 
 **口径（用户 2026-08-24 拍板）**：L4 = 337 batches/epoch（完整 shard 1，
 24,264 chunks / 72）；L1/L2/L3 = 42/84/168 嵌套前缀。普通网格不跑
 exact-frequency（不传 `--freq_index`），只算在线 train/val + fixed probe；
 频率轴单独一小批 run（带 exact-freq 每 100 步）。no-ngram baseline 重跑
 当前标准（10 步 cadence + bf16/compile）。`bb_safety` 为旧 cadence，仅作
-量级参考。
+量级参考。正式 run 共 **261 个 `_fixed`**（seed 42：109；seed 43/44：各 76），
+均通过 contract / NaN / probe-hash QC；其中 table 原始 21 个 run 为 dense
+每 10 步监测，48 个 seed-42 + 72 个 seed-43/44 加密 run 为 sparse 只监测
+最终 step。**三 seed 复现已完成，H1–H4 检验见附录报告 §7**：ΔG 三 seed
+全同号（方向 seed-stable）；trigram table 幂律无饱和（否证 48–64 饱和
+猜想）；两因素模型 β 可辨识（cv 4–13%）、A/c/γ 不可辨识；模块交互显著
+且 seed-sensitive，不允许合并单公式。
 
 ## 独立包
 
@@ -106,6 +112,33 @@ exact-frequency（不传 `--freq_index`），只算在线 train/val + fixed prob
 
 ⚠️ **口径隔离**：该包的 train probe 是「训练前抓取、全程不变的 2 个 batch」，
 主线是「滚动的独立诊断迭代器」。两者各自自洽但**数值不可互相引用**。
+
+---
+
+## 自然语言 5gram（order=5）· 极简 setting
+
+> 详细记录：`docs/experiment-log.md` §19。数据：`data/ngram5_minimal_order5/`。
+
+| # | 线名 | 科学问题 | run_id | 状态 |
+|---|---|---|---|---|
+| N1 | 自然语言 5gram · +trigram 注入 | 5gram 表的 coincidental gap 在真实语料上是否出现 | `ngram5_order5_trigram_fixed` | ✅ done @2000（seed 42 gap −0.0067；seed 43 −0.0090） |
+| N2 | 自然语言 5gram · 纯 transformer 对照 | 无表时 backbone 自己能否学 5gram、gap 多大 | `ngram5_order5_puretransformer_fixed` | ✅ done @2000（gap +0.0054） |
+| N3 | 自然语言 5gram · LR 消融 ×1 | 表 LR ×1（=backbone lr）对 gap 的影响 | `ngram5_order5_trigram_lr1x_fixed` | ✅ done @2000（gap +0.0015） |
+| N4 | 自然语言 5gram · LR 消融 ×4 | 表 LR ×4 对 gap 的影响 | `ngram5_order5_trigram_lr4x_fixed` | ✅ done @2000（gap −0.0092） |
+
+**初步结论（seed 42/43 的 +trigram 主臂）**：全局 gap 极小（主臂 −0.0067、
+−0.0090；其余 seed 42 消融臂 −0.0092 到 +0.0054），与合成 markov 完全不同——43M
+distinct 5gram contexts 挤 1M 行表，collision 可能稀释 gap。表仍有效降低 train loss
+（seed 42 的 ×2/×4≈0.71 < ×1≈0.77 < 无表≈0.83；seed 43 主臂 train≈0.695）。
+trigram 主臂的 per-bucket gap 在中频段出现较大值（[51,101)≈+1.00、
+[1001,5001)≈+1.82），但这些高频桶的 token fraction 很小，且高频端只有少数频次类，
+因此暂不把“中频峰”写成稳健定律；seed 43 的频次图已加入同一脚本，但 LR 消融仍只有
+seed 42。
+
+设置要点：order=5（5-gram context）、train shard 1（49.7M tokens）/ val shards 2-10,6542 不重叠、
+43M distinct contexts、input 注入、RMSProp 表 `(0.0, 0.99)`、table LR scale=2.0、AdamW lr 0.004、
+batch 72×2048、2000 步、seed 42（并以完全相同口径复现 seed 43）、bf16 不 compile。
+`make_ngram_blocks.py` + `ngram5_freq_gap/trainer.py`。
 
 ---
 

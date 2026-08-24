@@ -2,14 +2,14 @@
 # Basic-scaling table axis (user decision 2026-08-24): LR x2 + bf16 + torch.compile.
 #
 # Goal: quickly re-derive table-size scaling under the NEW standard
-# (table_lr_scale=2.0, beta2=0.99, bf16+compile) before the full grid.
+# (table_lr_scale=2.0, beta2=0.99, bf16, no compile) before the full grid.
 # This launcher only spawns the ANCHOR points:
 #   table axis : 1M & 16K logical x bigram-only @ L4 (1k steps)
 #                + 1M trigram-only @ L4 (1k steps)
 #
 # Everything else is frozen: vanilla nanoGPT 8L/6H/768D, input injection,
 # natural corpus nested-prefix shard 1, train/val zero overlap,
-# table RMSProp(0.0,0.99), backbone AdamW(0.8,0.95), fixed train probe +
+# table RMSProp(0.0,0.99), backbone AdamW(0.8,0.95), online gap +
 # exact-frequency + freq-bin diagnostics.
 #
 # Usage: ./run_scaling_basic_table.sh [gpu1] [gpu2] [gpu3]
@@ -44,11 +44,11 @@ run_arm() {  # run_arm <gpu> <run_id> <table_mult> <bigram> <trigram>
     --exact_freq_eval_interval 100 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
-    --epoch_batches 336 \
-    --fixed_train_probe 4 --probe_eval_interval 25 \
+    --epoch_batches 337 \
+    --fixed_train_probe 0 \
     --table_betas 0.0,0.99 --table_lr_scale 2.0 \
     --table_mult "$TM" \
-    --dtype bf16 --compile \
+    --dtype bf16 \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[basic-table] $RUN_ID done (exit=$?) at $(date)"
 }

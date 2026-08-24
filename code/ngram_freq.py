@@ -121,6 +121,26 @@ class GlobalFrequencyIndex:
         self.bigram = bigram        # context_key -> count
         self.trigram = trigram
         self.vocab_size = vocab_size
+        self._bigram_keys_sorted = None
+        self._bigram_counts_sorted = None
+        self._trigram_keys_sorted = None
+        self._trigram_counts_sorted = None
+
+    def _ensure_sorted(self):
+        """Lazily build sorted key/count arrays if not set (e.g. built via
+        `build`/`build_from_*` rather than `load`)."""
+        if self._bigram_keys_sorted is None:
+            b_keys = np.array(list(self.bigram.keys()), dtype=np.int64)
+            b_counts = np.array(list(self.bigram.values()), dtype=np.int32)
+            o = np.argsort(b_keys, kind="stable")
+            self._bigram_keys_sorted = b_keys[o]
+            self._bigram_counts_sorted = b_counts[o]
+        if self._trigram_keys_sorted is None:
+            t_keys = np.array(list(self.trigram.keys()), dtype=np.int64)
+            t_counts = np.array(list(self.trigram.values()), dtype=np.int32)
+            o = np.argsort(t_keys, kind="stable")
+            self._trigram_keys_sorted = t_keys[o]
+            self._trigram_counts_sorted = t_counts[o]
 
     @classmethod
     def build(cls, train_tokens: np.ndarray, vocab_size: int) -> "GlobalFrequencyIndex":
@@ -218,7 +238,19 @@ class GlobalFrequencyIndex:
         bigram = {int(k): int(c) for k, c in zip(d["bigram_keys"], d["bigram_counts"])}
         trigram = {int(k): int(c) for k, c in zip(d["trigram_keys"], d["trigram_counts"])}
         vocab_size = int(d["vocab_size"][0])
-        return cls(bigram, trigram, vocab_size)
+        obj = cls(bigram, trigram, vocab_size)
+        # pre-sort key arrays for vectorized searchsorted lookup (see hit_count_tensor)
+        b_keys = np.asarray(d["bigram_keys"], dtype=np.int64)
+        t_keys = np.asarray(d["trigram_keys"], dtype=np.int64)
+        b_counts = np.asarray(d["bigram_counts"], dtype=np.int32)
+        t_counts = np.asarray(d["trigram_counts"], dtype=np.int32)
+        b_order = np.argsort(b_keys, kind="stable")
+        t_order = np.argsort(t_keys, kind="stable")
+        obj._bigram_keys_sorted = b_keys[b_order]
+        obj._bigram_counts_sorted = b_counts[b_order]
+        obj._trigram_keys_sorted = t_keys[t_order]
+        obj._trigram_counts_sorted = t_counts[t_order]
+        return obj
 
     def hit_count(self, branch: str, row: int) -> int:
         """Lookup hit count for a given (branch, row). Returns 0 if novel."""
@@ -226,14 +258,25 @@ class GlobalFrequencyIndex:
         return tbl.get(int(row), 0)
 
     def hit_count_tensor(self, branch: str, rows: torch.Tensor) -> torch.Tensor:
-        """Vectorized hit count lookup. rows: (B,T) long tensor -> (B,T) int32."""
-        tbl = self.bigram if branch == "bigram" else self.trigram
-        rows_np = rows.detach().cpu().numpy().astype(np.int64)
-        # build lookup array (sparse -> dense via dict)
-        # for speed, use np.vectorize with dict.get
-        get = np.vectorize(lambda r: tbl.get(int(r), 0))
-        counts = get(rows_np).astype(np.int32)
-        return torch.from_numpy(counts).to(rows.device)
+        """Vectorized hit count lookup. rows: (B,T) long tensor -> (B,T) int32.
+
+        Uses np.searchsorted over pre-sorted key arrays (built in `load`), which
+        is a fully vectorized numpy operation — much faster than the previous
+        np.vectorize + Python dict.get per-element loop (which dominated
+        freq-bin eval wall time, ~20s per eval on 28.8B runs)."""
+        self._ensure_sorted()
+        if branch == "bigram":
+            keys_sorted = self._bigram_keys_sorted
+            counts_sorted = self._bigram_counts_sorted
+        else:
+            keys_sorted = self._trigram_keys_sorted
+            counts_sorted = self._trigram_counts_sorted
+        rows_np = rows.detach().cpu().numpy().reshape(-1).astype(np.int64)
+        pos = np.searchsorted(keys_sorted, rows_np)
+        pos = np.clip(pos, 0, len(keys_sorted) - 1)
+        hit = keys_sorted[pos] == rows_np
+        counts = np.where(hit, counts_sorted[pos], 0).astype(np.int32)
+        return torch.from_numpy(counts.reshape(rows.shape)).to(rows.device)
 
 
 # ---------------------------------------------------------------------------

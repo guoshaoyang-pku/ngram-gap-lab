@@ -3,7 +3,7 @@
 #
 # All runs: vanilla nanoGPT 8L·6H·768D + input n-gram injection,
 # natural corpus nested-prefix shard 1, train/val zero overlap,
-# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), fixed train probe.
+# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), online gap.
 #
 # User decisions 2026-08-24:
 #   - L4 = 337 batches/epoch = FULL shard 1 (24264 chunks / 72). L1-L3 are
@@ -21,6 +21,11 @@
 #   Pass the CUDA device ids of the free GPUs (any number >= 1).  Arms are
 #   scheduled round-robin across the given GPUs; a full wave finishes when
 #   every arm of the current L has been launched on some GPU.
+#
+# Optional env:
+#   SEED=42|43|44         training seed (default: 42)
+#   MONITOR=dense|sparse  dense logs every 10 steps; sparse only final step
+#   NGLAB_PY=python3      python interpreter on the cluster
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,6 +37,18 @@ OUT_DIR="$ROOT/data/runs_scaling"
 GPUS=("$@")
 if [ "${#GPUS[@]}" -eq 0 ]; then GPUS=(0 1 2 3); fi
 mkdir -p "$OUT_DIR"
+
+SEED="${SEED:-42}"
+MONITOR="${MONITOR:-dense}"
+if [ "$MONITOR" != "dense" ] && [ "$MONITOR" != "sparse" ]; then
+  echo "[epoch-full] MONITOR must be dense or sparse" >&2
+  exit 2
+fi
+if [ "$SEED" = "42" ]; then
+  RUN_SUFFIX=""
+else
+  RUN_SUFFIX="_s${SEED}"
+fi
 
 # Nested-prefix epoch lengths (device batches per epoch).
 # L4 = 337 = full shard 1 (24264 chunks / 72). L1/L2/L3 are 1/8, 1/4, 1/2 of it.
@@ -46,21 +63,27 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
     return 0
   fi
   mkdir -p "$RESULT_DIR"
-  echo "[epoch-full] $RUN_ID epb=$EPB steps=$STEPS sched=$SCHED bi=$BI tri=$TRI -> GPU $GPU at $(date)"
+  if [ "$MONITOR" = "sparse" ]; then
+    EVAL_ARGS=(--val_steps "$STEPS" --table_norm_interval "$STEPS")
+  else
+    EVAL_ARGS=(--val_interval 10 --table_norm_interval 10)
+  fi
+  echo "[epoch-full] $RUN_ID epb=$EPB steps=$STEPS sched=$SCHED bi=$BI tri=$TRI seed=$SEED monitor=$MONITOR -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \
     --run_id "${RUN_ID}_fixed" --injection_position input \
-    --steps "$STEPS" --seed 42 \
+    --steps "$STEPS" --seed "$SEED" \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
     --device_batch_size 72 --total_batch_size 147456 \
-    --val_interval 10 --val_batches 4 --table_norm_interval 10 --lr 0.004 \
+    --val_batches 4 --lr 0.004 \
     --enable_unigram 0 --enable_bigram "$BI" --enable_trigram "$TRI" \
     --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --epoch_batches "$EPB" \
-    --fixed_train_probe 4 --probe_eval_interval 10 \
+    --fixed_train_probe 0 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
-    --dtype bf16 --compile \
+    --dtype bf16 \
+    "${EVAL_ARGS[@]}" \
     ${SCHED:+--lr_schedule_epochs "$SCHED"} \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[epoch-full] $RUN_ID done (exit=$?) at $(date)"
@@ -91,7 +114,7 @@ run_wave() {
       GPU="${GPUS[$SLOT]}"
       SLOT=$(( (SLOT + 1) % NGPU ))
       STEPS=$("$STEPS_FN" "$L")
-      run_arm "$GPU" "ep_${L}_${ARM}_${LABEL}" "${EPB[$L]}" "$STEPS" "$SCHED" "$BI" "$TRI" &
+      run_arm "$GPU" "ep_${L}_${ARM}_${LABEL}${RUN_SUFFIX}" "${EPB[$L]}" "$STEPS" "$SCHED" "$BI" "$TRI" &
       ACTIVE=$((ACTIVE + 1))
     done
     # Wait for all arms of this L to finish before the next L (keeps the

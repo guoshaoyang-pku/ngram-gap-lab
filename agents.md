@@ -114,9 +114,8 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | total batch | 147,456 tokens |
 | seed | 42（多 seed 用 43 / 44） |
 | steps | 1000（标准）/ 2000（延长） |
-| compute dtype | **bf16（`torch.autocast`）+ `torch.compile`（默认标准，见 §16 验证）** |
-| val interval | **10 步**，fixed validation batches |
-| freq-bin eval | 每 10 步 |
+| compute dtype | **bf16（`torch.autocast`），不 `torch.compile`**（默认标准；见 §16/§17）|
+| 评估节奏 | **三层默认（用户 2026-08-24 拍板）**：① 主实验 `freq=10`（freq-bin + val 每 10 步，完整曲线）；② 只需看曲线的实验 `freq=50`；③ 只要末端结果（gap/数值）用 `--val_steps 1000`（只做末端 val+freq，训练全程不打断）。freq 必须跟随 val_steps 对齐（§17 实测 freq eval 每次 ~13s，是 wall-time 主要瓶颈）|
 
 ### 1.5 参考数值（seed 42，2000 步，标准 1x）
 
@@ -135,12 +134,15 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 ### 1.6 测量基础设施（scaling 实验专用）
 
-> 计划 `docs/plans/plan-3-fix-and-backfill.md` §P2 的测量系统。scaling run 统一开启。
+> 计划 `docs/plans/plan-3-fix-and-backfill.md` §P2 的测量系统。标准 scaling run
+> 默认 online-only；fixed train probe 仅在显式诊断时开启。
 
 | 项 | 说明 |
 |---|---|
-| `--epoch_batches B` | 一个 epoch 精确等于 B 个 device batches（**嵌套前缀**：所有 L 都是同一 shard 1 数据流的前缀）。L1=42 / L2=84 / L3=168 / L4=336 |
-| fixed train probe | `--fixed_train_probe 4`：独立 dataset 实例抓取固定 4 个 train batches，全程复用；SHA256 记账于 `summary.json`。**不消费训练流、不推进 epoch 计数器**（防 B1 复发）。输出 `fixed_train_loss.jsonl`（每 `--probe_eval_interval 50` 步 + epoch 边界） |
+| `--epoch_batches B` | 一个 epoch 精确等于 B 个 device batches（**嵌套前缀**：所有 L 都是同一 shard 1 数据流的前缀）。L1=42 / L2=84 / L3=168 / L4=337 |
+| online gap（主测量） | `train_log.jsonl` 中当前训练 batch 的 `val_loss − train_loss`；train loss 与 fixed validation 在同一评估 step 记录。**所有 gap 图、最终 gap 和 scaling 结论优先使用这一口径** |
+| fixed train probe（诊断） | 只有显式传 `--fixed_train_probe N` 才启用：独立 dataset 实例抓取固定 train batches，全程复用；SHA256 记账于 `summary.json`。**不消费训练流、不推进 epoch 计数器**（防 B1 复发）。输出 `fixed_train_loss.jsonl`；它在顺序 replay 下会混入 exposure / 训练进度，**不得作为 gap 主结论或 epoch-1 gap 证据** |
+| `--train_probe_mode` | `first` / `uniform` 仅控制诊断 probe 的采样位置；`uniform` 不是无偏的在线 train loss 替代物，仍只用于诊断与口径对比 |
 | exact-frequency | `exact_freq_loss.jsonl`：按 exact f 存 train/val 的 token count、distinct contexts、loss sum/sum²、mean loss；`shared` 字段给 context-matched gap。索引 = `GlobalFrequencyIndex.build_from_chunks`，与模型 hash 逐位置一致 |
 | table occupancy | `code/table_occupancy.py`：每 branch/layer/hash 的 physical rows R、逻辑地址 2R、distinct contexts K、occupancy、collision rate、singleton fraction、freq-weighted load。hash 复用 `train.py` primes（单一来源） |
 | β₂ | 所有 scaling run 显式 `--table_betas 0.0,0.99`（train.py 默认值已同步为 0.99） |
