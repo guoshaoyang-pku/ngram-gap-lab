@@ -49,7 +49,7 @@
 | **M4** | Table 优化器 · 2x epoch | 同 M3，epoch 拉长看 β₂/LR 是否改变 | `nglab2x_opt_*_fixed` | `run_table_opt_2x.sh` | `analyze_table_opt_2x.py`<br>`analyze_table_opt_1x_vs_2x.py` | `figs/table_opt/` | §9c | ⚠️ 同上（`b2_099` 从 0.64→2.00） |
 | **M3b** | 表学习率 × β₂ 消融深挖（附录） | β₂ 与表学习率的消融及交互；**高表学习率体检（发现 ×2/×4 崩坏）** | `nglab*_opt_*_fixed` + 补点 `nglab*_b2_099_lr1` | 手工启动（补点脚本见任务目录） | `docs/appendices/lr_beta_ablation/` | `docs/appendices/lr_beta_ablation/figs/` | §9 系列 | 🟡 进行中（2 个补点跑中） |
 | **M5** | shard 大小扫描 | 「epoch shard 越大 gap 越小」是否成立 | `nglab{0_25x…8x}_input_fv*_fixed` | `run_shard_sweep{,_v2,_360}.sh` | `gen_shard_sweep_figs.py` | `figs/epoch_scale/` | §4 §6 §7 §10 | ✅ 完成（12 点齐） |
-| **M6** | epoch 对齐批（e6） | 对齐 epoch 数后 M5 的单调关系是否消失 | `nglab*_e6_fixed` | `launch_360_*.sh` | `gen_epoch_aligned_figs.py`<br>`gen_nogram_vs_epochaligned_figs.py` | `figs/epoch_scale/` | §12 | ❌ **不完整**：仅 0.25x–3x，缺 4x/5x/6x/8x |
+| **M6** | epoch 对齐批（e5，实际 5 epoch） | 对齐 epoch 数后 M5 的单调关系是否消失 | `nglab*_e6_fixed` | `launch_360_*.sh` | `gen_epoch_aligned_figs.py`<br>`gen_nogram_vs_epochaligned_figs.py` | `figs/epoch_scale/` | §12 | ❌ **不完整**：仅 0.25x–3x，缺 4x/5x/6x/8x。⚠️ 命名 `_e6` 但实际 5 epoch、无 LR schedule（`lr_schedule_epochs=0`），见 §12 勘误 |
 | **M7** | 短 epoch × β₂ | β₂ 是否改变 per-epoch 台阶清晰度 | `nglab{025x,05x}_b2_099` | `run_epoch_short_b2.sh` | `gen_short_epoch_b2_figs.py` | `figs/short_epoch_b2/` | §11(B) | ⚠️ 完成但图未按 `_fixed` 重生成 |
 
 **M6 的缺口值得单独提**：§12 结论「对齐 epoch 后单调关系消失」目前只有 8/12 个点支撑，

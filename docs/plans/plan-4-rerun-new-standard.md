@@ -15,6 +15,7 @@
 2. **不重刷**：无表对照（表参数无关，仍补 1 个同批对照）、表优化器消融中 β₂≠0.99 或 ×1 以外的扫描点（消融变量本身就是那些值）、已在跑的表大小扫描。
 3. 新 run 统一 `..._v2` 后缀，写入 `data/runs_fixed/`；旧 `_fixed` 保留作历史对照，**不删不改**。
 4. 所有重刷默认：seed 42，input 注入，2000 步，val 每 10 步，freq-bin 每 10 步，`--table_betas 0.0,0.99 --table_lr_scale 2.0`。
+5. **LR 无 schedule（全家族统一）**：`--lr_schedule_epochs 0`（train.py 默认）。所有 run 走同一固定 lr 轨迹（warmdown 0.65），不按 epoch 锚定。理由：便于研究训练动力学（纯 step 视角），并与 §14 控制臂 / `_fixed` 批实际口径一致。历史 §12 原版曾设计 `lr_schedule_epochs 6`（LR 锚定 epoch），但 `_fixed` 批实际未用；本 plan 明确统一为无 schedule。
 
 ## 1. 重刷清单（Group A · 必做，31 个）
 

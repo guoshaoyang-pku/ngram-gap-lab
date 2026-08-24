@@ -817,6 +817,13 @@ v2；本地 `data/runs/<run_id>/train_log.jsonl` 已补齐 12 个 run）。
 
 ## 12. epoch 对齐批（同 epoch 数 × 同 LR-per-epoch 轨迹，2026-08-07 进行中）
 
+> ⚠️ **勘误（2026-08-24）**：本节的**原版设计**是用 `--lr_schedule_epochs 6` 把 LR
+> 锚定到 epoch（下表 Setting 的原始记录）。但**实际落盘的 `_fixed` 批**（
+> `data/runs_fixed/nglab*_e6_fixed`）**并未使用 LR 锚定**——全部 `lr_schedule_epochs=0`、
+> warmdown 0.65（与 §14 控制臂 / plan-4 统一口径一致）。且 `_fixed` 批实际只跑了
+> **5 个 epoch**（非 6），steps = 5 × 每-epoch 步数（如 1x=1685=5×337）。
+> 后续以 `_fixed` 批为准；下方表格保留原版 6.1-epoch 规划值作为历史记录。
+
 > 背景：§10 的 step 对齐 sweep（gap@2000）显示「shard 越大 gap 越小」，
 > 但大 shard 在 2000 步内只走了更少的 epoch（8x 仅 ~2 epoch），
 > 「少重播」与「大 shard」混杂。用户提出：**对齐 epoch 数量**再看。
