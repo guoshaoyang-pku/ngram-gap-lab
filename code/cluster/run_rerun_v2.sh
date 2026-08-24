@@ -22,7 +22,31 @@ PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 RESULT_DIR="$ROOT/data/runs_fixed/${RUN_ID}_fixed"
 mkdir -p "$RESULT_DIR"
 
-echo "=== $RUN_ID  GPU=$GPU  shards=$TRAIN_SHARDS  steps=$STEPS  extra=$*  $(date) ==="
+# --- freq index 自动选择：小剂量臂用旧波次对应的 train-set 专属索引（保证
+# --- freq-bin 曲线与旧 _fixed run 同口径可比）；没有对应专属索引时回退全局。
+TRAIN_SHARDS="$(echo "$TRAIN_SHARDS" | tr -d ' ')"
+pick_freq_index() {
+  local name
+  case "$TRAIN_SHARDS" in
+    62)      name="freq_index_train0_25x" ;;
+    60)      name="freq_index_train0_5x" ;;
+    63)      name="freq_index_train0_75x" ;;
+    1,61)    name="freq_index_train1_5x" ;;
+    1,2,64)  name="freq_index_train2_5x" ;;
+    1,2)     name="freq_index_train2x_fine" ;;
+    1,2,3)   name="freq_index_train3x" ;;
+    1,2,3,4) name="freq_index_train4x" ;;
+    *)       name="freq_index" ;;
+  esac
+  if [ -f "$ROOT/data/${name}.npz" ]; then
+    echo "$ROOT/data/${name}.npz"
+  else
+    echo "$ROOT/data/freq_index.npz"
+  fi
+}
+FREQ_INDEX="${FREQ_INDEX:-$(pick_freq_index)}"
+
+echo "=== $RUN_ID  GPU=$GPU  shards=$TRAIN_SHARDS  steps=$STEPS  freq_index=$(basename "$FREQ_INDEX")  extra=$*  $(date) ==="
 
 CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --run_id "${RUN_ID}_fixed" \
@@ -46,7 +70,7 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --table_betas 0.0,0.99 \
   --table_lr_scale 2.0 \
   --table_mult 64 \
-  --freq_index "$ROOT/data/freq_index.npz" \
+  --freq_index "$FREQ_INDEX" \
   --freq_eval_interval 10 \
   --freq_eval_batches 4 \
   --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
