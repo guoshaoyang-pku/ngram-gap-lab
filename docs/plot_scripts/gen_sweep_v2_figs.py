@@ -130,6 +130,9 @@ def main():
     base_m = 50.1  # 1x standard dataset ≈ 50M unique tokens (observed)
     for k in keys:
         series[k]["dataset_m"] = series[k]["mult"] * base_m
+    PARTIAL = "".join(
+        f" · {k} partial ({series[k]['final_step']} steps)"
+        for k in keys if series[k]["final_step"] < 2000)
     cmap = plt.cm.RdYlBu_r
     lv = np.log2([series[k]["mult"] for k in keys])
     lo, hi = lv.min(), lv.max()
@@ -163,8 +166,7 @@ def main():
         ax.legend(frameon=False, ncol=2, fontsize=7.5, loc="best")
     fig.suptitle("v2 sweep · log–log curve family (dashed = epoch boundary)",
                  fontsize=13, color=INK)
-    fig.text(0.5, 0.012, STD_FOOT + " · gap panel keeps only gap > 0.02 (log scale); "
-             "8x shown with its 1870-step partial data.",
+    fig.text(0.5, 0.012, STD_FOOT + PARTIAL + " · gap panel keeps only gap > 0.02 (log scale).",
              ha="center", fontsize=9, color=MUTED)
     fig.tight_layout(rect=[0, 0.035, 1, 0.96])
     for ext in ("svg", "png"):
@@ -291,7 +293,7 @@ def main():
             ax.set_title("log-x dose–response", loc="left",
                          fontsize=12, fontweight="bold")
     fig.suptitle("v2 gap @ step 2000 vs shard dose", fontsize=13, color=INK)
-    fig.text(0.5, 0.012, STD_FOOT + " · ◇ = partial run (8x, 1870 steps).",
+    fig.text(0.5, 0.012, STD_FOOT + PARTIAL + " · ◇ = partial run.",
              ha="center", fontsize=9, color=MUTED)
     fig.tight_layout(rect=[0, 0.035, 1, 0.95])
     for ext in ("svg", "png"):
@@ -301,7 +303,7 @@ def main():
     plt.close(fig)
     print("[v2] wrote fig_sweep_v2_dose_resp")
 
-    # ---- Fig 4: injection points, log-log gap ----
+    # ---- Fig 4: injection points, linear axes ----
     fig, ax = plt.subplots(figsize=(10, 5.6), facecolor=PAPER)
     style_axis(ax)
     for arm in INJ:
@@ -310,17 +312,15 @@ def main():
             continue
         st = np.array([p["step"] for p in log])
         gp = np.array([p["gap"] for p in log])
-        m = gp > GAP_MIN
-        ax.plot(st[m], gp[m], "o-", color=arm["color"], linewidth=2.1,
+        ax.plot(st, smooth(gp.tolist()), "o-", color=arm["color"], linewidth=2.1,
                 markersize=2.6, label=f"{arm['key']} (final {gp[-1]:+.2f})")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
+    ax.axhline(0, color=LINE, linewidth=1.0, linestyle="--")
     ax.set_xlabel("step")
     ax.set_ylabel("gap = val − train")
-    ax.set_title("v2 injection-point ablation · log–log gap", loc="left",
+    ax.set_title("v2 injection-point ablation · gap (linear axes)", loc="left",
                  fontsize=13, fontweight="bold")
     ax.legend(frameon=False, fontsize=9.5, loc="best")
-    fig.text(0.5, 0.012, STD_FOOT + " · only gap > 0.02 shown (log scale).",
+    fig.text(0.5, 0.012, STD_FOOT,
              ha="center", fontsize=9, color=MUTED)
     fig.tight_layout(rect=[0, 0.035, 1, 1])
     for ext in ("svg", "png"):

@@ -45,11 +45,11 @@ tr:hover td{background:rgba(53,61,121,.04)}
 
 <section id="injpos">
 <h2>1. 注入点消融（M2 · v2 · 2000 步 · seed 42）</h2>
-<p>同一个 n-gram table 放在不同位置，gap 强度不同；无 n-gram 负对照 gap 接近 0。双对数坐标下可见各注入点 gap 的增长斜率差异。</p>
+<p>同一个 n-gram table 放在不同位置，gap 强度不同；无 n-gram 负对照 gap 接近 0。线性坐标下可见 gap  onset 与增长形态差异。</p>
 
 <div class="figure-card">
-<img src="../figs/epoch_scale/fig_sweep_v2_injpos.svg" alt="v2 injection point gap curves, log-log">
-<div class="fig-caption"><strong>图 1 · 注入点 gap 曲线簇（log–log）</strong>：v / y / input 三条 gap 曲线在双对数下近似幂律增长，nogram 对照贴底（仅 gap &gt; 0.02 的段可见）。新标准下 input 主线 gap @2000 = <b>5.21</b>（旧标准 1.87），整体 gap 水平抬升。</div>
+<img src="../figs/epoch_scale/fig_sweep_v2_injpos.svg" alt="v2 injection point gap curves, linear axes">
+<div class="fig-caption"><strong>图 1 · 注入点 gap 曲线簇（线性坐标）</strong>：v / y / input 三条 gap 曲线随 step 单调增长，nogram 对照贴零。新标准下 input 主线 gap @2000 = <b>5.21</b>（旧标准 1.87），整体 gap 水平抬升；种子 43/44 复现为 5.42 / 5.53，结论稳健。</div>
 </div>
 
 <div class="cards">
@@ -107,30 +107,54 @@ tr:hover td{background:rgba(53,61,121,.04)}
 <tr><td>nglab4x_input_v2_fixed</td><td>4x</td><td>2000</td><td><b>0.132</b></td><td>3.175</td><td>3.307</td><td><span class="status-badge status-done">完成</span></td></tr>
 <tr><td>nglab5x_input_v2_fixed</td><td>5x</td><td>2000</td><td><b>0.043</b></td><td>3.188</td><td>3.231</td><td><span class="status-badge status-done">完成</span></td></tr>
 <tr><td>nglab6x_input_v2_fixed</td><td>6x</td><td>2000</td><td><b>-0.098</b></td><td>3.547</td><td>3.448</td><td><span class="status-badge status-done">完成</span></td></tr>
-<tr><td>nglab8x_input_v2_fixed</td><td>8x</td><td>1870</td><td><b>-0.040</b></td><td>3.208</td><td>3.168</td><td><span class="status-badge status-run">进行中</span></td></tr>
+<tr><td>nglab8x_input_v2_fixed</td><td>8x</td><td>2000</td><td><b>-0.072</b></td><td>3.310</td><td>3.238</td><td><span class="status-badge status-done">完成</span></td></tr>
 </table></div>
 <p class="footer-note">注：v2 的 1x（5.208）略高于 0.5x（5.170）：log–log 曲线簇显示 1x 的 gap 在 step 2000 仍处上升段、0.5x 已近平台；不构成对 dose 单调响应的反例，完整单调性以图 4 dose–response（0.75x 起单调下降）为准。</p>
 </section>
 
 <section id="e6">
-<h2>3. Epoch 对齐批（M6 · v2 进行中）</h2>
-<p>固定 5 epoch 的 v2 重刷刚开始三个小剂量，已完成点如下；其余剂量排队中。</p>
+<h2>3. Epoch 对齐批（M6 · 固定 5 epoch · v2）</h2>
+<p>对齐到相同 5 遍训练：gap 不随训练集大小单调，而与「每 context 重复次数」绑定。已完成 4/9，其余排队中。</p>
 <div class="data-table"><table>
 <tr><th>run_id (v2)</th><th>dose</th><th>steps (=5 epochs)</th><th>final gap</th><th>状态</th></tr>
 <tr><td>nglab0_25x_e6_v2_fixed</td><td>0.25x</td><td>420</td><td><b>1.852</b></td><td><span class="status-badge status-done">完成</span></td></tr>
 <tr><td>nglab0_5x_e6_v2_fixed</td><td>0.5x</td><td>840</td><td><b>1.851</b></td><td><span class="status-badge status-done">完成</span></td></tr>
-<tr><td>nglab0_75x_e6_v2_fixed</td><td>0.75x</td><td>880</td><td><b>1.557</b></td><td><span class="status-badge status-run">进行中</span></td></tr>
+<tr><td>nglab0_75x_e6_v2_fixed</td><td>0.75x</td><td>1260</td><td><b>1.986</b></td><td><span class="status-badge status-done">完成</span></td></tr>
+<tr><td>nglab1x_e6_v2_fixed</td><td>1x</td><td>1685</td><td>—</td><td><span class="status-badge status-run">重试中</span></td></tr>
+<tr><td>nglab1_5x_e6_v2_fixed</td><td>1.5x</td><td>2525</td><td><b>4.331</b></td><td><span class="status-badge status-done">完成</span></td></tr>
+<tr><td>nglab2x_e6_v2_fixed</td><td>2x</td><td>3350</td><td>—</td><td><span class="status-badge status-run">进行中</span></td></tr>
+<tr><td>nglab2_5x_e6_v2_fixed</td><td>2.5x</td><td>4190</td><td>—</td><td><span class="status-badge status-run">排队</span></td></tr>
+<tr><td>nglab3x_e6_v2_fixed</td><td>3x</td><td>5000</td><td>—</td><td><span class="status-badge status-run">排队</span></td></tr>
+<tr><td>nglab4x_e6_v2_fixed</td><td>4x</td><td>6700</td><td>—</td><td><span class="status-badge status-run">排队</span></td></tr>
+</table></div>
+</section>
+
+<section id="seeds">
+<h2>4. 种子复现（B · v2）</h2>
+<p>主线 1x input 的 seed 43 / 44 复现，gap @2000 = <b>5.42 / 5.53</b>，与 seed 42 的 5.21 同量级（±6%），确认新标准下 gap 水平抬升不是单种子噪声。</p>
+</section>
+
+<section id="causal">
+<h2>5. 因果干预（A4 · v2 · 1000 步）</h2>
+<p>epoch 1 开始干预，与未干预对照（1x @ step 1000：gap = <b>2.29</b>）比较。三种干预都把 gap 打回零附近，确认 gap 的载体是 n-gram 表内容及其读出通道。</p>
+<div class="data-table"><table>
+<tr><th>run_id (v2)</th><th>干预</th><th>steps</th><th>gap @1000</th><th>对照 gap</th><th>Δ</th></tr>
+<tr><td>nglab1x_reset_e1_v2_fixed</td><td>epoch 1 擦表</td><td>1000</td><td><b>0.564</b></td><td>2.289</td><td>−75%</td></tr>
+<tr><td>nglab1x_reset_e2_v2_fixed</td><td>epoch 2 擦表</td><td>1000</td><td><b>0.054</b></td><td>2.289</td><td>−98%</td></tr>
+<tr><td>nglab1x_mask_e1_v2_fixed</td><td>epoch 1 屏蔽读出</td><td>1000</td><td><b>0.035</b></td><td>2.289</td><td>−98%</td></tr>
+<tr><td>nglab1x_freeze_table_e1_v2_fixed</td><td>epoch 1 冻结表</td><td>—</td><td>—</td><td>2.289</td><td>排队</td></tr>
+<tr><td>nglab1x_freeze_backbone_e1_v2_fixed</td><td>epoch 1 冻结 backbone</td><td>—</td><td>—</td><td>2.289</td><td>排队</td></tr>
 </table></div>
 </section>
 
 <section id="notes">
-<h2>4. 口径说明</h2>
+<h2>6. 口径说明</h2>
 <div class="note method">
 <ul>
 <li><strong>新标准 v2</strong>：表优化器 RMSProp 无动量 <code>β=(0.0, 0.99)</code>、<code>table_lr_scale=2.0</code>、<code>bf16 + torch.compile</code>；backbone AdamW、lr 0.004 不变。</li>
 <li><strong>gap 定义</strong>：val_loss − train_loss，同一 step、同一 fixed-val batch；novel context 无 train loss，不进 gap。</li>
 <li><strong>双对数规范</strong>：gap ≤ 0 的点在 log 轴上剔除（图注说明）；dose–response 右面板用 symlog 保留近零与负值区域。</li>
-<li><strong>部分数据</strong>：8× 快照时 1870 步，以 ◇ 与图注显式标注；其余 11 个 dose 均为完整 2000 步。</li>
+<li><strong>部分数据</strong>：A2/A1/A4 主体已全部完成；e6 批与 freeze/ρ/表大小补点仍在三机队列消费中，完成后回填。</li>
 <li><strong>生成脚本</strong>：<code>docs/plot_scripts/gen_sweep_v2_figs.py</code>；canonical SVG 在 <code>docs/figs/epoch_scale/fig_sweep_v2_*.svg</code>。</li>
 </ul>
 </div>
