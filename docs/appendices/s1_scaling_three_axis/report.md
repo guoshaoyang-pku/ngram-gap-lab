@@ -1,11 +1,12 @@
 # 附录 · 三轴 scaling 验证（epoch 长度 / exact frequency / table size）
 
 > **实验线**：T-scaling（极简 setting 下验证三条 scaling 曲线）
-> **状态**：🟡 当前标准基础 QC 已完成 7 个锚点；完整 S1 scaling 仍未完成
-> **数据源**：`data/runs_scaling/basic_*`（基础 QC）及后续
-> `data/runs_scaling/<run_id>_fixed/`（正式网格）
+> **状态**：🟢 基础 QC 完成（7 锚点）+ `bb_safety` 完成；正式 full grid seed 42
+> 已启动（epoch / table / frequency 三轴，运行中）
+> **数据源**：`data/runs_scaling/basic_*`（基础 QC）、`data/runs_scaling/bb_safety*`
+> （长训安全）及 `data/runs_scaling/<run_id>_fixed/`（正式网格）
 > **代码**：`tasks/s1_scaling_three_axis/`（launchers + analysis + 单测）
-> **计划**：`docs/plans/plan-3-fix-and-backfill.md`
+> **计划**：`docs/plans/plan-5-s1-three-axis-handoff.md`
 
 ---
 
@@ -137,9 +138,9 @@ table 网格和 profile-likelihood，因此不能报告 `A,c,β,γ` 的稳定估
 
 ### 2.4 Backbone safety
 
-`bb_safety_L1_nogram_5000` 仍在运行；截至最近快照为 step **4000/5000**，
-固定 probe gap 已达到 **+13.236**。该 run 尚未按当前标准完成并同步最终
-结果：
+`bb_safety_L1_nogram_5000` 已完成（2026-08-24），**最终 fixed gap +16.66 @5000**
+（train 0.0065 / val 16.666）。该 run 为旧 cadence（50 步）+ fp32 无 compile，
+只作量级参考，不属当前标准：
 
 | step | fixed train | fixed val | fixed gap |
 |---:|---:|---:|---:|
@@ -147,10 +148,13 @@ table 网格和 profile-likelihood，因此不能报告 `A,c,β,γ` 的稳定估
 | 1200 | 4.022 | 5.247 | +1.225 |
 | 1400 | 3.491 | 5.418 | +1.927 |
 | 1681 | 3.138 | 5.724 | +2.586 |
-| 4000 | 0.368 | 13.604 | **+13.236** |
+| 4000 | 0.368 | 13.604 | +13.236 |
+| **5000** | **0.007** | **16.666** | **+16.660** |
 
-因此目前只能说：1000-step no-ngram 锚点接近零；长训 backbone 是否产生
-non-negligible gap 仍是开放 QC 问题。
+**结论（量级参考）**：长训 no-ngram backbone 自身就会产生巨大 gap（train 趋
+0、val 16.7）—— 1000 步 gap ≈ 0 不能外推到 5000 步。因此 no-ngram 对照必须
+在每个 L、每个对齐下重跑当前标准版本，不能假设 backbone gap 恒为零；
+`ΔG = G_module − G_no-ngram` 修正口径仍然必要。
 
 ## 3. 图片约定
 

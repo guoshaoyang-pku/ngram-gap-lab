@@ -1100,7 +1100,7 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
 | run_id 前缀 | 轴 | setting | 状态 |
 |---|---|---|---|
 | `basic_*` | 基础 QC 锚点（7 run，seed 42） | 25 步 cadence + bf16/compile | ✅ done（basic QC） |
-| `bb_safety_L1_nogram_5000` | backbone safety（L1 no-ngram 5000 步） | **旧 cadence**（50 步 + fp32 无 compile） | 🔄 running（360-2 GPU7，~4500/5000） |
+| `bb_safety_L1_nogram_5000` | backbone safety（L1 no-ngram 5000 步） | **旧 cadence**（50 步 + fp32 无 compile） | ✅ done（360-2 GPU7，**final fixed gap +16.66 @5000**） |
 | `ep_{L}_{arm}_fs` | epoch · fixed-step | L1-L4 × 4 arms × 1000 步，step-anchored LR，10 步 cadence，bf16+compile | 🔄 running（seed 42 首轮） |
 | `ep_{L}_{arm}_fe` | epoch · fixed-epoch | 6 完整 epoch（L1=252/L2=504/L3=1008/L4=2022 步），epoch-anchored LR | 🔄 running（seed 42 首轮） |
 | `tbl_{TM}_{arm}` | table · L4 | 7 sizes × 3 arms × 1000 步，10 步 cadence | 🔄 running（seed 42 首轮） |
@@ -1117,6 +1117,24 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
    一个）。`bb_safety_L1_nogram_5000`（50 步 + fp32）只能作长训 backbone gap
    量级参考，不能作为正式 grid 的 no-ngram baseline。
 4. 正式网格 cadence：val/probe/freq 每 10 步，exact-freq 每 100 步（仅频率轴 run）。
+
+### bb_safety 最终结果（2026-08-24 回填）
+
+`bb_safety_L1_nogram_5000`（L1=42 b/ep，5000 步，no-ngram，seed 42）已完成：
+
+| 量 | 值 |
+|---|---:|
+| 最终 fixed train loss | 0.0065 |
+| 最终 fixed val loss | 16.666 |
+| **最终 fixed gap** | **+16.66** |
+
+- **含义**：长训（5000 步）no-ngram backbone 自身就会产生巨大 gap（train 接近
+  0 而 val 16.7）—— 1000 步时 gap ≈ 0 不代表 5000 步仍为 0。这与
+  `bb_safety` 的早先快照趋势一致（4000 步 +13.24）。
+- **口径警告**：该 run 为旧 cadence（50 步）+ fp32 无 compile，仅作量级参考。
+  正式 full grid 的 no-ngram baseline 用 10 步 cadence + bf16/compile（见上）。
+- **影响**：no-ngram 对照必须在每个 L、每个对齐下重跑，不能假设 backbone
+  gap 恒为零；`ΔG = G_module − G_no-ngram` 的修正口径因此仍然必要。
 
 ### 说明
 - 数据源：`data/runs_scaling/<run_id>_fixed/`（新 namespace）。
