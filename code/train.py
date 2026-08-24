@@ -70,6 +70,9 @@ class Config:
     table_optimizer: str = "rmsprop"  # rmsprop | adamw | sgd
     table_lr_scale: float = 1.0       # multiplier on the n-gram table LR
     table_betas: tuple = (0.0, 0.999)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
+    table_mult: int = 64              # n-gram table size = vocab_size * table_mult
+    intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
+    intervention_epoch: int = 1       # fire at start of epoch N+1 (epoch 1-indexed)
     adam_betas: tuple = (0.8, 0.95)
     weight_decay: float = 0.1
     # training
@@ -307,7 +310,7 @@ class NanoGPT(nn.Module):
         self.bigram_ve_layers = (
             set(ngram_layers) if config.enable_nanogpt_ngram_ve and config.enable_bigram_ve else set()
         )
-        self.bigram_table_size = config.vocab_size * 64
+        self.bigram_table_size = config.vocab_size * config.table_mult
         self.bigram_K = 2
         half_dim = config.n_embd // 2
         _bp = expand_bigram_hash_primes(_BASE_BIGRAM_PRIMES, len(ngram_layers))
@@ -325,7 +328,7 @@ class NanoGPT(nn.Module):
             if config.enable_nanogpt_ngram_ve and config.enable_trigram_ve and ngram_layers
             else set()
         )
-        self.trigram_table_size = config.vocab_size * 64
+        self.trigram_table_size = config.vocab_size * config.table_mult
         _tp = _BASE_TRIGRAM_PRIMES[:max(1, len(self.trigram_ve_layers))]
         while len(_tp) < len(self.trigram_ve_layers):
             _tp.append(_tp[len(_tp) % len(_BASE_TRIGRAM_PRIMES)])
@@ -366,7 +369,6 @@ class NanoGPT(nn.Module):
                     torch.nn.init.zeros_(g.weight)
 
     def _compute_input_ngram_residual(self, idx):
-        """Over-encoding: sum all enabled layers' n-gram values, no gate."""
         _B, T = idx.size()
         residual = None
         prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)

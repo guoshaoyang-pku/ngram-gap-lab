@@ -63,8 +63,7 @@ k(b)       = clip((r_ref / r(b))^alpha, k_min, k_max)
 | `resample_aligned_dataset.py` | 199 | 一次性数据集对齐工具，无 launcher 引用，**候选废弃** |
 | `tests/` | 582 | ★ **全仓库唯一单元测试**（3 文件 22 个 test，纯 CPU）。保护 `data_gen.py` 的科学正确性：hash 确定性、torch/python hash 等价、alpha 重采样因子、train/val 独立抽样前提、精确索引 vs hash 碰撞回归 |
 | `cluster/run_on_cluster.sh` | 131 | ★ **主力入口**。rsync → 带 contract 校验的数据集生成 → 启动 trainer |
-| `cluster/run_big_continuous.sh`<br>`cluster/launch_ddp_train.sh`<br>`cluster/monitor_full163.sh` | 166 | full-163 全语料 4-GPU DDP 长跑（70000 步）。⚠️ **未完成线**，见下方 P1 |
-| `CLUSTER_PATCH_GUIDE.md` | 100 | ⚠️ `[OUTDATED]`，行号已失效 |
+| `cluster/run_on_cluster.sh` | 131 | ★ **主力入口**。rsync → 带 contract 校验的数据集生成 → 启动 trainer。full-163 全语料线已退役（脚本删除），数据坐标见 `docs/notes/data/full-corpus-full163.md` |
 
 ## 5. 已知阻塞项
 
@@ -82,11 +81,11 @@ CPU 回退指向 `nanogpt_gap_vanilla_control/`——**这三个在本仓库都�
 **修法**：把 fallback 改为主线 `code/train.py`。这一步同时消灭「两份 nanoGPT 实现」的隐患，
 是把本包真正并入主线的关键动作。
 
-### P1 · full-163 线未完成
+### P1 · full-163 线 ✅ 已退役（2026-08-23）
 
-closure 状态为 `DATA_GEN_RUNNING`，`meta.json` 从未产出；输入 `data_split.full163.json`
-不在本仓库。相关 3 个脚本是**未验证代码**，已加 banner 标注，不要当作可信资产。
-
+脚本已删除（从未跑完、依赖仓库外文件、非极简主线）。
+完整数据集的坐标与生成参数登记在 `docs/notes/data/full-corpus-full163.md`，
+未来做全语料仿真按那份文档 + `agents.md` §1 重建，不复活旧脚本。
 ## 6. 命名说明
 
 包名里的 `ngram5` 是历史误称——launcher 实际跑 `--order 3`，数据集叫 `trigram_alpha*`。

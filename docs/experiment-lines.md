@@ -90,14 +90,16 @@
 完整的可执行方案见 **`notes/plans/plan-3-fix-and-backfill.md`**（面向 agent 阵列，含验收标准）。
 摘要：
 
-| # | 任务 | 优先级 |
-|---|---|---|
-| T1 | 回填 `experiment-log.md`：pre-fix 数值**直接覆盖**为 `_fixed`，不保留旧值 | P0 |
-| T2 | 重判 β₂ 结论（§9c/§9d 原结论建立在 `--table_betas` 失效的 run 上） | P0 |
-| T3 | 用 `_fixed` 数据重生成全部图 | P0 |
-| T4 | 修 `experiment-log.md` 结构（§10 重复、§5 缺失、90 行逐字重复） | P1 |
-| T5 | 修 `ngram5_freq_gap/model.py` 的死 fallback → 指向 `code/train.py` | P1 |
-| T6 | 补 M6 缺口（4x/5x/6x/8x）或显式限定结论覆盖范围 | P1 |
-| T7 | 固定 train 采样集合的 loss 曲线（测 ρ） | P2 |
-| T8 | 长时程 no-ngram 对照（backbone 单独会不会 overfit） | P2 |
-| T9 | 工程整理：`RUNS_DIR` 环境变量化、抽 `table_opt_common.py` | P3 |
+| # | 任务 | 优先级 | 状态 |
+|---|---|---|---|
+| T1 | 回填 `experiment-log.md`：pre-fix 数值**直接覆盖**为 `_fixed`，不保留旧值 | P0 | 待办 |
+| T2 | 修正 β₂ 记录（标注无效 + 删无支撑结论，**不补跑实验**，用户已明确不重要） | P0 | 待办 |
+| T3 | 用 `_fixed` 数据重生成全部图 | P0 | 待办 |
+| T4 | 修 `experiment-log.md` 结构（§10 重复、§5 缺失、90 行逐字重复） | P1 | 待办 |
+| T5 | 修 `ngram5_freq_gap/model.py` 的死 fallback → 指向 `code/train.py` | P1 | 待办 |
+| T6 | 补 M6 缺口（4x/5x/6x/8x）或显式限定结论覆盖范围 | P1 | 待用户拍板 |
+| T7 | full-163 线：脚本已删除，数据坐标入库 `docs/notes/data/full-corpus-full163.md` | — | ✅ 已解决 |
+| T8 | 长时程 no-ngram 对照（**缩小数据量前的保险**，不做缩小可缓跑） | P2 | 待办 |
+| T9 | 固定 train 采样集合的 loss 曲线（测 ρ，与 T8 可并行） | P2 | 待办 |
+| T10 | 缩小单 epoch 数据量以放大 gap（**唯一必须等 T8 的动作**） | P2 | 等 T8 |
+| T11 | 工程整理：`RUNS_DIR` 环境变量化、抽 `table_opt_common.py`、包改名 | P3 | 随手做 |

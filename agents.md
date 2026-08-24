@@ -200,11 +200,12 @@ ngram-gap-lab/
 │   │   ├── index.html           #   权威版本地副本（= blog 发布版）
 │   │   ├── background.html      #   背景页
 │   │   └── versions/            #   历史版本（0728 / 0730 / chapter0-19 / regime-bridge）
-│   ├── notes/                   # 四类笔记
+│   ├── notes/                   # 五类笔记
 │   │   ├── theory/              #   理论推导（unigram gap、幂律、Markov、长尾修正）
 │   │   ├── literature/          #   文献精读 + related work + references.bib
 │   │   ├── method/              #   方法论与踩坑（sawtooth 审计、freq-bin bug、合成任务设计）
-│   │   └── plans/               #   plan-1 机制总纲、plan-2 文献故事线
+│   │   ├── plans/               #   plan-1 机制总纲、plan-2 文献故事线、plan-3 清污回填
+│   │   └── data/                #   ★ 集群数据集坐标（full-corpus-full163.md）
 │   ├── figs/                    # 按实验线分目录
 │   │   ├── main/                #   M2 注入点 v10 主线（sync_to_blog.sh 的同步源）
 │   │   ├── table_opt/           #   M3 + M4
@@ -223,7 +224,7 @@ ngram-gap-lab/
 
 **入口顺序**：`agents.md`（规则）→ `docs/experiment-lines.md`（全景）→
 `docs/experiment-log.md`（主线细节）/ `tasks/README.md`（敏捷任务细节）/
-`ngram5_freq_gap/README.md`（数据干预线细节）。
+`ngram5_freq_gap/README.md`（数据干预线细节）/ `docs/notes/data/`（集群数据坐标）。
 
 ### 3.1 tasks/ 的约定
 
