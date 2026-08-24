@@ -3,15 +3,24 @@
 #
 # All runs: vanilla nanoGPT 8L·6H·768D + input n-gram injection,
 # natural corpus nested-prefix shard 1, train/val zero overlap,
-# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), fixed train probe +
-# exact-frequency diagnostics.
+# table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), fixed train probe.
+#
+# User decisions 2026-08-24:
+#   - L4 = 337 batches/epoch = FULL shard 1 (24264 chunks / 72). L1-L3 are
+#     nested prefixes (42 / 84 / 168). L4 is no longer 336.
+#   - Ordinary grid runs do NOT compute exact-frequency / freq-bin
+#     diagnostics (no --freq_index).  The frequency axis is a separate
+#     small run set (see run_scaling_frequency_axis.sh).
 #
 # Fixed-step (fs): 1000 steps, step-anchored LR, all L1-L4 x 4 modules.
 # Fixed-epoch (fe): 6 full epochs, epoch-anchored LR (--lr_schedule_epochs 6),
-#   target steps L1=252 L2=504 L3=1008 L4=2016.  no-ngram is run at
+#   target steps L1=252 L2=504 L3=1008 L4=2022.  no-ngram is run at
 #   every L so each n-gram arm has a same-L baseline.
 #
-# Usage: ./run_scaling_epoch_full.sh [gpu1] [gpu2] [gpu3] [gpu4]
+# Usage: ./run_scaling_epoch_full.sh <gpu_id1> [gpu_id2] [gpu_id3] [gpu_id4] ...
+#   Pass the CUDA device ids of the free GPUs (any number >= 1).  Arms are
+#   scheduled round-robin across the given GPUs; a full wave finishes when
+#   every arm of the current L has been launched on some GPU.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,12 +29,14 @@ TASK_ROOT="$ROOT/tasks/s1_scaling_three_axis"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 OUT_DIR="$ROOT/data/runs_scaling"
-FREQ_IDX="$ROOT/data/freq_index.npz"
-G1="${1:-0}" G2="${2:-1}" G3="${3:-2}" G4="${4:-3}"
+GPUS=("$@")
+if [ "${#GPUS[@]}" -eq 0 ]; then GPUS=(0 1 2 3); fi
 mkdir -p "$OUT_DIR"
 
-declare -A EPB=( [L1]=42 [L2]=84 [L3]=168 [L4]=336 )
-declare -A FESTEPS=( [L1]=252 [L2]=504 [L3]=1008 [L4]=2016 )
+# Nested-prefix epoch lengths (device batches per epoch).
+# L4 = 337 = full shard 1 (24264 chunks / 72). L1/L2/L3 are 1/8, 1/4, 1/2 of it.
+declare -A EPB=( [L1]=42 [L2]=84 [L3]=168 [L4]=337 )
+declare -A FESTEPS=( [L1]=252 [L2]=504 [L3]=1008 [L4]=2022 )
 
 run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> <bigram> <trigram>
   local GPU="$1" RUN_ID="$2" EPB="$3" STEPS="$4" SCHED="$5" BI="$6" TRI="$7"
@@ -40,9 +51,7 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
     --val_interval 10 --val_batches 4 --table_norm_interval 10 --lr 0.004 \
     --enable_unigram 0 --enable_bigram "$BI" --enable_trigram "$TRI" \
     --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
-    --freq_eval_interval 10 --freq_eval_batches 4 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
-    --freq_index "$FREQ_IDX" \
     --epoch_batches "$EPB" \
     --fixed_train_probe 4 --probe_eval_interval 10 \
     --table_betas 0.0,0.99 \
@@ -53,22 +62,35 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
   echo "[epoch-full] $RUN_ID done (exit=$?) at $(date)"
 }
 
-# Fixed-step: L1-L4 x {bigram, trigram, both, no-ngram}
-for L in L1 L2 L3 L4; do
-  run_arm "$G1" "ep_${L}_bigram_fs"  "${EPB[$L]}" 1000 0 1 0 &
-  run_arm "$G2" "ep_${L}_trigram_fs" "${EPB[$L]}" 1000 0 0 1 &
-  run_arm "$G3" "ep_${L}_both_fs"    "${EPB[$L]}" 1000 0 1 1 &
-  run_arm "$G4" "ep_${L}_nogram_fs"  "${EPB[$L]}" 1000 0 0 0 &
-  wait
-done
+# run_wave <label> <schedule_epochs> <steps_fn> -- one arm per module, each on
+# its own GPU from the GPUS list (round-robin; waits for all before returning).
+run_wave() {
+  local LABEL="$1" SCHED="$2" STEPS_FN="$3" L BI TRI GPUS_IDX=0
+  for L in L1 L2 L3 L4; do
+    for ARM in bigram trigram both nogram; do
+      case "$ARM" in
+        bigram) BI=1 TRI=0 ;;
+        trigram) BI=0 TRI=1 ;;
+        both) BI=1 TRI=1 ;;
+        nogram) BI=0 TRI=0 ;;
+      esac
+      local GPU="${GPUS[$GPUS_IDX]}"
+      GPUS_IDX=$(( (GPUS_IDX + 1) % ${#GPUS[@]} ))
+      local STEPS
+      STEPS=$("$STEPS_FN" "$L")
+      run_arm "$GPU" "ep_${L}_${ARM}_${LABEL}" "${EPB[$L]}" "$STEPS" "$SCHED" "$BI" "$TRI" &
+    done
+    wait
+    GPUS_IDX=0
+  done
+}
 
-# Fixed-epoch: L1-L4 x {bigram, trigram, both, no-ngram}
-for L in L1 L2 L3 L4; do
-  run_arm "$G1" "ep_${L}_bigram_fe"  "${EPB[$L]}" "${FESTEPS[$L]}" 6 1 0 &
-  run_arm "$G2" "ep_${L}_trigram_fe" "${EPB[$L]}" "${FESTEPS[$L]}" 6 0 1 &
-  run_arm "$G3" "ep_${L}_both_fe"    "${EPB[$L]}" "${FESTEPS[$L]}" 6 1 1 &
-  run_arm "$G4" "ep_${L}_nogram_fe"  "${EPB[$L]}" "${FESTEPS[$L]}" 6 0 0 &
-  wait
-done
+steps_fs() { echo 1000; }
+steps_fe() { echo "${FESTEPS[$1]}"; }
+
+# Fixed-step: L1-L4 x {bigram, trigram, both, no-ngram}, 1000 steps
+run_wave fs 0 steps_fs
+# Fixed-epoch: L1-L4 x {bigram, trigram, both, no-ngram}, 6 epochs each
+run_wave fe 6 steps_fe
 
 echo "=== epoch full grid done at $(date) ==="

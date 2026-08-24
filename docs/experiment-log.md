@@ -1087,3 +1087,41 @@ table 回滚 −89% / readout 屏蔽 −89% / 冻结 table −49% / 冻结 backb
 - 图：`docs/figs/fig_fp32_vs_bf16_samehp.png`
 - 代码：`code/train.py`（`--dtype` / `--compile`）、`code/cluster/run_causal_minimal.sh`（默认 bf16+compile）
 - 集群数据：`data/runs/vanilla_input_1000_seed42_bf16_samehp/`（+0.825）
+
+## 17. S1 三轴 scaling 验证（2026-08-24，plan-5）
+
+### 目的
+在唯一极简 setting 下正式验证三条 scaling 曲线：epoch 长度 L、exact context
+frequency f、table size（1M 逻辑地址只向下）。计划：
+`docs/plans/plan-5-s1-three-axis-handoff.md`。
+
+### 登记（planned → running）
+
+| run_id 前缀 | 轴 | setting | 状态 |
+|---|---|---|---|
+| `basic_*` | 基础 QC 锚点（7 run，seed 42） | 25 步 cadence + bf16/compile | ✅ done（basic QC） |
+| `bb_safety_L1_nogram_5000` | backbone safety（L1 no-ngram 5000 步） | **旧 cadence**（50 步 + fp32 无 compile） | 🔄 running（360-2 GPU7，~4500/5000） |
+| `ep_{L}_{arm}_fs` | epoch · fixed-step | L1-L4 × 4 arms × 1000 步，step-anchored LR，10 步 cadence，bf16+compile | 🔄 running（seed 42 首轮） |
+| `ep_{L}_{arm}_fe` | epoch · fixed-epoch | 6 完整 epoch（L1=252/L2=504/L3=1008/L4=2022 步），epoch-anchored LR | 🔄 running（seed 42 首轮） |
+| `tbl_{TM}_{arm}` | table · L4 | 7 sizes × 3 arms × 1000 步，10 步 cadence | 🔄 running（seed 42 首轮） |
+| `freq_{arm}_{fs/fe}` | frequency 轴专用 | L4 + 1M table × 4 arms，exact-freq 每 100 步 | 🔄 running（seed 42 首轮） |
+
+### 关键口径决策（用户 2026-08-24 拍板）
+
+1. **L4 = 337 batches/epoch** = 完整 shard 1（24,264 chunks / 72）。L1/L2/L3 为
+   嵌套前缀 42/84/168。此前 plan/launcher 用 L4=336（42 的整数倍），已废弃。
+2. **普通网格不计算 exact-frequency / freq-bin 诊断**（不传 `--freq_index`），
+   只算在线 train/val loss + fixed train probe gap。频率轴单独跑一小批
+   run（L4 + 1M table × 4 module 臂，带 exact-freq 每 100 步）。
+3. **no-ngram baseline 重跑当前标准**（10 步 cadence + bf16/compile，每个 L
+   一个）。`bb_safety_L1_nogram_5000`（50 步 + fp32）只能作长训 backbone gap
+   量级参考，不能作为正式 grid 的 no-ngram baseline。
+4. 正式网格 cadence：val/probe/freq 每 10 步，exact-freq 每 100 步（仅频率轴 run）。
+
+### 说明
+- 数据源：`data/runs_scaling/<run_id>_fixed/`（新 namespace）。
+- 代码：`tasks/s1_scaling_three_axis/`（train.py / ngram_freq.py /
+  table_occupancy.py / launchers / analysis）。
+- 每个 run 的 summary.json 含 `table_betas=[0.0,0.99]`、`table_lr_scale`、
+  `compute_dtype`、`torch_compile`、`fixed_train_probe_sha256`、`epoch_batches`、
+  `exact_freq_eval_interval`。

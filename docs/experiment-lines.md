@@ -76,6 +76,27 @@ run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有�
 | T1 | toy β 扫描 / 台阶溯源（历史） | `t5b_*` | `gen_within_epoch_figs.py` | §11(A) |
 | T2 | toy 严格 Zipf（历史） | `t5z_zipf_s4{2,3,4}` | `gen_zipf_experiment_figs.py`<br>`analyze_zipf_gap.py` | §13 |
 
+## S1 三轴 scaling（T-scaling，极简 setting）
+
+> 完整计划：`docs/plans/plan-5-s1-three-axis-handoff.md`；专题报告：
+> `docs/appendices/s1_scaling_three_axis/report.md`；任务代码：
+> `tasks/s1_scaling_three_axis/`。结果目录 `data/runs_scaling/`（新 namespace）。
+
+| 轴 | 科学问题 | run_id 前缀 | launcher | 状态 |
+|---|---|---|---|---|
+| epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs`（L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | 🟡 seed 42 首轮（running） |
+| epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe`（L1=252/L2=504/L3=1008/L4=2022 步） | `run_scaling_epoch_full.sh` | 🟡 seed 42 首轮（running） |
+| table size | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}`（7 sizes × bigram/trigram/both，L4） | `run_scaling_table_full.sh` | 🟡 seed 42 首轮（running） |
+| frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `freq_{arm}_{fs/fe}`（L4 + 1M × 4 arms） | `run_scaling_frequency_axis.sh` | 🟡 seed 42 首轮（running） |
+| backbone safety | 长训 no-ngram backbone 是否产生 gap | `bb_safety_L1_nogram_5000` | 手工（旧 cadence 50 步 + fp32） | 🔄 running（360-2 GPU7，~4500/5000） |
+
+**口径（用户 2026-08-24 拍板）**：L4 = 337 batches/epoch（完整 shard 1，
+24,264 chunks / 72）；L1/L2/L3 = 42/84/168 嵌套前缀。普通网格不跑
+exact-frequency（不传 `--freq_index`），只算在线 train/val + fixed probe；
+频率轴单独一小批 run（带 exact-freq 每 100 步）。no-ngram baseline 重跑
+当前标准（10 步 cadence + bf16/compile）。`bb_safety` 为旧 cadence，仅作
+量级参考。
+
 ## 独立包
 
 **`ngram5_freq_gap/`** —— **第四个实验维度：受控数据干预**（固定极简 setting，只动数据侧）。
