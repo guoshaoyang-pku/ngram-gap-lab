@@ -1,6 +1,6 @@
 # Plan 1 · Gap 形成机制研究
 
-> 🗄️ **迁移说明（2026-08-23）**：本文档来自已弃用的 `OPHIS_gap`。
+> 🗄️ **迁移说明（2026-08-23）**：本文档来自已弃用的 predecessor codebase。
 > **§3.1a「标准数据消融基线（baseline_input）」是本课题极简 setting 的原始定义**，已提升为
 > `agents.md` §1（SSOT）。冲突时以 `agents.md` §1 为准。
 >
@@ -72,7 +72,7 @@
 | `NANOGPT_NGRAM_INJECTION_IMPL` | `nanogpt` |
 | `NANOGPT_ATTENTION_IMPL` | `fused` |
 | `NANOGPT_ADAM_LR` | `0.004` |
-| `NGRAM_TABLE_BETAS` | `0.0,0.999` |
+| `NGRAM_TABLE_BETAS` | `0.0,0.99` |
 | `NGRAM_TABLE_LR_SCALE` | `1.0` |
 | `POSITION_ENCODING` | `learned_abs` |
 | `CURRENT_NORMALIZATION` | `layernorm` |
@@ -95,8 +95,8 @@
 | `LR_SCHEDULE_MODE` | `baseline` |
 | `NGRAM_GLOBAL_FREQUENCY_MODE` | `baseline` |
 
-**集群路径**：`/data3/guoshaoyang/ngram-gap-exp/`
-**launcher**：`run_injpos_input.sh`（input 注入）、`run_injpos_baseline.sh`（no-ngram 对照）
+**运行位置**：目标机器上的本仓库副本，由 `NGLAB_ROOT` 指定。
+**launcher**：本仓库 `code/cluster/` 下的对应入口。
 **代码开关**：`NANOGPT_NGRAM_INJECTION_POSITION=input`（2026-08-05 新增于 `train.py`）
 
 **1000 步 gap 参考**（seed42）：input 注入 final gap ≈ 0.64；y 注入（对照）≈ 1.82；v 注入（旧 B 段，信号被 V 淹没）≈ 0.60。
@@ -154,10 +154,10 @@
 - [~] P1/P2 第二波（可选）：epoch-lag matched probe、frequency-stratified row zero（需要 epoch1 fork checkpoint 工作流）
       —— 早期 3 seeds 稳健性（2026-08-02）：`p1_reset_all_e2` 0.121/0.123/0.122、`p2_readout_mask_e1` 0.116/0.121/0.126；
       `p2_freeze_both_e1` 0.572 ≈ 仅冻结 table，gate 不叠加
-- [x] **toy v5 2×2 干净证明（ngram 表 × 低频键，2026-08-04）**：32768 键、low（30720 键 r<16 train/val next 独立 + 1024 共享）/ high（全 r=64 共享）两数据模式 × 注入 on/off × 3 seeds = 12 runs（`toy/toy5_data_gen.py` + `toy5_launch.sh`）：
+- [x] **历史 toy v5 2×2 干净证明（ngram 表 × 低频键，2026-08-04）**：32768 键、low（30720 键 r<16 train/val next 独立 + 1024 共享）/ high（全 r=64 共享）两数据模式 × 注入 on/off × 3 seeds = 12 runs（所需历史 metadata 未随本仓库迁入）：
   - headline gap（val−train，3-seed 均值±std）：on_low **6.92±0.43**（train 0.004/val 6.80）＞ off_low 2.12±0.003（backbone 底噪）＞ on_high 0.84±0.26（核心键 ≈0.001，0.84 为附带位置效应）≈ off_high 0.064±0.000（干净基准）
   - per-r 精确分桶呈**阶梯函数**：on_low r<16 gap 15–20、r≥16 ≤0.005，断崖恰在 r=16 共享阈值 → 表只在低频键上制造 gap（图 `docs/figs/t5_step_function.svg`）
-  - 结论：低频 token + n-gram 表 + 固定顺序重播 三者齐备 → 必然过拟合 gap；去掉任一显著缓解（去表 −69%，去低频核心键 gap→0）。数据 `toy/run_meta_table_t5.json`，guide §16
+  - 结论：低频 token + n-gram 表 + 固定顺序重播 三者齐备 → 必然过拟合 gap；去掉任一显著缓解（去表 −69%，去低频核心键 gap→0）。数据为历史结果，guide §16
   - [x] toy 级因果干预（on_low 断表口子）：readout mask@e1 → 2.12 = off_low 逐位相等（−69%，表贡献全走 readout）；freeze table@e1 → 2.49（−64%）；reset@e2 → 7.90（无效，toy 重播 29 epoch 回滚后重新累积）——与真实 P1/P2 互证（guide §16.7）
   - [x] off_low 长训对照：8000 步（104 epoch）gap 只到 3.36，r1 低频键 gap 涨到 20.7——低频键过拟合无表时同样存在，表 = train 完全塌陷的放大器（guide §16.8）
 - [x] **P0 wave3 + no-ngram 对照（2026-08-04，guide §15.6，baseline_current seed42）**：
@@ -176,10 +176,10 @@
   - [x] 长时程对照（2000 步 ≈ 6 epochs，seed42，2026-08-04）：baseline_long 1.07（与 1000 步持平，epoch3 后平台）；nofreq_t3000_long 1.23（部分去除只推迟，剩余中低频键在更多重播下反超 baseline）；nofreq_t8000_long **0.28**（激进去除稳健，键空间 −87% 后无「背错」燃料）——去除强度必须大到键空间塌缩才能长时程抑制
 
 ### 4.3 数据位置
-- 本地（Explain 分支已同步）：`OPHIS_gap/remote_training_runs/`（baseline_current、exp6_freqdecomp_current）、`OPHIS_gap/ongoing_experiment/`
+- 本地旧结果：`remote_training_runs/`（baseline_current、exp6_freqdecomp_current）、`ongoing_experiment/`
 - Explain 分支根目录 `remote_training_runs/2026072x_*`（vbird 的消融 run，含 fetched/ 源码+log）
-- 大日志 `remote_training_runs/20260725d/e_*`（~6.3G）在本地未跟踪，**待同步到集群** `/data3/guoshaoyang/ophis_gap_local_backup/`
-- 集群活跃工作区：`/data3/guoshaoyang/ngram-gap-exp/`（含 `runs/`、`run_artifacts/`、`run_exp.sh`）
+- 大日志 `remote_training_runs/20260725d/e_*`（~6.3G）未迁入本仓库，保留为外部历史资产
+- 集群活跃工作区：由 `NGLAB_ROOT` 指定（含 `runs/`、`run_artifacts/`、`run_exp.sh`）
 
 ## 5. 可视化清单与状态（用户逐项检查）
 

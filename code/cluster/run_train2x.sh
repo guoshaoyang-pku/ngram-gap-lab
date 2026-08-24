@@ -21,7 +21,7 @@ run_one() {
   local RESULT_DIR="$ROOT/data/runs_fixed/${EXP}_fixed"
   mkdir -p "$RESULT_DIR"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-    --run_id "$EXP" \
+    --run_id "${EXP}_fixed" \
     --injection_position "$INJ" \
     --steps "$STEPS" \
     --seed 42 \

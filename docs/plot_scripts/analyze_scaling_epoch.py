@@ -26,7 +26,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_scaling")
+RUNS_DIR = os.environ.get(
+    "NGLAB_SCALING_RUNS_DIR",
+    os.environ.get("NGLAB_RUNS_DIR", os.path.join(REPO_ROOT, "data", "runs_scaling")),
+)
 if len(sys.argv) > 1:
     RUNS_DIR = sys.argv[1]
 FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "scaling_epoch")
@@ -71,6 +74,16 @@ def load_summary(run_dir):
         return json.load(f)
 
 
+def canonical_run_dirs(runs_dir):
+    for run_dir in sorted(glob.glob(os.path.join(runs_dir, "*"))):
+        if not os.path.isdir(run_dir):
+            continue
+        physical_id = os.path.basename(run_dir)
+        if not physical_id.endswith("_fixed"):
+            continue
+        yield physical_id[:-len("_fixed")], physical_id, run_dir
+
+
 def match_run(run_id):
     """Parse run_id into (L, module, alignment)."""
     m = {}
@@ -92,16 +105,33 @@ def match_run(run_id):
 def collect(runs_dir):
     """Return {run_id: {probe, summary, meta}} for all scaling epoch runs."""
     out = {}
-    for run_dir in sorted(glob.glob(os.path.join(runs_dir, "ep_*")) +
-                          glob.glob(os.path.join(runs_dir, "pilot_ep_*"))):
-        run_id = os.path.basename(run_dir)
+    legacy_count = 0
+    rejected_count = 0
+    for run_id, physical_id, run_dir in canonical_run_dirs(runs_dir):
         meta = match_run(run_id)
         if not meta.get("L") or not meta.get("module") or not meta.get("align"):
+            continue
+        summary = load_summary(run_dir)
+        if not summary or summary.get("run_id") != physical_id:
+            rejected_count += 1
             continue
         probe = load_probe(run_dir)
         if not probe:
             continue
-        out[run_id] = {"probe": probe, "summary": load_summary(run_dir), "meta": meta}
+        out[run_id] = {
+            "probe": probe,
+            "summary": summary,
+            "meta": meta,
+            "run_id": physical_id,
+            "run_dir": run_dir,
+        }
+    for run_dir in glob.glob(os.path.join(runs_dir, "*")):
+        if os.path.isdir(run_dir) and not os.path.basename(run_dir).endswith("_fixed"):
+            legacy_count += 1
+    if legacy_count:
+        print(f"ignored {legacy_count} non-canonical scaling directories (expected *_fixed)")
+    if rejected_count:
+        print(f"ignored {rejected_count} scaling directories with an invalid run contract")
     return out
 
 
@@ -182,7 +212,7 @@ def main():
             continue
         m = run["meta"]
         rows.append({
-            "run": run_id,
+            "run": run["run_id"],
             "L": m["L"],
             "module": m["module"],
             "align": m["align"],

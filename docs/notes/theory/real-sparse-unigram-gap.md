@@ -18,7 +18,7 @@ U(r) = E[Σ_c P_c · 1{n_c = 0}] = Σ_c P_c (1 − P_c)^r   （期望未见过�
 
 ## 2. 我们的实际任务长什么样
 
-生成器 `toy/synth_powerlaw_gen.py` 的每个 context 条件分布（vocab 8192）：
+生成器 `tasks/l4_synth_powerlaw/synth_powerlaw_gen.py` 的每个 context 条件分布（vocab 8192）：
 
 - **8 个私有 token**：占 90% 质量（Zipf 1 排序），是「真正的规则」；
 - **~7900 个背景 token**：占 10% 质量，Zipf 1.05 长尾；
@@ -73,7 +73,7 @@ U(r) ~ ∫ p·f(p)·e^{−rp} dp ~ r^{−(1−1/s)}
   因为 `r·P_c ≳ 1` 的前沿不断扫过更陡的尾部段——真实长尾没有干净的幂律指数；
 - 所以实验里 log-log 斜率 ≈ −0.2 是**有效指数**，不是 −1。
 
-## 4. 数值验证（`toy/gap_vs_samples_unigram.py` §G，300 contexts MC）
+## 4. 数值验证（`tasks/l1_lookup_replay/gap_vs_samples_unigram.py` §G，300 contexts MC）
 
 | r | 128 | 512 | 2048 | 8192 | 32768 |
 |---|---|---|---|---|---|
@@ -105,6 +105,6 @@ U(r) ~ ∫ p·f(p)·e^{−rp} dp ~ r^{−(1−1/s)}
 
 ## 6. 文件
 
-- `toy/gap_vs_samples_unigram.py` §G + `docs/figs/fig_gap_vs_samples_realgen.svg/.png`
-- 本笔记：`docs/theory_notes/unigram-gap-vs-samples.md`（最基础版 1/r 定律，
+- `tasks/l1_lookup_replay/gap_vs_samples_unigram.py` §G + `docs/figs/theory/fig_gap_vs_samples_realgen.svg/.png`
+- 本笔记：`docs/notes/theory/unigram-gap-vs-samples.md`（最基础版 1/r 定律，
   见 `unigram-gap-vs-samples.md`）

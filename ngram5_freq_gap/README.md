@@ -34,7 +34,7 @@ k(b)       = clip((r_ref / r(b))^alpha, k_min, k_max)
 | current shell | `CURRENT_NGRAM_INJECTION_IMPL/ATTENTION_NORM/HEAD_GATE/LAYER_POOL/LOGIT_SOFTCAP/LINEAR_BIAS=none`，`RESIDUAL_PATH=plain` |
 | Muon | `NANOGPT_MATRIX_OPTIMIZER=adamw`（无 Muon） |
 | 注入点 | `NANOGPT_NGRAM_INJECTION_POSITION=input` |
-| table 优化器 | `NGRAM_TABLE_OPTIMIZER=rmsprop`，`NGRAM_TABLE_BETAS=0.0,0.999` |
+| table 优化器 | `NGRAM_TABLE_OPTIMIZER=rmsprop`，`NGRAM_TABLE_BETAS=0.0,0.99` |
 
 ## 3. 主线两个 bug 在本包不存在
 

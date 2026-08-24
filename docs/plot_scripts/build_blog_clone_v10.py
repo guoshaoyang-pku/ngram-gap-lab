@@ -4,12 +4,15 @@
 Usage: python3 /tmp/build_blog_clone_v10.py [injpos_ablation_data.json]
 """
 import json, os, re, shutil, sys
+from pathlib import Path
 
-ORIG = "/Users/guoshaoyang/Desktop/workdir/guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide"
-CLONE = "/Users/guoshaoyang/Desktop/workdir/guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide-v10"
-RUNS = "/Users/guoshaoyang/Desktop/workdir/ngram-gap-lab/data/runs"
-FIGS = "/Users/guoshaoyang/Desktop/workdir/ngram-gap-lab/docs/figs/main"
-NEW_JSON = sys.argv[1] if len(sys.argv) > 1 else os.path.join(CLONE, "injpos_ablation_data.json")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+BLOG_ROOT = Path(os.environ.get("NGLAB_BLOG_ROOT", REPO_ROOT.parent / "guoshaoyang-pku.github.io"))
+ORIG = Path(os.environ.get("NGLAB_BLOG_SOURCE", BLOG_ROOT / "blogs" / "ngram-gap-mechanism-guide"))
+CLONE = Path(os.environ.get("NGLAB_BLOG_CLONE", BLOG_ROOT / "blogs" / "ngram-gap-mechanism-guide-v10"))
+RUNS = Path(os.environ.get("NGLAB_RUNS_DIR", REPO_ROOT / "data" / "runs_fixed"))
+FIGS = Path(os.environ.get("NGLAB_FIG_DIR", REPO_ROOT / "docs" / "figs" / "main"))
+NEW_JSON = Path(sys.argv[1]) if len(sys.argv) > 1 else CLONE / "injpos_ablation_data.json"
 
 def load_jsonl(path):
     pts = []

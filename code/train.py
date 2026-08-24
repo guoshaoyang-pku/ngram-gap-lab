@@ -3,7 +3,7 @@
 Minimal clean reproduction of n-gram-value-memory-induced replay-specific
 train/val gap on vanilla nanoGPT.
 
-Only three things are kept from the full OPHIS codebase:
+Only three things are kept from the larger predecessor codebase:
   1. vanilla nanoGPT (NanoGPTOriginal) — Karpathy-style transformer.
   2. n-gram value table (bigram + trigram, hash + embedding + gate).
   3. Three injection points (v / y / input) and RMSProp(table)/AdamW(backbone)
@@ -15,7 +15,7 @@ Removed (proven unnecessary for gap):
 
 Default config = baseline_input standard setting (see docs/plan.md §3.1a).
 
-Outputs JSONL logs under data/runs/<run_id>/:
+Outputs JSONL logs under data/runs_fixed/<run_id>/:
   - train_log.jsonl   : one line per step {step, train_loss, val_loss, epoch, ...}
   - summary.json      : final gap + config snapshot
   - table_norm.jsonl  : periodic table param RMS (every TABLE_NORM_INTERVAL steps)
@@ -100,7 +100,7 @@ class Config:
 
 
 def has_ve(layer_idx: int, n_layer: int) -> bool:
-    """Alternating VE layers (matches OPHIS convention)."""
+    """Alternating VE layers."""
     return layer_idx % 2 == (n_layer - 1) % 2
 
 
@@ -1009,7 +1009,7 @@ def main():
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--data_dir", default=os.environ.get("NGLAB_DATA_DIR", ""))
-    parser.add_argument("--out_dir", default=os.environ.get("NGLAB_OUT_DIR", "data/runs"))
+    parser.add_argument("--out_dir", default=os.environ.get("NGLAB_OUT_DIR", "data/runs_fixed"))
     parser.add_argument("--train_shards", default=os.environ.get("NGLAB_TRAIN_SHARDS", "1"),
                         help="comma-separated shard ids for train")
     parser.add_argument("--val_shards", default=os.environ.get("NGLAB_VAL_SHARDS", "2,3,4,5,6,7,8,9,10,6542"),
@@ -1061,6 +1061,9 @@ def main():
     parser.add_argument("--dtype", default="fp32", choices=["fp32", "bf16", "fp8"],
                         help="compute dtype for the forward pass (autocast; "
                              "weights/optimizer stay fp32): fp32 | bf16 | fp8")
+    parser.add_argument("--compile", action="store_true",
+                        help="wrap the model with torch.compile (default off; "
+                             "recommended with --dtype bf16)")
     args = parser.parse_args()
 
     cfg = Config(
@@ -1151,8 +1154,11 @@ def main():
     # model
     model = NanoGPT(cfg).to(device)
     model.init_weights()
+    if args.compile:
+        model = torch.compile(model)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"[nglab] model params: {n_params/1e6:.1f}M")
+    print(f"[nglab] model params: {n_params/1e6:.1f}M"
+          + (f" | compile={args.compile}" if args.compile else ""))
     optimizer = MixedOptimizer(model, lr=cfg.nanogpt_adam_lr,
                                ngram_betas=cfg.ngram_table_betas,
                                adam_betas=cfg.adam_betas,
@@ -1365,6 +1371,8 @@ def main():
             "exact_freq_loss.jsonl" if exact_freq_log is not None else None
         ),
         "freq_index": args.freq_index if args.freq_index else None,
+        "compute_dtype": args.dtype,
+        "torch_compile": args.compile,
         "final_train_loss": last_train_loss,
         "final_val_loss": last_val_loss,
         "final_gap": last_val_loss - last_train_loss,

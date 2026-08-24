@@ -1,37 +1,48 @@
 #!/usr/bin/env python3
-"""Within-epoch structure figures (v12, 2026-08-07).
+"""Historical within-epoch structure figures (v12, 2026-08-07).
 
 The canonical view is the structure INSIDE a single epoch (step within epoch),
 not the staircase across epochs. Longer epochs = more val points per epoch =
 the within-epoch rise is clearly resolved.
 
-Figures written to docs/figs/toy/:
+Figures written to docs/figs/theory/:
   fig_toy_within_epoch_train_val_gap.png  toy epochs, global-step window
   fig_toy_within_epoch_aligned.png        toy gap vs step-within-epoch (overlay)
   fig_main_within_epoch_aligned.png       main gap vs step-within-epoch per arm
   fig_main_within_epoch_train_val_gap.png main train/val/gap, 2-epoch window
   fig_epochlen_clarity.png                within-epoch rise vs epoch length
 
-Usage: python3 docs/plot_scripts/gen_within_epoch_figs.py [toy_runs_dir]
+The toy T1 metadata is not shipped in this repository. Supply
+NGLAB_TOY_RESULTS explicitly from a reviewed result bundle before running.
+
+Usage: NGLAB_TOY_RESULTS=/reviewed/t1/results \
+       python3 docs/plot_scripts/gen_within_epoch_figs.py
 """
 import bisect
 import json
 import os
 import re
 import sys
+from pathlib import Path
 
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "toy")
-os.makedirs(FIGS_DIR, exist_ok=True)
-
-TOY_RUNS = sys.argv[1] if len(sys.argv) > 1 else \
-    "/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap/toy/runs"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RUNS_DIR = Path(os.environ.get("NGLAB_RUNS_DIR", REPO_ROOT / "data" / "runs_fixed"))
+FIGS_DIR = Path(os.environ.get("NGLAB_FIG_DIR", REPO_ROOT / "docs" / "figs" / "theory"))
+TOY_RUNS = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(os.environ.get(
+    "NGLAB_TOY_RESULTS",
+    REPO_ROOT / "tasks" / "l1_lookup_replay" / "results" / "inputs",
+))
+if "NGLAB_TOY_RESULTS" not in os.environ and len(sys.argv) <= 1:
+    raise SystemExit(
+        "historical T1 inputs are not bundled; provide a positional toy result "
+        "directory or set NGLAB_TOY_RESULTS"
+    )
+FIGS_DIR.mkdir(parents=True, exist_ok=True)
 TOY_BASELINE = "t5b_beta_000_999_low"
 
 # palette (warm paper, from ngram-gap-plotting skill)

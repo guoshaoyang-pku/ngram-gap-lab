@@ -9,9 +9,13 @@ Usage:
   python3 assign_gpus.py --gpus 360-2:4,5,6,7 --gpus 360-1:1,3,6,7 [--skip handover_runs]
 """
 import argparse
-import json
+import os
+from pathlib import Path
 import sys
-sys.path.insert(0, '.')
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[1]
+sys.path.insert(0, str(SCRIPT_DIR))
 from rerun_all import all_runs, cmd_for_run
 
 # Runs already being handled by handover agent (don't relaunch)
@@ -57,7 +61,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpus", action="append", required=True,
                         help="format: cluster:gpu1,gpu2,...")
+    parser.add_argument(
+        "--root",
+        default=os.environ.get("NGLAB_ROOT", str(REPO_ROOT)),
+        help="repository root used in generated commands",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=str(SCRIPT_DIR),
+        help="directory for generated launch scripts",
+    )
     args = parser.parse_args()
+    output_dir = Path(args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     gpu_lists = []
     for spec in args.gpus:
@@ -65,8 +81,8 @@ def main():
         gpus = [int(g) for g in gpu_str.split(",")]
         gpu_lists.append((cluster, gpus))
 
-    HOST_ROOT = "/data/home/guoshaoyang/ngram-gap-lab"
-    runs = all_runs(HOST_ROOT)
+    host_root = os.path.abspath(args.root)
+    runs = all_runs(host_root)
     queues = assign(runs, gpu_lists)
 
     # Print assignment
@@ -91,14 +107,17 @@ def main():
         clusters[c].append(q)
 
     for cluster, cl_queues in clusters.items():
-        fname = f"launch_{cluster.replace('-','_')}.sh"
-        with open(fname, 'w') as f:
+        fname = output_dir / f"launch_{cluster.replace('-','_')}.sh"
+        with fname.open('w') as f:
             f.write("#!/usr/bin/env bash\n")
             f.write(f"# Auto-generated launch script for {cluster}\n")
             f.write("# Each GPU runs its queue serially; all GPUs run in parallel.\n")
             f.write("# A failed run logs an error but does NOT stop the queue.\n")
             f.write("set -uo pipefail\n\n")
-            f.write(f'ROOT="{HOST_ROOT}"\n')
+            f.write('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n')
+            f.write('ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"\n')
+            f.write('PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"\n')
+            f.write('OUT_DIR="${NGLAB_OUT_DIR:-$ROOT/data/runs_fixed}"\n')
             f.write('LOGDIR="$ROOT/logs/rerun"\n')
             f.write('mkdir -p "$LOGDIR"\n\n')
 
@@ -107,11 +126,11 @@ def main():
                 f.write(f"# GPU {gpu}: {len(q['runs'])} runs, est {q['total_steps']*0.8/60:.0f}min\n")
                 f.write(f'(\n')
                 for i, (fam, spec) in enumerate(q['runs']):
-                    cmd = cmd_for_run(spec, HOST_ROOT, HOST_ROOT, "python3")
+                    cmd = cmd_for_run(spec, '"$ROOT"', '"$ROOT"', '"$PY"')
                     cmd = cmd.replace("{GPU}", str(gpu))
                     f.write(f'  echo "[GPU {gpu}] {i+1}/{len(q["runs"])}: {spec["run_id"]} at $(date)"\n')
-                    f.write(f'  mkdir -p "$ROOT/data/runs/{spec["run_id"]}"\n')
-                    f.write(f'  {cmd} > "$ROOT/data/runs/{spec["run_id"]}/train.log" 2>&1 || echo "[GPU {gpu}] {spec["run_id"]} FAILED"\n')
+                    f.write(f'  mkdir -p "$OUT_DIR/{spec["run_id"]}"\n')
+                    f.write(f'  {cmd} > "$OUT_DIR/{spec["run_id"]}/train.log" 2>&1 || echo "[GPU {gpu}] {spec["run_id"]} FAILED"\n')
                 f.write(f'  echo "[GPU {gpu}] queue done at $(date)"\n')
                 f.write(f') &\n\n')
 

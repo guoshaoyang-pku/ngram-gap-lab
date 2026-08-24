@@ -143,7 +143,7 @@
 - [x] Exact-frequency baseline + 受控样本量复播（✅ 已验证：guide §18/§19；Transformer vs MLP trunk，285 steps/epoch）
 - [x] 合成 transition pilot（✅ 已验证：order=5，A/B 两方案，注入贴 Bayes、对照 gap 复现且 excess 随 r 单调，manual 08-07）
 - [x] shard/replay epoch 对齐更正（✅ 已验证：step 对齐单调递减是重播轮数假象；epoch 对齐后 gap@6pass 非单调，manual 08-07）
-- [x] 表优化器 beta 扫描（✅ 已验证：toy 5 配置 gap 7.4–7.9 几乎不变，beta 不是 gap 开关；toy/toy5_beta_scan_launch.sh）
+- [x] 表优化器 beta 扫描（✅ 已验证：历史 toy 5 配置 gap 7.4–7.9 几乎不变，beta 不是 gap 开关；所需历史运行目录未随本仓库迁入）
 - [ ] 对 Engram/Over-Encoding 跑最直接实验（critique 里已给出实验设计；本地等价物已覆盖，论文正文可用代理论证）
 
 ## 6. 产出物清单

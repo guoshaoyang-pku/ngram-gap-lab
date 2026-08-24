@@ -2,7 +2,7 @@
 
 > 本仓库是本课题**唯一的开发仓库**。`/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap` 已弃用（见 §7）。
 > 本文件只写**不变的规则与坐标**：工作原则、极简 setting、文档权威性、算力与存储、workspace。
-> 会变的东西（实验进度、待办、作图清单）一律写进 `docs/experiment-log.md`、`docs/experiment-lines.md` 和 `docs/notes/plans/`。
+> 会变的东西（实验进度、待办、作图清单）一律写进 `docs/experiment-log.md`、`docs/experiment-lines.md` 和 `docs/plans/`。
 
 ---
 
@@ -114,6 +114,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | total batch | 147,456 tokens |
 | seed | 42（多 seed 用 43 / 44） |
 | steps | 1000（标准）/ 2000（延长） |
+| compute dtype | **bf16（`torch.autocast`）+ `torch.compile`（默认标准，见 §16 验证）** |
 | val interval | **10 步**，fixed validation batches |
 | freq-bin eval | 每 10 步 |
 
@@ -134,7 +135,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 ### 1.6 测量基础设施（scaling 实验专用）
 
-> 计划 `docs/notes/plans/plan-3-fix-and-backfill.md` §P2 的测量系统。scaling run 统一开启。
+> 计划 `docs/plans/plan-3-fix-and-backfill.md` §P2 的测量系统。scaling run 统一开启。
 
 | 项 | 说明 |
 |---|---|
@@ -175,7 +176,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 ## 3. 仓库结构
 
 设计原则：
-- **`docs/` 只保留 6 个子目录**；图按实验线分目录；专题深挖放 `docs/appendices/`。
+- **`docs/` 只保留 7 个子目录**（含 `_archive`）；图按实验线分目录；专题深挖放 `docs/appendices/`。
 - **独立的敏捷验证任务放 `tasks/`**，每个任务目录**自包含**（脚本 + `results/` + 输入 fixture）。
 - **发现是 bug 的内容彻底删除，不归档**——避免污染代码库。
 
@@ -214,12 +215,12 @@ ngram-gap-lab/
 │   │   ├── index.html           #   权威版本地副本（= blog 发布版）
 │   │   ├── background.html      #   背景页
 │   │   └── versions/            #   历史版本（0728 / 0730 / chapter0-19 / regime-bridge）
-│   ├── notes/                   # 五类笔记
+│   ├── notes/                   # 四类笔记
 │   │   ├── theory/              #   理论推导（unigram gap、幂律、Markov、长尾修正）
 │   │   ├── literature/          #   文献精读 + related work + references.bib
 │   │   ├── method/              #   方法论与踩坑（sawtooth 审计、freq-bin bug、合成任务设计）
-│   │   ├── plans/               #   plan-1 机制总纲、plan-2 文献故事线、plan-3 清污回填
 │   │   └── data/                #   ★ 集群数据集坐标（full-corpus-full163.md）
+│   ├── plans/                   # ★ 计划：plan-1 机制总纲、plan-2 文献故事、plan-3 清污、plan-4 重刷
 │   ├── figs/                    # 按实验线分目录
 │   │   ├── main/                #   M2 注入点 v10 主线（sync_to_blog.sh 的同步源）
 │   │   ├── table_opt/           #   M3 + M4
@@ -368,7 +369,7 @@ SSH 配置位于 `~/.ssh/config.d/`（主配置 `Include ~/.ssh/config.d/*.conf`
 | `docs/notes/theory/` | `docs/theory_notes/` + `markov-unigram-exact-gap-20260811.md` | 5 篇纯理论推导，零 backbone 依赖 |
 | `docs/notes/literature/` | `docs/literature/` + 4 篇顶层长综述 | 9 个文件，含 arXiv 复核过的 `references.bib` 与可直接进论文的 related work |
 | `docs/notes/method/` | sawtooth 审计、合成任务设计、排除台账 | 方法论与踩坑 |
-| `docs/notes/plans/` | `plans/` | plan-1 机制总纲（§3.1a 是极简 setting 的原始定义）、plan-2 文献故事线 |
+| `docs/plans/` | `plans/` | plan-1 机制总纲（§3.1a 是极简 setting 的原始定义）、plan-2 文献故事线 |
 | `docs/claims-ledger.md` | `docs/claims-ledger-20260808.md` | C1–C9 断言台账 |
 | `docs/_archive/docs/` | closure-status、p12-causal、table-size-sweep、injpos-log、manual 工作日志 | 历史溯源 |
 | `tasks/l1..l5/` | `toy/` + `toy/results/` | 9 个纯 numpy/torch 脚本 + 结果，全库唯一零 current-shell 污染的代码 |

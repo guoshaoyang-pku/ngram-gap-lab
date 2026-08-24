@@ -67,8 +67,8 @@
 | | |
 |---|---|
 | 脚本 | `l4_synth_powerlaw/synthetic_transition_gen.py`（v1 pilot，scheme A sparse_restart / B lowrank_sparse）<br>`l4_synth_powerlaw/synth_powerlaw_gen.py`（v2 干净版：细桶 128 ctx/桶 + 概率规则 + context-uniform val）<br>`l4_synth_powerlaw/synthetic_prep.py`（补 `meta.json` 给 ngram5 trainer） |
-| 编排 | `l4_synth_powerlaw/cluster/run_synth_pipeline.sh`（**唯一编排文档**：gen A → gen B → prep ×2 → smoke → all）<br>`run_synth_3602.sh` / `run_synth_pl.sh`（360-2 完整 env，含 `NGRAM_TABLE_BETAS=0.0,0.999` ✅ 符合极简 setting） |
-| 结果 | 原始 run 在 360-2 远端（`ngram5_data/synth_*`, `runs/ngram5/`）；本地只有汇总 `docs/figs/theory/synth_{A,B}_summary.json` |
+| 编排 | `l4_synth_powerlaw/cluster/run_synth_pipeline.sh`（**唯一编排文档**：gen A → gen B → prep ×2 → smoke → all）<br>`run_synth_3602.sh` / `run_synth_pl.sh`（360-2 完整 env，显式使用 `NGRAM_TABLE_BETAS=0.0,0.99`） |
+| 结果 | 原始 run 保留在集群工作区；本地只有汇总 `docs/figs/theory/synth_{A,B}_summary.json`，不宣称远端原始结果已迁入 |
 | 理论 | `docs/notes/theory/toy-gap-powerlaw-mechanism.md`<br>`docs/notes/method/synthetic-transition-task-design.md` |
 | 图 | `docs/figs/theory/fig_synth_*`、`fig_toy_synth_*`（由 `docs/plot_scripts/build_toy_model_blog_figs.py` 生成） |
 

@@ -64,7 +64,7 @@ hit_count = count_train_contexts(real_key)
 bucket = "novel" if hit_count == 0 else frequency_bucket(hit_count)</pre>
 <p>修复后得到 bigram novel 约 4.3%、trigram novel 约 31.2%，与历史离线统计一致。模型仍然可以继续使用 hash table；只有分析模块改用真实 token tuple 编码。</p>
 <h2>6. 优化器为什么 table 用 RMSProp</h2>
-<p>n-gram table 很大而且访问稀疏。当前 setting 对 table 使用 RMSProp（<code>β₁=0, β₂=0.999</code>），对 backbone 使用 AdamW。这样每次访问 table row 时，更新方向更接近当前梯度，不会被 momentum 把多个 context 的历史更新混在一起。</p>
+<p>n-gram table 很大而且访问稀疏。当前 setting 对 table 使用 RMSProp（<code>β₁=0, β₂=0.99</code>），对 backbone 使用 AdamW。这样每次访问 table row 时，更新方向更接近当前梯度，不会被 momentum 把多个 context 的历史更新混在一起。</p>
 <p>这是一项让现象稳定、便于复现的训练 setting；gap 的来源仍然是 train-specific n-gram memory 与固定顺序 replay 的组合，而不是 optimizer 名字本身。</p>
 <h2>7. 相关记录</h2>
 <p><a href="https://svbird.github.io/ngram-gap-regime-bridge/">svbird 的 regime-bridge 报告</a>记录了从 vanilla 负例逐步接近 current core 的历史路径。它对理解项目演化有用，但本页的最小复现结论以 <a href="https://github.com/guoshaoyang-pku/ngram-gap-lab">ngram-gap-lab</a> 的 clean setting 为准。</p>

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ngram-gap-lab · epoch-length scaling comparison figures (v10 · fixed-val).
 
-Reads data/runs/{nglab0_5x_input_fv_fixed, nglab1x_v10_input_fixed, nglab2x_input_v10_fv_fixed}/
+Reads data/runs_fixed/{nglab0_5x_input_fv_fixed, nglab1x_v10_input_fixed, nglab2x_input_v10_fv_fixed}/
 train_log.jsonl and plots train loss / val loss / gap (val - train) over 2000
 steps with observed epoch boundaries (from the log's epoch field) marked.
 
@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
+RUNS_DIR = os.environ.get("NGLAB_RUNS_DIR", os.path.join(REPO_ROOT, "data", "runs_fixed"))
 FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "epoch_scale")
 os.makedirs(FIGS_DIR, exist_ok=True)
 

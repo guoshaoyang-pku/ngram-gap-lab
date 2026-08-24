@@ -6,12 +6,14 @@
 
 用法：
   python extract_data.py                 # 本地跑（从仓库根读取）
-  python extract_data.py --remote ophis-gpu   # 先 rsync 集群上尚未拉回的 _fixed run
+  NGLAB_REMOTE_RUNS_DIR=/path/to/data/runs_fixed \
+    python extract_data.py --remote cluster-alias
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +23,8 @@ REPO = HERE.parents[2]
 RUNS = REPO / "data" / "runs_fixed"
 RUNS_PARTIAL = REPO / "data" / "runs_partial"   # 补点进行中的部分结果（快照）
 OUT = HERE / "results" / "appendix_data.json"
+REMOTE_RUNS_DIR_RAW = os.environ.get("NGLAB_REMOTE_RUNS_DIR", "").strip()
+REMOTE_RUNS_DIR = Path(REMOTE_RUNS_DIR_RAW) if REMOTE_RUNS_DIR_RAW else None
 
 # 本附录覆盖的全部 run（β₂ 消融 + 表学习率消融 + 短 epoch 对照）
 RUN_IDS = {
@@ -46,7 +50,7 @@ RUN_IDS = {
     # --- β₂=0.99 · LR×1 补点（本附录补跑的） ---
     "b2_099_1x_lr1": "nglab1x_opt_rmsprop_b2_099_lr1_fixed",
     "b2_099_2ep_lr1": "nglab2x_opt_rmsprop_b2_099_lr1_fixed",
-    # --- 学习率消融基线（β₂=0.999 默认） ---
+    # --- 学习率消融基线（历史 β₂=0.999） ---
     "lr1_1x": "nglab1x_v10_input_fixed",
     "lr1_2ep": "nglab2x_input_v10_fv_fixed",
     "nogram": "nglab1x_v10_nogram_fixed",
@@ -101,19 +105,32 @@ def load_run(run_id: str) -> dict | None:
 
 
 def maybe_sync_remote(host: str) -> None:
-    """补点可能只在集群上。先把远端存在的 _fixed / b2_099_lr1 run 拉回。"""
+    """补点可能只在集群上。先把远端存在的补点 run 拉回。"""
+    if REMOTE_RUNS_DIR is None:
+        raise SystemExit("set NGLAB_REMOTE_RUNS_DIR before using --remote")
     for rid in ("nglab1x_opt_rmsprop_b2_099_lr1",
                 "nglab2x_opt_rmsprop_b2_099_lr1"):
-        src = f"{host}:/data3/guoshaoyang/ngram-gap-lab/data/runs/{rid}/summary.json"
-        test = subprocess.run(["rsync", "--dry-run", "-q", src, "/tmp/"],
-                              capture_output=True)
+        remote_id = rid + "_fixed"
+        source = REMOTE_RUNS_DIR / remote_id
+        destination = RUNS / remote_id
+        test = subprocess.run(
+            ["ssh", host, "test", "-f", f"{source}/summary.json"],
+            capture_output=True,
+        )
+        if test.returncode != 0:
+            remote_id = rid
+            source = REMOTE_RUNS_DIR / remote_id
+            test = subprocess.run(
+                ["ssh", host, "test", "-f", f"{source}/summary.json"],
+                capture_output=True,
+            )
         if test.returncode == 0:
-            src_dir = f"{host}:/data3/guoshaoyang/ngram-gap-lab/data/runs/{rid}/"
-            dst = RUNS / (rid + "_fixed") / ""
-            dst_local = RUNS / (rid + "_fixed")
-            dst_local.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["rsync", "-az", src_dir, str(dst) ], check=True)
-            print(f"synced {rid} -> {dst_local.name}/")
+            destination.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["rsync", "-az", f"{host}:{source}/", f"{destination}/"],
+                check=True,
+            )
+            print(f"synced {remote_id} -> {destination.name}/")
         else:
             print(f"(remote {rid} not finished yet)")
 

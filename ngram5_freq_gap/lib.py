@@ -41,16 +41,15 @@ MAX_SEQ_LEN = 2048
 TIME_BUDGET = 300
 EVAL_TOKENS = 40 * 524288
 
-# H200 adapter: Recursive's upstream baseline expects /data, while our prepared
-# Karpathy shards/tokenizer live under ~/.cache/autoresearch when /data is
-# absent OR when AUTORESEARCH_CACHE_DIR is set (cluster convention).
 _CACHE_DIR = os.environ.get(
     "AUTORESEARCH_CACHE_DIR",
     os.path.join(os.path.expanduser("~"), ".cache", "autoresearch"),
 )
-_USE_UPSTREAM_DATA_DIR = os.path.isdir("/data") and not os.environ.get("AUTORESEARCH_CACHE_DIR", "").strip()
-DATA_DIR = "/data" if _USE_UPSTREAM_DATA_DIR else os.path.join(_CACHE_DIR, "data")
-DEFAULT_TOKENIZER_DIR = os.path.join(DATA_DIR, "tokenizer") if _USE_UPSTREAM_DATA_DIR else os.path.join(_CACHE_DIR, "tokenizer")
+DATA_DIR = os.environ.get(
+    "DATA_DIR_OVERRIDE",
+    os.path.join(_CACHE_DIR, "data"),
+)
+DEFAULT_TOKENIZER_DIR = os.path.join(_CACHE_DIR, "tokenizer")
 FIXED_TOKENIZER_DIR = os.environ.get("FIXED_TOKENIZER_DIR", "").strip()
 TOKENIZER_DIR = FIXED_TOKENIZER_DIR or DEFAULT_TOKENIZER_DIR
 # data_split.json lives in the repository root or at the explicit override.

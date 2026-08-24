@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build injpos_ablation_data.json for the blog (v10 · 2000 steps).
 
-Reads data/runs/nglab_{v,y,input}/ (train_log.jsonl, table_norm.jsonl,
+Reads data/runs_fixed/nglab1x_v10_{v,y,input}_fixed/ (train_log.jsonl, table_norm.jsonl,
 summary.json) and writes the per-step gap + table RMS payload consumed by
 the blog's index.html. Validation points land every 10 steps.
 """

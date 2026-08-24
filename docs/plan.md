@@ -35,7 +35,7 @@
 | backbone | vanilla nanoGPT（8L · 6H · 768D，vocab 8192，learned abs + LayerNorm + tied）|
 | n-gram 模块 | bigram + trigram，`input` / wte 注入 |
 | **table size** | **1M**（`vocab_size × 64 = 524,288` 行 × 2 hash embedding），默认值未改动 |
-| table 优化器 | **RMSProp 无动量**，betas `(0.0, 0.999)`；备选 β₂ = `0.99` |
+| table 优化器 | **RMSProp 无动量**，betas `(0.0, 0.99)`；历史对照使用 β₂ = `0.999` |
 | backbone 优化器 | AdamW `(0.8, 0.95)`，lr 0.004，wd 0.1 |
 | 数据 / 评测 | fixed 顺序 epoch replay，seed 42，1000 或 2000 步，**val 每 10 步 + fixed batches** |
 
@@ -79,4 +79,4 @@
 5. ✅ 公开博客重写（blog `ngram-gap-mechanism-guide/index.html`，9 章极简主线）
 6. ✅ table 优化器消融含 β₂ 反向扫描（§9 / §9a–9d）
 7. ✅ shard 大小扫描 12 点（§10）
-8. ✅ OPHIS_gap 资产迁移（理论 / 文献 / 方法论 / toy，见 `agents.md` §7）
+8. ✅ predecessor codebase 资产迁移（理论 / 文献 / 方法论 / toy，见 `agents.md` §7）

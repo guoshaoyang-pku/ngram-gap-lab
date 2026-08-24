@@ -18,7 +18,7 @@ Buckets: novel (hit=0 in train), 1, 2, 3, 4, 5, 6-10, 11-20, 21-50,
 Usage:
   # 1. build index once (offline)
   idx = GlobalFrequencyIndex.build(train_tokens, vocab_size)
-  idx.save("data/runs/myrun/freq_index.npz")
+  idx.save("data/runs_scaling/myrun/freq_index.npz")
 
   # 2. during eval, accumulate per-bin losses
   acc = FreqBinLossAccumulator(idx, n_head=6, head_dim=128)

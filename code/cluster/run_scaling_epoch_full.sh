@@ -27,11 +27,11 @@ declare -A FESTEPS=( [L1]=252 [L2]=504 [L3]=1008 [L4]=2016 )
 
 run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> <bigram> <trigram>
   local GPU="$1" RUN_ID="$2" EPB="$3" STEPS="$4" SCHED="$5" BI="$6" TRI="$7"
-  local RESULT_DIR="$OUT_DIR/$RUN_ID"
+  local RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
   mkdir -p "$RESULT_DIR"
   echo "[epoch-full] $RUN_ID epb=$EPB steps=$STEPS sched=$SCHED bi=$BI tri=$TRI -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-    --run_id "$RUN_ID" --injection_position input \
+    --run_id "${RUN_ID}_fixed" --injection_position input \
     --steps "$STEPS" --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
     --device_batch_size 72 --total_batch_size 147456 \
@@ -42,9 +42,10 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
     --epoch_batches "$EPB" \
-    --fixed_train_probe 4 --probe_eval_interval 50 \
+    --fixed_train_probe 4 --probe_eval_interval 10 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
+    --dtype bf16 --compile \
     ${SCHED:+--lr_schedule_epochs "$SCHED"} \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[epoch-full] $RUN_ID done (exit=$?) at $(date)"

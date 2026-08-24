@@ -6,7 +6,7 @@
 > 与 `tasks/`（敏捷验证：toy / 数学模型）的区别：附录面向**主线实验线的深挖**，
 > 通常复用 `data/runs_fixed/` 的既有 run + 少量补跑；`tasks/` 是独立的轻量验证。
 >
-> ⚠️ 附录**不写入**已弃用的旧报告（`OPHIS_gap/docs/ngram-gap-mechanism-guide.html`）；
+> ⚠️ 附录**不写入**已弃用的历史报告；
 > 主汇报只在 blog 仓库的 `index.html`（本地副本 `docs/report/index.html`）。
 
 ## 目录

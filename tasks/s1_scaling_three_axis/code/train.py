@@ -3,7 +3,7 @@
 Minimal clean reproduction of n-gram-value-memory-induced replay-specific
 train/val gap on vanilla nanoGPT.
 
-Only three things are kept from the full OPHIS codebase:
+Only three things are kept from the larger predecessor codebase:
   1. vanilla nanoGPT (NanoGPTOriginal) — Karpathy-style transformer.
   2. n-gram value table (bigram + trigram, hash + embedding + gate).
   3. Three injection points (v / y / input) and RMSProp(table)/AdamW(backbone)
@@ -15,7 +15,7 @@ Removed (proven unnecessary for gap):
 
 Default config = baseline_input standard setting (see docs/plan.md §3.1a).
 
-Outputs JSONL logs under data/runs/<run_id>/:
+Outputs JSONL logs under data/runs_fixed/<run_id>/:
   - train_log.jsonl   : one line per step {step, train_loss, val_loss, epoch, ...}
   - summary.json      : final gap + config snapshot
   - table_norm.jsonl  : periodic table param RMS (every TABLE_NORM_INTERVAL steps)
@@ -40,6 +40,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+import contextlib
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -99,7 +100,7 @@ class Config:
 
 
 def has_ve(layer_idx: int, n_layer: int) -> bool:
-    """Alternating VE layers (matches OPHIS convention)."""
+    """Alternating VE layers."""
     return layer_idx % 2 == (n_layer - 1) % 2
 
 
@@ -850,20 +851,36 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
-def evaluate_val(model: NanoGPT, fixed_val_batches) -> float:
+def _autocast_ctx(dtype: str):
+    """Return the autocast context for a compute dtype spec.
+
+    fp32  -> nullcontext (no autocast)
+    bf16  -> torch.autocast bfloat16
+    fp8   -> torch.autocast float8_e4m3fn (H200/TensorRT capable)
+    """
+    if dtype == "bf16":
+        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    if dtype == "fp8":
+        return torch.autocast(device_type="cuda", dtype=torch.float8_e4m3fn)
+    return contextlib.nullcontext()
+
+
+def evaluate_val(model: NanoGPT, fixed_val_batches, dtype: str = "fp32") -> float:
     """Val loss on a FIXED batch set captured once at startup and reused for
     every evaluation, so the val-loss curve always measures the same val data."""
     model.eval()
     losses = []
+    ctx = _autocast_ctx(dtype)
     with torch.no_grad():
         for inp, tgt in fixed_val_batches:
-            loss = model(inp, targets=tgt)
+            with ctx:
+                loss = model(inp, targets=tgt)
             losses.append(loss.item())
     model.train()
     return float(np.mean(losses)) if losses else float("nan")
 
 
-def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe) -> float:
+def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe, dtype: str = "fp32") -> float:
     """Loss on the FIXED train probe (same train batches every eval).
 
     Returns the mean loss over the probe.  Used with evaluate_val to form
@@ -871,9 +888,11 @@ def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe) -> float:
     main quantity (never the online batch-averaged train loss)."""
     model.eval()
     losses = []
+    ctx = _autocast_ctx(dtype)
     with torch.no_grad():
         for inp, tgt in fixed_train_probe:
-            loss = model(inp, targets=tgt)
+            with ctx:
+                loss = model(inp, targets=tgt)
             losses.append(loss.item())
     model.train()
     return float(np.mean(losses)) if losses else float("nan")
@@ -990,7 +1009,7 @@ def main():
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--data_dir", default=os.environ.get("NGLAB_DATA_DIR", ""))
-    parser.add_argument("--out_dir", default=os.environ.get("NGLAB_OUT_DIR", "data/runs"))
+    parser.add_argument("--out_dir", default=os.environ.get("NGLAB_OUT_DIR", "data/runs_fixed"))
     parser.add_argument("--train_shards", default=os.environ.get("NGLAB_TRAIN_SHARDS", "1"),
                         help="comma-separated shard ids for train")
     parser.add_argument("--val_shards", default=os.environ.get("NGLAB_VAL_SHARDS", "2,3,4,5,6,7,8,9,10,6542"),
@@ -1039,6 +1058,12 @@ def main():
     parser.add_argument("--probe_eval_interval", type=int, default=10,
                         help="steps between fixed-train/val probe evals (also fired "
                              "at every epoch boundary)")
+    parser.add_argument("--dtype", default="fp32", choices=["fp32", "bf16", "fp8"],
+                        help="compute dtype for the forward pass (autocast; "
+                             "weights/optimizer stay fp32): fp32 | bf16 | fp8")
+    parser.add_argument("--compile", action="store_true",
+                        help="wrap the model with torch.compile (default off; "
+                             "recommended with --dtype bf16)")
     args = parser.parse_args()
 
     cfg = Config(
@@ -1129,8 +1154,11 @@ def main():
     # model
     model = NanoGPT(cfg).to(device)
     model.init_weights()
+    if args.compile:
+        model = torch.compile(model)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"[nglab] model params: {n_params/1e6:.1f}M")
+    print(f"[nglab] model params: {n_params/1e6:.1f}M"
+          + (f" | compile={args.compile}" if args.compile else ""))
     optimizer = MixedOptimizer(model, lr=cfg.nanogpt_adam_lr,
                                ngram_betas=cfg.ngram_table_betas,
                                adam_betas=cfg.adam_betas,
@@ -1178,6 +1206,7 @@ def main():
     model.train()
     t0 = time.time()
     intervention_fired = False
+    amp_ctx = _autocast_ctx(args.dtype)
     for step in range(cfg.max_steps):
         # gradient accumulation
         optimizer.zero_grad()
@@ -1191,7 +1220,8 @@ def main():
             if not intervention_fired and train_ds._epoch >= cfg.intervention_epoch:
                 model.apply_intervention(train_ds._epoch)
                 intervention_fired = True
-            loss = model(inp, targets=tgt) / grad_accum
+            with amp_ctx:
+                loss = model(inp, targets=tgt) / grad_accum
             loss.backward()
             accum_loss += loss.item()
         train_loss = accum_loss
@@ -1205,7 +1235,7 @@ def main():
 
         # periodic val
         if (step + 1) % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
-            last_val_loss = evaluate_val(model, validation_batches)
+            last_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
             last_train_loss = train_loss
             entry = {
                 "step": step + 1,
@@ -1226,8 +1256,8 @@ def main():
         if probe_log is not None and fixed_train_probe:
             epoch_boundary = (train_ds._batch_in_epoch == 0 and step > 0)
             if (step + 1) % args.probe_eval_interval == 0 or epoch_boundary or step == cfg.max_steps - 1:
-                fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe)
-                fixed_val_loss = evaluate_val(model, validation_batches)
+                fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe, dtype=args.dtype)
+                fixed_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
                 last_fixed_train_loss = fixed_train_loss
                 last_fixed_val_loss = fixed_val_loss
                 probe_entry = {

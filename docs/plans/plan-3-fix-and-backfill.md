@@ -3,7 +3,7 @@
 > **面向对象**：agent 阵列。每个任务卡自包含，可独立分派。
 > **前置阅读**：`agents.md` §0（工作原则）+ §1（极简 setting SSOT）+ `docs/experiment-lines.md`。
 > **后续**：新标准（β₂=0.99 · 表学习率 ×2）确定后，全量重刷清单见 **`plan-4-rerun-new-standard.md`**（待用户 review，不自动启动）。
-**状态**：2026-08-23 立。代码侧两个 bug 已修复，污染数据已删除；**文档侧尚未回填**。
+**状态**：2026-08-23 立。代码侧两个 bug 已修复，污染数据已删除；路径与标准口径收口工作进行中。
 
 ---
 
@@ -16,10 +16,10 @@
 | **B1** freq-bin 诊断复用训练迭代器 | 每次 freq eval 白吃 5 个 train batch（永不参与优化），epoch 计数虚高。所有 launcher 都传 `--freq_index`，故**全部历史 run 受影响** | 独立 `freq_train_ds` 迭代器 |
 | **B2** `table_betas[1]` 被静默覆盖 | `_table_rmsprop_step` 里 `b2` 错取 `self.ngram_beta2`，**所有显式传 `--table_betas` 的 rmsprop run 实际都跑 b2=0.999** | `code/train.py:537` `b2 = self.table_betas[1]` |
 
-**已完成的清污**：`data/runs/`（118 MB / 64 run）、`runs_fixed/` 里不带 `_fixed` 的陈旧副本、
+**已完成的清污**：未修正版 run、`runs_fixed/` 里不带 `_fixed` 的陈旧副本、
 `docs/_archive/figs_history/`（6 MB pre-fix 图）、`gen_all_figures_v10.py`（重复旧生成器）——全部**彻底删除**。
 
-**尚未完成**：`docs/experiment-log.md` 全文数值仍是 pre-fix 的，与 `_fixed` 数据直接矛盾。
+**尚未完成**：实验日志中的部分历史数值仍需逐 section 对照 `_fixed` 数据。
 
 **唯一权威数据**：`data/runs_fixed/` 中带 `_fixed` 后缀的 run。
 
@@ -48,7 +48,7 @@
    `nglab_input/nogram/v/y`、`nglab2x_*`、`nglab2_5x_*_v2`、`nglab3x/4x_*_v2`），
    **不要保留其数值**——把该 section 标记为
    `⛔ 数据已删除（pre-fix 且已被 <替代 run> 取代），结论作废` 并指向替代 run。
-4. 每个 section 顶部加一行 `数据源：data/runs_fixed/<run_id>_fixed/summary.json`。
+4. 每个当前有效 section 顶部加一行 `数据源：data/runs_fixed/<run_id>_fixed/summary.json`。
 
 **验收**
 - `rg -n "1\.931|5\.049|5\.041|0\.231|2\.376|0\.643|12\.99" docs/experiment-log.md` 无输出。
@@ -77,14 +77,14 @@
 ### T3 · 用 `_fixed` 数据重生成全部图
 
 **做什么**
-1. 确认 13 个作图脚本的 `RUNS_DIR` 都指向 `data/runs_fixed`，run_id 都带 `_fixed`。
+1. 确认主线作图脚本的 `RUNS_DIR` 都指向 `data/runs_fixed`，run_id 都带 `_fixed`。
 2. 按线重跑：
    - `gen_all_figures.py` → `docs/figs/main/`（canonical 入口）
    - `analyze_table_opt{,_2x,_1x_vs_2x}.py` → `docs/figs/table_opt/`
    - `gen_shard_sweep_figs.py` / `gen_epoch_scale_figs.py` / `gen_epoch_aligned_figs.py` /
      `gen_nogram_vs_epochaligned_figs.py` → `docs/figs/epoch_scale/`
    - `gen_short_epoch_b2_figs.py` → `docs/figs/short_epoch_b2/`（M7 的图从未按 `_fixed` 重生成）
-   - `gen_within_epoch_figs.py` / `gen_zipf_experiment_figs.py` / `analyze_zipf_gap.py` → `docs/figs/toy/`
+   - 历史 T1/T2 作图脚本：只有在显式提供已审核的外部结果目录时运行；缺失 fixture 时保持不可运行，不造假数据。
 3. 图表规范遵守 skill `ngram-gap-plotting` 与 `docs/plot_scripts/README.md`。
 4. 任何脚本因引用已删除 run 而失败，**不要造假数据**——把该图标为待补并在 plan 里登记。
 
@@ -105,8 +105,7 @@
 
 ### T5 · 修 `ngram5_freq_gap/model.py` 的死 fallback
 
-**问题**：`model.py` 依次尝试仓库根 `train.py`、集群 `/data3/.../train.py`、
-`nanogpt_gap_vanilla_control/` —— **三个在本仓库都不存在**，本地 `import model` 直接失败。
+**问题**：`model.py` 曾依次尝试多个仓库外 fallback，导致本地 `import model` 依赖不可复现。
 `data_gen.py` 的 `_load_upstream_lib()` 同理。
 
 **后果**：`ngram5_freq_gap/README.md` §2 那张「符合极简 setting」的表**只是环境变量声明，
@@ -180,9 +179,9 @@
 
 **科学问题**：直接测量**记忆进度 ρ**，而不是只看 gap。
 
-**为什么重要**：外部两因素模型
-（`/Users/guoshaoyang/Documents/Codex/2026-08-21/xian-xi/outputs/ngram-repeat-gap-two-factor-model.html`）
-把 gap 分解为 `ρ(E,f) × G(f)`，其中 `ρ = 1 − exp(−c·f^γ)`、`G ∝ f^−β`。
+**为什么重要**：两因素模型把 gap 分解为 `ρ(E,f) × G(f)`，其中
+`ρ = 1 − exp(−c·f^γ)`、`G ∝ f^−β`；模型原始 HTML 位于本机外部参考资料中，
+不作为本仓库运行依赖。
 该文档第 8 节明确警告：**只拟合 gap 在低 x 区域无法分辨 A 与 c**。
 现有全部证据都停在「gap 曲线」这一层，乘法分解从未被直接测量。
 

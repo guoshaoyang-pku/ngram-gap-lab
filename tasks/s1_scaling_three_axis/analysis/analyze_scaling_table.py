@@ -25,7 +25,10 @@ import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_scaling")
+RUNS_DIR = os.environ.get(
+    "NGLAB_SCALING_RUNS_DIR",
+    os.environ.get("NGLAB_RUNS_DIR", os.path.join(REPO_ROOT, "data", "runs_scaling")),
+)
 if len(sys.argv) > 1:
     RUNS_DIR = sys.argv[1]
 FIGS_DIR = os.path.join(
@@ -64,10 +67,23 @@ def load_occupancy(run_dir):
         return json.load(f)
 
 
+def canonical_run_dirs(runs_dir):
+    for run_dir in sorted(glob.glob(os.path.join(runs_dir, "*"))):
+        if not os.path.isdir(run_dir):
+            continue
+        physical_id = os.path.basename(run_dir)
+        if not physical_id.endswith("_fixed"):
+            continue
+        yield physical_id[:-len("_fixed")], physical_id, run_dir
+
+
 def main():
     runs = {}
-    for run_dir in sorted(glob.glob(os.path.join(RUNS_DIR, "tbl_*"))):
-        run_id = os.path.basename(run_dir)
+    legacy_count = 0
+    rejected_count = 0
+    for run_id, physical_id, run_dir in canonical_run_dirs(RUNS_DIR):
+        if not run_id.startswith("tbl_"):
+            continue
         parts = run_id.split("_")
         if len(parts) < 3:
             continue
@@ -87,12 +103,29 @@ def main():
             logical = TABLE_MULT_TO_2R.get(mult)
             if logical is None:
                 continue
+        summary_path = os.path.join(run_dir, "summary.json")
+        if not os.path.exists(summary_path):
+            rejected_count += 1
+            continue
+        with open(summary_path) as f:
+            summary = json.load(f)
+        if summary.get("run_id") != physical_id:
+            rejected_count += 1
+            continue
         probe = load_probe_final(run_dir)
         occ = load_occupancy(run_dir)
         runs[run_id] = {
+            "run_id": physical_id,
             "logical": logical, "mult": mult, "module": mod,
             "probe": probe, "occ": occ,
         }
+    for run_dir in glob.glob(os.path.join(RUNS_DIR, "*")):
+        if os.path.isdir(run_dir) and not os.path.basename(run_dir).endswith("_fixed"):
+            legacy_count += 1
+    if legacy_count:
+        print(f"ignored {legacy_count} non-canonical scaling directories (expected *_fixed)")
+    if rejected_count:
+        print(f"ignored {rejected_count} scaling directories with an invalid run contract")
 
     if not runs:
         print(f"no tbl_* runs under {RUNS_DIR}")
@@ -149,7 +182,7 @@ def main():
     rows = []
     for run_id, r in sorted(runs.items()):
         rows.append({
-            "run": run_id, "module": r["module"], "logical_2R": r["logical"],
+            "run": r["run_id"], "module": r["module"], "logical_2R": r["logical"],
             "mult": r["mult"],
             "final_gap": round(r["probe"]["fixed_gap"], 4) if r["probe"] else None,
             "collision": round(r["occ"]["branches"]["bigram"]["0"][0]["collision_rate"], 4)

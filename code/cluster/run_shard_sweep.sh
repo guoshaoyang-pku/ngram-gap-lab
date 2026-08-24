@@ -38,11 +38,11 @@ run_one() {  # run_one <run_id> <train_shards> <val_shards> <steps> <freq_index>
   local RUN_ID="$1" SHARDS="$2" VAL="$3" STEPS="$4" FREQ="$5"
   local GPU; GPU="$(acquire_gpu)"
   trap "rmdir $LOCKDIR/gpu_$GPU 2>/dev/null || true" EXIT
-  local RESULT_DIR="$OUT_DIR/$RUN_ID"
+  local RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
   mkdir -p "$RESULT_DIR"
   echo "[sweep] $RUN_ID (shards=$SHARDS steps=$STEPS) -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-    --run_id "$RUN_ID" --injection_position input --steps "$STEPS" --seed 42 \
+    --run_id "${RUN_ID}_fixed" --injection_position input --steps "$STEPS" --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
     --table_optimizer rmsprop --table_betas 0.0,0.99 --table_lr_scale 2.0 \
     --device_batch_size 72 --total_batch_size 147456 \

@@ -35,9 +35,8 @@ Builds a coincidental-gap dataset from real NLP tokens (climbmix shard 1,
     the gap analysis only measures loss at the ``next`` position (position 5
     of each block, 0-indexed).
 
-The tokenizer and parquet shards are read via ``nanogpt_gap_causal.lib`` so we
-reuse the existing cache (~/.cache/autoresearch) and the fixed 8192-vocab BPE
-tokenizer without re-downloading.
+The tokenizer and parquet shards are read via the local ``lib.py`` adapter so
+the generator and trainer use the same cache and tokenizer contract.
 
 CLI:
   python data_gen.py --out-dir data/alpha0.5 --alpha 0.5
@@ -74,15 +73,10 @@ def _load_upstream_lib():
         "DATA_DIR_OVERRIDE",
         os.path.join(os.environ["AUTORESEARCH_CACHE_DIR"], "data"),
     )
-    # Load the canonical repo-root lib.py by path (the cluster layout keeps the
-    # canonical lib.py at the repo root; it honours AUTORESEARCH_CACHE_DIR and
-    # reads the root data_split.json).  Resolving by path is deterministic --
-    # a plain ``import lib`` would silently pick whichever lib.py wins the
-    # sys.path race (nanogpt_gap_causal / vanilla_control / root), changing
-    # both the tokenizer dir and the shard split.
+    # Resolve by path so an unrelated module on PYTHONPATH cannot change the
+    # tokenizer or shard-split contract.
     candidates = [
-        _PROJECT_ROOT / "lib.py",
-        _PROJECT_ROOT / "nanogpt_gap_causal" / "lib.py",
+        Path(__file__).resolve().parent / "lib.py",
     ]
     for candidate in candidates:
         if candidate.is_file():
@@ -164,7 +158,7 @@ def _iter_split_token_streams(tokenizer, max_tokens: int | None, split: str):
     missing = [p for p in parquet_paths if not os.path.exists(p)]
     if missing:
         raise FileNotFoundError(
-            f"Missing {split} shards. Run nanogpt_gap_causal/prepare.py first: {missing}"
+            f"Missing {split} shards. Run code/prepare_data.py first: {missing}"
         )
     emitted = 0
     cache_dir = Path(_TOKEN_CACHE_DIR) if _TOKEN_CACHE_DIR else None

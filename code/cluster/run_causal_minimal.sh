@@ -9,6 +9,12 @@
 #
 # 控制臂复用已完成干净跑 vanilla_input_1000_seed42（+0.858 @1000），不重跑。
 #
+# NOTE: 干预臂必须与 §14 控制臂 vanilla_input_1000_seed42 完全同 setting，
+# 仅加 --intervention / --intervention_epoch。控制臂实跑配置：
+#   table_betas 0.0,0.99 · table_lr_scale 2.0 · val_shards 2 · dtype fp32 · 无 compile
+#
+# 默认从当前仓库的 code/train.py 运行；集群副本可通过环境变量覆盖。
+#
 # Usage: ./run_causal_minimal.sh <gpu_id> <arm>
 #   arm: reset_e2 | reset_e1 | mask_e1 | freeze_table_e1 | freeze_backbone_e1
 set -euo pipefail
@@ -20,10 +26,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
+TRAIN_PY="${NGLAB_TRAIN_PY:-$ROOT/code/train.py}"
 
 EXP="nglab1x_input_${ARM}"
 RESULT_DIR="$ROOT/data/runs_fixed/${EXP}_fixed"
 mkdir -p "$RESULT_DIR"
+COMPILE_CACHE="$ROOT/data/cache/torchinductor_${EXP}"
+mkdir -p "$ROOT/data/cache"
+mkdir -p "$COMPILE_CACHE"
+COMPILE_ARGS=()
+if [[ "${NGLAB_COMPILE:-0}" == "1" ]]; then
+  COMPILE_ARGS+=(--compile)
+fi
 
 declare -A INTERV
 INTERV[reset_e2]="reset_table"
@@ -44,15 +58,15 @@ EPOCH_VAL="${EPOCH[$ARM]}"
 
 echo "=== $EXP  intervention=$INTERV_VAL  epoch=$EPOCH_VAL  GPU=$GPU  $(date) ==="
 
-CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-  --run_id "$EXP" \
+TORCHINDUCTOR_CACHE_DIR="$COMPILE_CACHE" CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TRAIN_PY" \
+  --run_id "${EXP}_fixed" \
   --injection_position input \
   --steps 1000 \
   --seed 42 \
   --data_dir "$DATA_DIR" \
   --out_dir "$ROOT/data/runs_fixed" \
   --train_shards 1 \
-  --val_shards 2,3,4,5,6,7,8,9,10,6542 \
+  --val_shards 2 \
   --device_batch_size 72 \
   --total_batch_size 147456 \
   --val_interval 10 \
@@ -66,9 +80,11 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --table_optimizer rmsprop \
   --table_betas 0.0,0.99 \
   --table_lr_scale 2.0 \
+  --dtype fp32 \
+  "${COMPILE_ARGS[@]}" \
   --intervention "$INTERV_VAL" \
   --intervention_epoch "$EPOCH_VAL" \
   --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
-  > "$RESULT_DIR/train.log" 2>&1
+  2>&1 | tee "$RESULT_DIR/train.log"
 
 echo "=== $EXP finished (exit $?) at $(date) ==="

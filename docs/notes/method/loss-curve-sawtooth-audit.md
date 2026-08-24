@@ -1,7 +1,7 @@
 # Loss 曲线锯齿（Sawtooth）调查报告
 
 日期：2026-08-02
-数据：`baseline_current`（current-shell, bigram+trigram RMSProp, 1000 step, ophis-gpu `/data3/guoshaoyang/ngram-gap-exp/runs/baseline_current/train.log`）及 exp4/exp5 同源日志。
+数据：历史 `baseline_current`（current-shell, bigram+trigram RMSProp, 1000 step）及 exp4/exp5 同源日志。
 结论：**锯齿是 val 评估协议导致的显示伪影，不是记忆机制；其「周期性」= val 重评估周期（50 步）。**
 
 ## 1. 现象
@@ -73,10 +73,10 @@ train loss 一阶差分自相关：lag 2 处 r=0.69（交替升降），其余�
 
 结论不变：锯齿 = 两层伪影 + 一层真实信号；「周期」严格 = val 重评估间隔。
 
-数据：`toy/runs/t5b_beta_000_999_low/train.log`（v10 配置，val 间隔 10 步，toy t5_low，2000 步 ≈ 29 epochs，`[val_loss]` 每 10 步一行）。
+数据：历史 `t5b_beta_000_999_low/train.log`（v10 配置，val 间隔 10 步，2000 步 ≈ 29 epochs，`[val_loss]` 每 10 步一行）。
 
 1. **10 步锯齿（主伪影）**：val 每 10 步重评估、窗口内日志原样复用 → `gap = val_logged − train` 在窗口内随 train 下降爬升、评估点重置。实测窗口内 gap 上升均值 0.188、最大 0.882（出现在 train 快速下降段）。幅度随间隔缩小约 5 倍（旧 50 步版窗口上升 0.1–0.7）。
 2. **~80 步真周期（epoch 结构，非协议）**：train loss 一阶去趋势后自相关在 lag≈80（=toy epoch 长度，边界 step 70/150/230/…）出现 r=+0.56 峰；epoch 边界后 loss 先陡降再平台/回弹。这是固定顺序 replay 的 epoch 结构，画图时应标注 epoch 边界而不是当噪声。
 3. **结构性 gap（「基准值」上移，真实信号）**：epoch 3+ 后 val 不再降而 train 继续塌缩，评估点处的 gap 重置值一路上移；锯齿只是叠在真实信号之上的小波。
 
-图：`docs/figs/fig_sawtooth_baseline.svg`（50 步版）；v10 曲线见 toy beta-scan 图（`toy/figs_v11_*`）。
+图：历史 `docs/figs/fig_sawtooth_baseline.svg`（50 步版）；v10 曲线见 beta-scan 图。

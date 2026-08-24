@@ -1,8 +1,10 @@
 # 纯 unigram 表模型 × l1/l2 马尔可夫链：最小 replay-gap 解析实验（2026-08-11）
 
-脚本：`toy/markov_unigram_gap.py`（纯 numpy + matplotlib，确定性 seed=20260811，~40 s 跑完，rc=0）。
-图：`docs/figs/fig_markov_unigram_h.{svg,png}`、`docs/figs/fig_markov_unigram_gap_epochs.{svg,png}`、
-`docs/figs/fig_markov_unigram_excess_vs_freq.{svg,png}`。
+脚本：`tasks/l2_markov_exact/markov_unigram_gap.py`（纯 numpy + matplotlib，确定性
+seed=20260811，~40 s 跑完，rc=0）。
+图：`docs/figs/theory/fig_markov_unigram_h.{svg,png}`、
+`docs/figs/theory/fig_markov_unigram_gap_epochs.{svg,png}`、
+`docs/figs/theory/fig_markov_unigram_excess_vs_freq.{svg,png}`。
 项目参考：`docs/synthetic-transition-task-design.md`、`docs/figs/fig_synth_excess_vs_freq.svg`。
 
 ## 0. 一句话结论
@@ -282,7 +284,7 @@ gap 不随 epoch 累积，只保留本 epoch 采样噪声。数值：最后 200 
 ## 10. 复现
 
 ```
-python3 toy/markov_unigram_gap.py
+python3 tasks/l2_markov_exact/markov_unigram_gap.py
 ```
 
 确定性（seed=20260811），~40 s 内跑完，rc=0，全部断言通过；输出三组图到 `docs/figs/`。

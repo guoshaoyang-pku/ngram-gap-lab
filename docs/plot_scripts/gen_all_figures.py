@@ -11,7 +11,7 @@ Generate the canonical figures for the blog from training outputs:
 The hit-count distribution generator remains available as a standalone
 diagnostic, but is not part of the canonical public-guide output.
 
-Reads from data/runs/<run_id>/train_log.jsonl, table_norm.jsonl, freq_bin_loss.jsonl.
+Reads from data/runs_fixed/<run_id>/train_log.jsonl, table_norm.jsonl, freq_bin_loss.jsonl.
 Outputs to docs/figs/*.svg and docs/figs/*.html.
 """
 import json
@@ -25,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
+RUNS_DIR = os.environ.get("NGLAB_RUNS_DIR", os.path.join(REPO_ROOT, "data", "runs_fixed"))
 FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "main")
 MIRROR_FIGS_DIR = os.environ.get("NGRAM_GAP_BLOG_FIGS_DIR")
 FALLBACK_BLOG_DIR = os.environ.get(

@@ -16,11 +16,11 @@ G25="${1:-3}" G3="${2:-4}" G4="${3:-5}"
 
 run_one() {  # run_one <gpu> <run_id> <train_shards> <val_shards> <steps> <freq_index>
   local GPU="$1" RUN_ID="$2" SHARDS="$3" VAL="$4" STEPS="$5" FREQ="$6"
-  local RESULT_DIR="$OUT_DIR/$RUN_ID"
+  local RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
   mkdir -p "$RESULT_DIR"
   echo "[sweep2] $RUN_ID (shards=$SHARDS val=$VAL steps=$STEPS) -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-    --run_id "$RUN_ID" --injection_position input --steps "$STEPS" --seed 42 \
+    --run_id "${RUN_ID}_fixed" --injection_position input --steps "$STEPS" --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
     --table_optimizer rmsprop --table_betas 0.0,0.99 --table_lr_scale 2.0 \
     --device_batch_size 72 --total_batch_size 147456 \

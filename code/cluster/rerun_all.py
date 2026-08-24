@@ -12,7 +12,14 @@ Usage:
 """
 import json
 import argparse
+import os
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import subprocess
 import textwrap
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[1]
 
 # Shard chunk counts (verified from train.log train_chunks= fields).
 # Shards 4,5,7,8 individual sizes unknown, but only needed as sums (see bpe_for_shards below).
@@ -60,6 +67,9 @@ COMMON = dict(
     sequence_len=2048,
     freq_eval_interval=10,
     freq_eval_batches=4,
+    table_optimizer="rmsprop",
+    table_betas="0.0,0.99",
+    table_lr_scale=2.0,
 )
 
 # Standard val shard sets
@@ -248,7 +258,7 @@ def cmd_for_run(spec, host_root, host_data_dir, py="python3"):
         f'--steps {spec["steps"]}',
         f'--seed {spec["seed"]}',
         f'--data_dir {host_data_dir}/data/tokenized',
-        f'--out_dir {host_root}/data/runs',
+        f'--out_dir {host_root}/data/runs_fixed',
         f'--train_shards {spec["train_shards"]}',
         f'--val_shards {spec["val_shards"]}',
         f'--device_batch_size {spec["device_batch_size"]}',
@@ -279,18 +289,121 @@ def cmd_for_run(spec, host_root, host_data_dir, py="python3"):
     return " \\\n    ".join(parts)
 
 
+def execute_runs(runs, root, gpus, selected_ids=None):
+    by_id = {spec["run_id"]: (family, spec) for family, spec in runs}
+    if selected_ids:
+        missing = sorted(set(selected_ids) - set(by_id))
+        if missing:
+            raise SystemExit(f"unknown run id(s): {', '.join(missing)}")
+        selected = [by_id[run_id] for run_id in selected_ids]
+    else:
+        selected = runs
+    queues = [[] for _ in gpus]
+    for index, item in enumerate(selected):
+        queues[index % len(queues)].append(item)
+    failures = []
+
+    def run_queue(index):
+        gpu = gpus[index]
+        for family, spec in queues[index]:
+            env = os.environ.copy()
+            env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+            print(f"[GPU {gpu}] start {spec['run_id']} ({family})", flush=True)
+            command = cmd_for_run(
+                spec,
+                str(root),
+                str(root),
+                os.environ.get("NGLAB_PY", "python3"),
+            )
+            result = subprocess.run(
+                command.replace("{GPU}", str(gpu)),
+                env=env,
+                shell=True,
+                executable="/bin/bash",
+            )
+            if result.returncode:
+                failures.append(spec["run_id"])
+                print(
+                    f"[GPU {gpu}] failed {spec['run_id']} "
+                    f"(exit={result.returncode})",
+                    flush=True,
+                )
+            else:
+                print(f"[GPU {gpu}] done {spec['run_id']}", flush=True)
+
+    with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
+        list(pool.map(run_queue, range(len(queues))))
+    if failures:
+        raise SystemExit(
+            "one or more runs failed: " + ", ".join(sorted(failures))
+        )
+
+
+def render_script(cluster):
+    gpu_defaults = {
+        "360-1": "1,3,4,5,6,7",
+        "360-2": "4,5,6,7",
+    }
+    if cluster == "both":
+        lines = [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            "",
+            'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+            'ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"',
+            'PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"',
+            'GPU_SET="${NGLAB_GPUS:-0}"',
+            "",
+            'exec "$PY" "$SCRIPT_DIR/rerun_all.py" --execute '
+            '--root "$ROOT" --gpus "$GPU_SET"',
+        ]
+    else:
+        lines = [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            "",
+            'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+            'ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"',
+            'PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"',
+            f'GPU_SET="${{NGLAB_GPUS:-{gpu_defaults[cluster]}}}"',
+            "",
+            'exec "$PY" "$SCRIPT_DIR/rerun_all.py" --execute '
+            '--root "$ROOT" --gpus "$GPU_SET"',
+        ]
+    return "\n".join(lines) + "\n"
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--generate", choices=["360-1", "360-2", "both"])
+    parser.add_argument("--execute", action="store_true")
+    parser.add_argument(
+        "--root",
+        default=os.environ.get("NGLAB_ROOT", str(REPO_ROOT)),
+    )
+    parser.add_argument("--gpus", default="0")
+    parser.add_argument(
+        "--run-ids",
+        default="",
+        help="comma-separated subset; omit to execute the full registered queue",
+    )
     args = parser.parse_args()
 
-    # Both clusters share the same path structure
-    HOST_ROOT = "/data/home/guoshaoyang/ngram-gap-lab"
-    HOST_DATA = HOST_ROOT
-    PY = "python3"
+    root = Path(args.root).resolve()
+    host_data = str(root)
 
-    runs = all_runs(HOST_DATA)
+    runs = all_runs(host_data)
+
+    if args.execute:
+        gpus = [gpu.strip() for gpu in args.gpus.split(",") if gpu.strip()]
+        if not gpus:
+            raise SystemExit("--gpus must contain at least one GPU id")
+        selected_ids = [
+            run_id.strip() for run_id in args.run_ids.split(",") if run_id.strip()
+        ]
+        execute_runs(runs, root, gpus, selected_ids or None)
+        raise SystemExit(0)
 
     if args.list:
         print(f"Total runs: {len(runs)}\n")
@@ -308,3 +421,10 @@ if __name__ == "__main__":
             if spec.get('table_betas'):
                 extra_str += f" b2={spec['table_betas'].split(',')[1]}"
             print(f"  {spec['run_id']:45s} steps={spec['steps']:5d} shards={spec['train_shards']:12s} fb={fb}{extra_str}")
+        raise SystemExit(0)
+
+    if args.generate:
+        print(render_script(args.generate), end="")
+        raise SystemExit(0)
+
+    parser.error("choose one of --list, --generate, or --execute")

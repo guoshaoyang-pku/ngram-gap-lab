@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Compare the same table-optimizer arms at 1x epoch vs 2x epoch (2000 steps).
 
-1x arms: data/runs/nglab1x_opt_* (seed 42) + nglab1x_v10_input_fixed as RMSProp 1x.
-2x arms: data/runs/nglab2x_opt_* + nglab2x_input_v10_fv_fixed as RMSProp 1x.
+1x arms: data/runs_fixed/nglab1x_opt_* (seed 42) + nglab1x_v10_input_fixed as RMSProp 1x.
+2x arms: data/runs_fixed/nglab2x_opt_* + nglab2x_input_v10_fv_fixed as RMSProp 1x.
 Writes docs/figs/table_opt/fig_table_opt_1x_vs_2x.{svg,png}.
 """
 import json
@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
+RUNS_DIR = os.environ.get("NGLAB_RUNS_DIR", os.path.join(REPO_ROOT, "data", "runs_fixed"))
 FIGS_DIR = os.environ.get("NGRAM_GAP_V10_FIGS_DIR", os.path.join(REPO_ROOT, "docs", "figs", "table_opt"))
 RMS_KEY = "bigram.layer_01.table_0.rms"
 

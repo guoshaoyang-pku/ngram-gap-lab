@@ -1,7 +1,7 @@
 # n-gram Gap Plotting Guide
 
 本目录是 `ngram-gap-lab` 的唯一 canonical 作图代码区。所有图都从
-`data/runs/<run_id>/` 的 JSONL 统计读取，不在 HTML 中手写实验数值；
+`data/runs_fixed/<run_id>_fixed/` 的 JSONL 统计读取，不在 HTML 中手写实验数值；
 源码留在 `docs/plot_scripts/`，生成的 HTML/SVG 写入 `docs/figs/`，
 不写回 `code/` 或本目录。
 

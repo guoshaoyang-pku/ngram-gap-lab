@@ -20,11 +20,11 @@ mkdir -p "$OUT_DIR"
 
 run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
   local GPU="$1" RUN_ID="$2" TM="$3" BI="$4" TRI="$5"
-  local RESULT_DIR="$OUT_DIR/$RUN_ID"
+  local RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
   mkdir -p "$RESULT_DIR"
   echo "[table-full] $RUN_ID mult=$TM bi=$BI tri=$TRI -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-    --run_id "$RUN_ID" --injection_position input \
+    --run_id "${RUN_ID}_fixed" --injection_position input \
     --steps 1000 --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
     --device_batch_size 72 --total_batch_size 147456 \
@@ -35,10 +35,11 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
     --epoch_batches 336 \
-    --fixed_train_probe 4 --probe_eval_interval 50 \
+    --fixed_train_probe 4 --probe_eval_interval 10 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
     --table_mult "$TM" \
+    --dtype bf16 --compile \
     > "$RESULT_DIR/train.log" 2>&1
   "$PY" -u "$ROOT/code/table_occupancy.py" \
     --data_dir "$DATA_DIR" --train_shards 1 \

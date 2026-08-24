@@ -2,7 +2,7 @@
 """ngram-gap-lab · docs/plot_scripts/gen_injpos_plot.py
 
 Generate injection-point ablation plot from train_log.jsonl files.
-Reads data/runs/<run_id>/train_log.jsonl and table_norm.jsonl,
+Reads data/runs_fixed/<run_id>/train_log.jsonl and table_norm.jsonl,
 produces docs/figs/injpos_ablation.html with gap + loss + table norm.
 """
 import json
@@ -11,7 +11,7 @@ import sys
 import glob
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_fixed")
+RUNS_DIR = os.environ.get("NGLAB_RUNS_DIR", os.path.join(REPO_ROOT, "data", "runs_fixed"))
 OUT_HTML = os.path.join(REPO_ROOT, "docs", "figs", "injpos_ablation.html")
 
 RUNS = {

@@ -22,7 +22,7 @@ run_one() {
   mkdir -p "$RESULT_DIR"
   echo "[launch] $EXP on GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-    --run_id "$EXP" \
+    --run_id "${EXP}_fixed" \
     --injection_position "$INJ" \
     --steps "$STEPS" \
     --seed 42 \

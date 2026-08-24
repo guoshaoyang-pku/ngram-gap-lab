@@ -31,7 +31,10 @@ from scipy.optimize import curve_fit
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_scaling")
+RUNS_DIR = os.environ.get(
+    "NGLAB_SCALING_RUNS_DIR",
+    os.environ.get("NGLAB_RUNS_DIR", os.path.join(REPO_ROOT, "data", "runs_scaling")),
+)
 if len(sys.argv) > 1:
     RUNS_DIR = sys.argv[1]
 FIGS_DIR = os.path.join(
@@ -56,6 +59,16 @@ def load_exact(run_dir):
             e = json.loads(line)
             out.append(e)
     return out
+
+
+def canonical_run_dirs(runs_dir):
+    for run_dir in sorted(glob.glob(os.path.join(runs_dir, "*"))):
+        if not os.path.isdir(run_dir):
+            continue
+        physical_id = os.path.basename(run_dir)
+        if not physical_id.endswith("_fixed"):
+            continue
+        yield physical_id[:-len("_fixed")], physical_id, run_dir
 
 
 def marginal_gap(entry, branch):
@@ -133,18 +146,41 @@ def fit_two_factor(fs, gaps):
 def main():
     # collect runs by (L, module, alignment)
     runs = {}
-    for run_dir in sorted(glob.glob(os.path.join(RUNS_DIR, "ep_*"))):
-        run_id = os.path.basename(run_dir)
+    legacy_count = 0
+    rejected_count = 0
+    for run_id, physical_id, run_dir in canonical_run_dirs(RUNS_DIR):
         parts = run_id.split("_")
-        if len(parts) < 4:
+        if parts and parts[0] == "pilot":
+            parts = parts[1:]
+        if len(parts) != 4 or parts[0] != "ep":
             continue
-        L, mod, align = parts[1], parts[2], parts[3]
+        L, mod, align = parts[1:]
         if L not in ("L1", "L2", "L3", "L4") or mod not in ("bigram", "trigram", "both", "nogram"):
+            continue
+        summary_path = os.path.join(run_dir, "summary.json")
+        if not os.path.exists(summary_path):
+            rejected_count += 1
+            continue
+        with open(summary_path) as f:
+            summary = json.load(f)
+        if summary.get("run_id") != physical_id:
+            rejected_count += 1
             continue
         exact = load_exact(run_dir)
         if not exact:
             continue
-        runs[(L, mod, align)] = {"run_dir": run_dir, "exact": exact}
+        runs[(L, mod, align)] = {
+            "run_id": physical_id,
+            "run_dir": run_dir,
+            "exact": exact,
+        }
+    for run_dir in glob.glob(os.path.join(RUNS_DIR, "*")):
+        if os.path.isdir(run_dir) and not os.path.basename(run_dir).endswith("_fixed"):
+            legacy_count += 1
+    if legacy_count:
+        print(f"ignored {legacy_count} non-canonical scaling directories (expected *_fixed)")
+    if rejected_count:
+        print(f"ignored {rejected_count} scaling directories with an invalid run contract")
 
     # ---- gap(f) curves per module at final step (fixed-step) ----
     for branch in ("bigram", "trigram"):

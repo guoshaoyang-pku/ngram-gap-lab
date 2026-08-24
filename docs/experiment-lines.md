@@ -9,7 +9,7 @@
 
 **`data/runs_fixed/` 里带 `_fixed` 后缀的 run 是唯一权威数据。**
 
-`data/runs/`（118 MB，64 个 run）与 `runs_fixed/` 里不带后缀的陈旧副本
+历史的未修正版 run 与 `runs_fixed/` 里不带后缀的陈旧副本
 **已于 2026-08-23 彻底删除**——按仓库原则，确认是 bug 污染的内容不归档、直接清除。
 同时删除了由这些数据生成的全部图（`docs/_archive/figs_history/`，6 MB）。
 
@@ -37,7 +37,7 @@
 | `nglab1x_opt_sgd_09` | −0.002 | +0.073 | 符号翻转 |
 
 ⚠️ **`experiment-log.md` 全文数值仍是 pre-fix 的**，与本表矛盾。
-回填是 `docs/notes/plans/plan-3-fix-and-backfill.md` 的 T1 任务。
+回填是 `docs/plans/plan-3-fix-and-backfill.md` 的 T1 任务。
 
 ## 主线（nanoGPT）
 
@@ -67,12 +67,14 @@
 | L4 | 幂律合成数据 × 真 harness | `tasks/l4_synth_powerlaw/` | 360-2 远端 + 本地汇总 JSON |
 | L5 | 优化器伪影（RMSProp v 锯齿 / 表容量） | `tasks/l5_optimizer_artifact/` | `tasks/l5_optimizer_artifact/results/` |
 
-另有两条**跑在真 harness 上的 toy 线**（图在 `figs/toy/`，脚本在 OPHIS toy 工作区，未迁）：
+另有两条**历史真 harness toy 线**。图仍保留在 `docs/figs/theory/`，但所需
+run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有显式提供已审核的
+历史结果目录时才能重现：
 
 | # | 线名 | run_id | 作图脚本 | log § |
 |---|---|---|---|---|
-| T1 | toy β 扫描 / 台阶溯源 | `t5b_*` | `gen_within_epoch_figs.py` | §11(A) |
-| T2 | toy 严格 Zipf | `t5z_zipf_s4{2,3,4}` | `gen_zipf_experiment_figs.py`<br>`analyze_zipf_gap.py` | §13 |
+| T1 | toy β 扫描 / 台阶溯源（历史） | `t5b_*` | `gen_within_epoch_figs.py` | §11(A) |
+| T2 | toy 严格 Zipf（历史） | `t5z_zipf_s4{2,3,4}` | `gen_zipf_experiment_figs.py`<br>`analyze_zipf_gap.py` | §13 |
 
 ## 独立包
 
@@ -88,7 +90,7 @@
 
 ## 已知待办
 
-完整的可执行方案见 **`notes/plans/plan-3-fix-and-backfill.md`**（面向 agent 阵列，含验收标准）。
+完整的可执行方案见 **`plans/plan-3-fix-and-backfill.md`**（面向 agent 阵列，含验收标准）。
 摘要：
 
 | # | 任务 | 优先级 | 状态 |

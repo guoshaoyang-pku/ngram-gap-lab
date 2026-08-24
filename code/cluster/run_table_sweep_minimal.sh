@@ -23,7 +23,7 @@ mkdir -p "$RESULT_DIR"
 echo "=== $EXP  table_mult=$M  GPU=$GPU  $(date) ==="
 
 CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-  --run_id "$EXP" \
+  --run_id "${EXP}_fixed" \
   --injection_position input \
   --steps 1000 \
   --seed 42 \

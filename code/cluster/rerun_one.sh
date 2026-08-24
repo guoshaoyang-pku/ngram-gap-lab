@@ -19,7 +19,7 @@ ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 OUT_DIR="$ROOT/data/runs_fixed"
-RESULT_DIR="$OUT_DIR/$RUN_ID"
+RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
 LOG_FILE="$RESULT_DIR/train.log"
 
 mkdir -p "$RESULT_DIR"
@@ -27,7 +27,7 @@ mkdir -p "$RESULT_DIR"
 echo "[$(date)] START $RUN_ID on GPU $GPU (steps=$STEPS shards=$TRAIN_SHARDS)"
 
 CUDA_VISIBLE_DEVICES="$GPU" $PY -u "$ROOT/code/train.py" \
-    --run_id "$RUN_ID" \
+    --run_id "${RUN_ID}_fixed" \
     --injection_position input \
     --steps "$STEPS" \
     --seed 42 \

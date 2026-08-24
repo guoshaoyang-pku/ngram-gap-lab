@@ -65,7 +65,7 @@
 
 ## 1. 注入点消融（2026-08-05，OPHIS 旧 run 迁移）
 
-以下数据来自旧 OPHIS 代码库（`/data3/guoshaoyang/ngram-gap-exp/runs/injpos_*_freq2`），
+以下数据来自旧代码库的历史 run（`injpos_*_freq2`），
 作为新 repo 的历史对照基线。新 repo 的 `train.py` 精简重写后需复现这些数值。
 
 ### 1.1 1000 步消融
@@ -246,7 +246,7 @@ loss，再按照真实 context 的 training hit-count bucket 聚合。运行文�
 - 输出目录：`docs/figs/`
 - public guide mirror：
   `guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide/`
-- 运行数据：gitignored `data/runs/nglab_{v,y,input}/`
+- 运行数据：历史结果目录（未修正版，不作为当前权威数据）
 
 本次归档的图表生成 commit：
 
@@ -276,7 +276,7 @@ loss，再按照真实 context 的 training hit-count bucket 聚合。运行文�
 > 不满足「val 数据始终同一套」。已在 `code/train.py` 修复：启动时一次性捕获
 > `fixed_val_batches`（val loss）与 `fixed_freq_val_batches`（val 侧 freq-bin），
 > 每次 eval 复用同一批 val 数据；train 仍是唯一移动队列。首跑（移动窗）已停，
-> 数据保留在 `data/runs/nglab2x_input_v10/`，正式结果以 `_fv` run 为准。
+> 首轮数据为历史未修正版结果，正式结果以 `_fixed` run 为准。
 
 ### 结果
 
@@ -368,7 +368,7 @@ validation 每 50 步；本批用 **v10 标准（validation + freq eval 每 10 �
 
 ## 9. Table 优化器消融（2026-08-06，input，计划）
 
-目的：标准实验的 n-gram table 用 RMSProp（β=(0.0,0.999)，无一阶矩），table RMS 在 ~500 步后进入平台（0.036→0.078@1000）。
+目的：记录历史实验中 n-gram table 使用 RMSProp（β=(0.0,0.999)，无一阶矩）的行为；当前标准已切换为 β₂=0.99、表学习率 ×2。
 怀疑「table 学得慢/滞后」；本批测试替代优化器是否让 table 更快写入、以及 gap 曲线如何变化。
 
 ### Setting
@@ -462,7 +462,7 @@ launcher：`code/cluster/run_table_opt.sh <arm> <gpu>`。
 
 **产物**：图 `docs/figs/table_opt/fig_table_opt.{svg,png}`（含 s43/s44 多 seed mean±std）；脚本 `docs/plot_scripts/analyze_table_opt.py`（自动发现 `nglab1x_opt_*`，seed 42/43/44）。日志：`data/runs/nglab1x_opt_{rmsprop_2x_s43,rmsprop_4x,adamw_090999_s43,adamw_090999_s44,rmsprop_2x_s44,sgd_09}/`。
 
-**对用户问题的直接回答**：默认 table 用 RMSProp（β=(0.0,0.999)，无 momentum，无 WD，lr=0.004 与 backbone 相同）；backbone 用 AdamW（β=(0.8,0.95)，WD=0.1，lr=0.004，warmup→warmdown 0.65）。若想让 table 学更快，把 `--table_lr_scale` 提到 2–4 是最直接有效的手段（norm@1000 0.084→0.250），比换 AdamW/SGD 更有效。
+**历史 setting 说明**：本节结果使用 β₂=0.999 的历史配置；当前标准 table 使用 RMSProp（β=(0.0,0.99)，无 momentum，无 WD，表学习率 ×2），backbone 使用 AdamW（β=(0.8,0.95)，WD=0.1，lr=0.004）。
 
 ### 9c. Table 优化器消融 × 2x epoch（郭绍阳，2026-08-07 done）
 
@@ -734,7 +734,7 @@ gap 的出现（步数维度），并未消除（epoch 维度），支持「重�
 ### Setting（worker A：toy 侧 beta 扫描）
 | 项 | 值 |
 |---|---|
-| 脚本 | `OPHIS_gap/toy/toy5_data_gen.py` + `toy5_launch.sh`（toy 工作区在 360-2 `/data/home/guoshaoyang/ngram-gap-exp/toy`）|
+| 脚本 | 已迁入 `tasks/` 的 toy 数据生成脚本与 launcher（历史 toy 工作区）|
 | 变体 | `NGRAM_TABLE_BETAS` = 0.0,0.999（基准）/ 0.0,0.99 / 0.0,0.9999 / 0.9,0.999 / 0.9,0.9999 |
 | steps | 2000（low cache，~29 epoch）|
 | 输出 | 每 epoch `headline_gap`（台阶）、`seen_gap` |
@@ -751,7 +751,7 @@ gap 的出现（步数维度），并未消除（epoch 维度），支持「重�
 
 - 5 个变体（0.0,0.999 基准 / 0.0,0.99 / 0.0,0.9999 / 0.9,0.999 / 0.9,0.9999），
   seed 42、low cache、2000 步（~29 epoch），全部 rc=0。
-- 分析脚本：360-2 `toy_analyze.py`（已同步本地新版 `OPHIS_gap/toy/toy_analyze.py` +
+- 分析脚本：集群 `toy_analyze.py`（已同步本地新版 `tasks/` 分析脚本 +
   `toy_model.py` 相对路径 patch），exact-context headline_gap per-epoch。
 - **结论：β 不改变 toy 的台阶形状** —— 5 条 per-epoch 曲线几乎重合，最终 gap
   7.43–7.89（基准 7.89），200/400/800 步处差异 ≤0.3 nats，无系统性顺序
@@ -798,13 +798,13 @@ gap 的出现（步数维度），并未消除（epoch 维度），支持「重�
    gap@2000 最大 +13.6）；想让台阶变模糊，则拉长 epoch（1x/2x 已模糊）。
 
 ### 产物
-- `docs/figs/toy/figs_v11_toy_beta_scan_per_epoch.svg` / `_step_level.svg`
+- `docs/figs/theory/figs_v11_toy_beta_scan_per_epoch.svg` / `_step_level.svg`
   （同框 5 变体，per-epoch + step 级）
 - `docs/figs/short_epoch_b2/short_epoch_b2_gap_v11.{svg,png}`（4 条 gap-step 曲线同框 +
   per-epoch mean gap 台阶视图）、`docs/figs/short_epoch_b2/staircase_shape_comparison.{svg,png}`
   （toy vs 真实模型归一化台阶形状）
 - 脚本：`docs/plot_scripts/gen_short_epoch_b2_figs.py`；launcher：
-  `code/cluster/run_epoch_short_b2.sh`（Worker B）、`OPHIS_gap/toy/toy5_beta_scan_launch.sh`（Worker A）
+  `code/cluster/run_epoch_short_b2.sh`（Worker B）、`tasks/` 中的 beta-scan launcher（Worker A）
 
 
 
@@ -888,11 +888,11 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
 ## 13. toy 严格 Zipf 分布 · per-bucket gap 双对数（2026-08-07，planned）
 
 > 背景：真实语料近似 Zipf，per-bin gap–frequency 双对数拟合已较好（bigram R²≈0.96、
-> trigram R²≈0.81，见 `docs/figs/toy/fig_zipf_gap_analysis.png`）；toy 当前的频次分布是
+> trigram R²≈0.81，见 `docs/figs/theory/fig_zipf_gap_analysis.png`）；toy 当前的频次分布是
 > **anti-Zipf 设计**（N_r∝1/r，每桶 token 数相等，a≈−0.93，R²=0.99）。
 > 用户提出：把 toy 的 ngram 分布筛选成**严格 Zipf**（N_r∝1/r²，经典 rank 指数 1），
 > 再看 gap–ngram 双对数线性是否变好。
-> 理论预判（原 `OPHIS_gap/docs/theory_notes/toy-gap-frequency-distributions.md`，⚠️ 该文件已不存在；相关推导见 `docs/notes/theory/`）：
+> 理论预判（原历史理论笔记，⚠️ 该文件已不存在；相关推导见 `docs/notes/theory/`）：
 > per-bucket gap g(r) 由训练动力学+val 协议决定，**与总体分布 N_r 可分离**——
 > 严格 Zipf 只改权重/累计曲线，不改 g(r) 形状。本批跑 3 个 seed 做经验验证。
 
@@ -942,12 +942,11 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
 
 ### 产物
 
-- 代码：`OPHIS_gap/toy/toy5_data_gen.py`（`mode=zipf`）；launcher：
-  `OPHIS_gap/toy/toy5_zipf_launch.sh`（已同步 360-2，md5 一致）。
-- 数据：360-2 `toy/runs/t5z_zipf_s{42,43,44}/`（已回传 run_meta 到本地
-  `OPHIS_gap/toy/runs/t5z_zipf_s{42,43,44}.run_meta.json`）。
-- 图：`docs/figs/toy/fig_zipf_experiment.{png,svg}`（左：per-bucket g(r) 重合；
-  右：N_r 分布 −1 vs −2）；`docs/figs/toy/fig_zipf_gap_analysis.{png,svg}`（重加权分析）。
+- 代码：已迁入 `tasks/` 的 toy 数据生成脚本（`mode=zipf`）；launcher：
+  `tasks/` 中的 zipf launcher。
+- 数据：历史 `t5z_zipf_s{42,43,44}` run 的 metadata 已纳入本实验记录。
+- 图：`docs/figs/theory/fig_zipf_experiment.{png,svg}`（左：per-bucket g(r) 重合；
+  右：N_r 分布 −1 vs −2）；`docs/figs/theory/fig_zipf_gap_analysis.{png,svg}`（重加权分析）。
 - 脚本：`docs/plot_scripts/gen_zipf_experiment_figs.py`、`analyze_zipf_gap.py`。
 
 ## 14. 干净 vanilla 复现（2026-08-23，input 主臂 + nogram 对照）
@@ -959,7 +958,7 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
 |---|---|
 | backbone | vanilla nanoGPT 8L·6H·768D，vocab 8192，seq 2048 |
 | n-gram | bigram+trigram，`input` 注入，table 1M（默认未动） |
-| 优化器 | table RMSProp(0.0,0.999)，backbone AdamW(0.8,0.95) lr 0.004 wd 0.1 |
+| 优化器 | table RMSProp(0.0,0.99)，backbone AdamW(0.8,0.95) lr 0.004 wd 0.1 |
 | 数据 | shard 1 train（24264 rows ≈ 337 steps/epoch），shard 2 val，fixed 顺序 |
 | 步数 / 评测 | 1000 步（≈3 epoch），seed 42，val 每 10 步 fixed batches（v10 口径） |
 
@@ -984,8 +983,8 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
    1000 步的 fork 幅度约为 2000 步的一半，趋势吻合。
 
 ### 产物
-- 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/vanilla_input_1000_seed42/`（train_log.jsonl + summary.json）
-- 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/vanilla_nogram_1000_seed42/`
+- `data/runs_fixed/vanilla_input_1000_seed42_fixed/`（train_log.jsonl + summary.json）
+- `data/runs_fixed/vanilla_nogram_1000_seed42_fixed/`
 - 训练代码 `code/train.py`（未改动），数据生成 `code/prepare_data.py`（shard 1/2 现生成）
 
 ## 15. P1/P2 因果干预 · 极简 setting 重跑（2026-08-24）
@@ -1046,4 +1045,45 @@ table 回滚 −89% / readout 屏蔽 −89% / 冻结 table −49% / 冻结 backb
 ### 产物
 - 干预实现：`code/train.py`（新增 `--intervention` / `--intervention_epoch` / `--table_mult`）
 - launcher：`code/cluster/run_causal_minimal.sh`
-- 集群数据：`data/runs/nglab1x_input_{reset_e2,reset_e1,mask_e1,freeze_table_e1,freeze_backbone_e1}/`
+- 集群数据：`data/runs_fixed/nglab1x_input_{reset_e2,reset_e1,mask_e1,freeze_table_e1,freeze_backbone_e1}_fixed/`
+
+## 16. bf16 精度验证 + 提速（2026-08-24）
+
+### 目的
+确认把全 fp32 前向切到 bf16（`torch.autocast`，权重/优化器仍 fp32）不会改变 gap 现象，
+同时量化提速幅度，作为后续实验的默认计算精度。
+
+### 测速（H200，batch 72×2048，28.8B 全模型，单卡空闲）
+
+| 配置 | train step | 相对 fp32 |
+|---|---:|---:|
+| fp32 | ~2.76 s | 1.0x |
+| bf16（autocast） | ~0.48–0.53 s | **~5.3x** |
+| bf16 + torch.compile | ~0.50 s（GPU 共租下） | ~5.5x |
+
+- fp8 不可行：`torch.autocast(dtype=float8_e4m3fn)` 在 `nn.Linear` addmm 上不支持，
+  需专门 `_scaled_mm` 工程，未采用。
+- `--dtype {fp32,bf16,fp8}` + `--compile` 开关已加入 `code/train.py`；
+  标准 launcher `run_causal_minimal.sh` 默认 `bf16` + `--compile`（可通过
+  `NGLAB_DTYPE` / `NGLAB_COMPILE` 覆盖），并为每臂隔离 `TORCHINDUCTOR_CACHE_DIR`。
+
+### 同超参精度对照（关键）
+
+| 项 | fp32 `vanilla_input_1000_seed42` | bf16 `..._bf16_samehp` |
+|---|---:|---:|
+| 表优化器 | RMSProp β₂=0.999, lr_scale=1.0 | 同左（完全一致） |
+| train@1000 | 3.608 | 3.580 |
+| val@1000 | 4.466 | 4.405 |
+| **gap@1000** | **+0.858** | **+0.825** |
+| gap 曲线 | 见下 | 逐点重合（10/340/670/1000: +0.009/+0.021/+0.361/+0.858 ↔ +0.008/+0.049/+0.374/+0.825）|
+
+**结论：bf16 在相同超参下逐点复现 fp32 曲线（loss 差 <0.1，final gap 0.858 vs 0.825），
+且提速 ~5.3x。后续正式实验默认 bf16。**
+
+> 注意：先前 `vanilla_input_1000_seed42_bf16`（gap +1.661）用了不同超参
+> （β₂=0.99, lr_scale=2.0），非精度差异，勿与其对比。
+
+### 产物
+- 图：`docs/figs/fig_fp32_vs_bf16_samehp.png`
+- 代码：`code/train.py`（`--dtype` / `--compile`）、`code/cluster/run_causal_minimal.sh`（默认 bf16+compile）
+- 集群数据：`data/runs/vanilla_input_1000_seed42_bf16_samehp/`（+0.825）

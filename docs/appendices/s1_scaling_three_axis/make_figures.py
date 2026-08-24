@@ -18,7 +18,10 @@ import matplotlib.pyplot as plt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs_scaling")
+RUNS_DIR = os.environ.get(
+    "NGLAB_SCALING_RUNS_DIR",
+    os.path.join(REPO_ROOT, "data", "runs_scaling"),
+)
 FIGS_DIR = os.path.join(HERE, "figs")
 os.makedirs(FIGS_DIR, exist_ok=True)
 
@@ -51,6 +54,81 @@ def load_fixed(run_dir):
             e = json.loads(line)
             out.append(e)
     return out
+
+
+def load_exact_last(run_dir):
+    path = os.path.join(run_dir, "exact_freq_loss.jsonl")
+    if not os.path.exists(path):
+        return None
+    last = None
+    with open(path) as f:
+        for line in f:
+            if line.strip():
+                last = json.loads(line)
+    return last
+
+
+def canonical_run_dirs(runs_dir):
+    for run_dir in sorted(glob.glob(os.path.join(runs_dir, "*"))):
+        if not os.path.isdir(run_dir):
+            continue
+        physical_id = os.path.basename(run_dir)
+        if not physical_id.endswith("_fixed"):
+            continue
+        yield physical_id[:-len("_fixed")], physical_id, run_dir
+
+
+def valid_summary(run_dir, physical_id):
+    path = os.path.join(run_dir, "summary.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        summary = json.load(f)
+    if summary.get("run_id") != physical_id:
+        return None
+    config = summary.get("config", {})
+    if config.get("table_lr_scale") != 2.0:
+        return None
+    if config.get("table_betas") != [0.0, 0.99]:
+        return None
+    if config.get("val_interval_steps") != 10:
+        return None
+    return summary
+
+
+def eligible_freq_gaps(record, branch):
+    if not record:
+        return []
+    train = record.get("train", {}).get(branch, {})
+    val = record.get("val", {}).get(branch, {})
+    rows = []
+    for key in set(train) & set(val):
+        f = int(key)
+        if f <= 0:
+            continue
+        t = train[key]
+        v = val[key]
+        if min(t["token_count"], v["token_count"]) < 1024:
+            continue
+        if min(t["distinct_contexts"], v["distinct_contexts"]) < 32:
+            continue
+        rows.append((f, v["mean_loss"] - t["mean_loss"]))
+    return sorted(rows)
+
+
+def log_bin_median(rows, n_bins=14):
+    if not rows:
+        return np.array([]), np.array([])
+    frequencies = np.asarray([row[0] for row in rows])
+    gaps = np.asarray([row[1] for row in rows])
+    edges = np.geomspace(frequencies.min(), frequencies.max(), n_bins + 1)
+    xs, ys = [], []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        mask = (frequencies >= lo) & (frequencies < hi)
+        if mask.any():
+            xs.append(np.exp(np.mean(np.log(frequencies[mask]))))
+            ys.append(np.median(gaps[mask]))
+    return np.asarray(xs), np.asarray(ys)
 
 
 def three_panel(axs, xs, train, val, xlabel, label, color):
@@ -243,22 +321,112 @@ def plot_table_final_vs_size(runs):
     print("saved table_final_gap_vs_2R.png")
 
 
+def plot_backbone_safety(runs):
+    """Long L1 no-ngram safety run, using the fixed probe."""
+    run = runs.get("bb_safety_L1_nogram_5000")
+    if not run or not run["fixed"]:
+        return
+    fixed = run["fixed"]
+    xs = [entry["step"] for entry in fixed]
+    train = [entry["fixed_train_loss"] for entry in fixed]
+    val = [entry["fixed_val_loss"] for entry in fixed]
+    fig, axs = plt.subplots(3, 1, figsize=(9, 11), sharex=True)
+    three_panel(axs, xs, train, val, "step", "L1 no-ngram", "#7B1FA2")
+    fig.suptitle(
+        "Backbone safety (L1, no-ngram; fixed probe; running snapshot)",
+        y=0.995,
+    )
+    fig.tight_layout()
+    fig.savefig(
+        os.path.join(FIGS_DIR, "backbone_safety_L1_nogram_long.png"),
+        dpi=150,
+    )
+    plt.close(fig)
+    print("saved backbone_safety_L1_nogram_long.png")
+
+
+def plot_exact_freq_summary(runs):
+    """Noise-reduced exact-f summary; only eligible f values are shown."""
+    groups = [
+        (
+            "Epoch scaling by exact f (eligible f; module=both)",
+            [
+                ("L1", "pilot_ep_L1_both_fs", "#2196F3"),
+                ("L4", "pilot_ep_L4_both_fs", "#E91E63"),
+            ],
+        ),
+        (
+            "Table-size scaling by exact f (eligible f; module=bigram-only)",
+            [
+                ("1M", "tbl_pilot_1M_bigram", "#2196F3"),
+                ("128K", "tbl_pilot_128K_bigram", "#FF9800"),
+                ("16K", "tbl_pilot_16K_bigram", "#E91E63"),
+            ],
+        ),
+    ]
+    fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    for ax, (title, entries) in zip(axs, groups):
+        for label, run_id, color in entries:
+            run = runs.get(run_id)
+            record = load_exact_last(run["run_dir"]) if run else None
+            x, y = log_bin_median(eligible_freq_gaps(record, "bigram"))
+            if len(x):
+                ax.plot(x, y, "o-", label=label, color=color)
+        ax.axhline(0, color="gray", lw=0.7)
+        ax.set_xscale("log")
+        ax.set_ylabel("gap (val−train) @ f")
+        ax.set_title(title)
+        ax.grid(alpha=0.3, which="both")
+        ax.legend()
+    axs[1].set_xlabel("exact bigram frequency f")
+    fig.tight_layout()
+    fig.savefig(
+        os.path.join(FIGS_DIR, "exact_freq_gap_by_f_summary.png"),
+        dpi=160,
+    )
+    plt.close(fig)
+    print("saved exact_freq_gap_by_f_summary.png")
+
+
 def main():
     runs = {}
+    ignored_noncanonical = 0
+    ignored_invalid = 0
     for run_dir in sorted(glob.glob(os.path.join(RUNS_DIR, "*"))):
-        run_id = os.path.basename(run_dir)
-        if not run_id.startswith(("ep_", "pilot_ep_", "tbl_")):
+        if not os.path.isdir(run_dir):
+            continue
+        physical_id = os.path.basename(run_dir)
+        if not physical_id.endswith("_fixed"):
+            ignored_noncanonical += 1
+            continue
+        run_id = physical_id[:-len("_fixed")]
+        if not (
+            run_id.startswith(("ep_", "pilot_ep_", "tbl_"))
+            or run_id == "bb_safety_L1_nogram_5000"
+        ):
+            continue
+        summary = valid_summary(run_dir, physical_id)
+        if summary is None:
+            ignored_invalid += 1
             continue
         runs[run_id] = {
             "train_log": load_train_log(run_dir),
             "fixed": load_fixed(run_dir),
+            "run_dir": run_dir,
+            "summary": summary,
         }
+    if ignored_noncanonical:
+        print(f"ignored {ignored_noncanonical} non-canonical scaling directories (expected *_fixed)")
+    if ignored_invalid:
+        print(f"ignored {ignored_invalid} scaling directories with an invalid canonical contract")
     print(f"found {len(runs)} runs")
     plot_epoch_fixedstep(runs)
     plot_epoch_fixedstep_nogram(runs)
     plot_epoch_fixed_probe(runs)
     plot_table_fixedstep(runs)
     plot_table_final_vs_size(runs)
+    plot_backbone_safety(runs)
+    plot_exact_freq_summary(runs)
 
 
 if __name__ == "__main__":

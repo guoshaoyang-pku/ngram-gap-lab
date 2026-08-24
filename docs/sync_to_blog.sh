@@ -16,7 +16,8 @@
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"                 # <repo>/docs
-BLOG_DIR="/Users/guoshaoyang/Desktop/workdir/guoshaoyang-pku.github.io"
+REPO_ROOT="$(cd "$SRC_DIR/.." && pwd)"
+BLOG_DIR="${NGLAB_BLOG_ROOT:-$REPO_ROOT/../guoshaoyang-pku.github.io}"
 TARGET_DIR="$BLOG_DIR/blogs/ngram-gap-mechanism-guide"
 
 COMMIT_MSG="${1:-}"

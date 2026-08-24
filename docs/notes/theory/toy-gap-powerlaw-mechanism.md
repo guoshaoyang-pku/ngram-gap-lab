@@ -49,7 +49,7 @@ v1 的三个污染源（对照本设计的三个「干净化」）：
 
 ## 5. GPU 实验（360-2）设计
 
-- 生成器 `toy/synth_powerlaw_gen.py`：vocab 8192、order 5、hub 256；
+- 生成器 `tasks/l4_synth_powerlaw/synth_powerlaw_gen.py`：vocab 8192、order 5、hub 256；
   细粒度桶 r∈{1,2,4,...,1024} × 每桶 128 contexts（共 1408）；
   val = 每 context 8 个新鲜样本（context-uniform，probe 每桶命中 ~400+）；
   train 1.84M tokens；`K_eff=13.03`，bayes CE=2.567。
@@ -58,4 +58,4 @@ v1 的三个污染源（对照本设计的三个「干净化」）：
   表关 → backbone 无计数记忆，低 r 处 val CE 被钉在 ln K 量级，曲线形状不同（对照）。
 - 分析 `ngram5_freq_gap/analyze_synth_pl.py`：从 probe_details 的 train/val npz 算每 r 桶
   gap = val CE − train CE，拟合 log-log 斜率；理想表假数据验证 slope=−1.038、R²=0.998。
-- 启动 `toy/run_synth_pl.sh smoke|all`（360-2，2 GPU，两波）。
+- 启动 `tasks/l4_synth_powerlaw/cluster/run_synth_pipeline.sh smoke|all`（360-2，两波）。

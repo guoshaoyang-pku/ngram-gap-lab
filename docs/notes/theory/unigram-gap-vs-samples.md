@@ -97,7 +97,7 @@ E[gap] ≈ Σ_{c: 未见} P_c · log(r/(α K)) + (解析部分)
 - 这是真实实验里低 r 桶曲线偏离 `(K−1)/r`、且依赖平滑的原因；
 - 长尾分布下「解析支撑」`K_r = #{c : r·P_c ≳ 1}` 决定主阶常数（见 §4-F）。
 
-## 4. 数值验证（`toy/gap_vs_samples_unigram.py`，纯 numpy，确定性）
+## 4. 数值验证（`tasks/l1_lookup_replay/gap_vs_samples_unigram.py`，纯 numpy，确定性）
 
 **A. 精确恒等式**：任意 q，`Σ(p̂−P)log q ≡ CE_val−CE_train`，逐项断言成立。
 
@@ -143,7 +143,7 @@ r≥1024 全部符号解析（K_r=128），gap→(K−1)/r，斜率 −1。
 
 ## 6. 文件
 
-- `toy/gap_vs_samples_unigram.py`：本笔记全部数值（A–F）+ 4 张图
-  `docs/figs/fig_gap_vs_samples_{bc11,exact,unresolved,longtail}.svg/.png`
-- 相关：`docs/theory_notes/toy-gap-powerlaw-mechanism.md`（原笔记，K_eff=exp(H) 的
+- `tasks/l1_lookup_replay/gap_vs_samples_unigram.py`：本笔记全部数值（A–F）+ 4 张图
+  `docs/figs/theory/fig_gap_vs_samples_{bc11,exact,unresolved,longtail}.svg/.png`
+- 相关：`docs/notes/theory/toy-gap-powerlaw-mechanism.md`（K_eff=exp(H) 的
   表述应改为支撑大小 K，见 §3.3）

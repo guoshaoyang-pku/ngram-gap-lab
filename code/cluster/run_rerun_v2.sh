@@ -25,7 +25,7 @@ mkdir -p "$RESULT_DIR"
 echo "=== $RUN_ID  GPU=$GPU  shards=$TRAIN_SHARDS  steps=$STEPS  extra=$*  $(date) ==="
 
 CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
-  --run_id "$RUN_ID" \
+  --run_id "${RUN_ID}_fixed" \
   --injection_position input \
   --steps "$STEPS" \
   --seed 42 \

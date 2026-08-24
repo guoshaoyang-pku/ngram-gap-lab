@@ -1,0 +1,124 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>S1 三轴 scaling 当前结果</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55;max-width:1180px;margin:0 auto;padding:28px;color:#202124}h1{font-size:2em;border-bottom:2px solid #222;padding-bottom:.3em}h2{margin-top:2em;border-bottom:1px solid #ddd;padding-bottom:.25em}h3{margin-top:1.5em}blockquote{margin:1em 0;padding:.6em 1em;border-left:4px solid #777;background:#f5f5f5}p{margin:.55em 0}li{margin:.2em 0}hr{border:0;border-top:1px solid #ddd;margin:2em 0}table{border-collapse:collapse;margin:1em 0;font-size:.95em}td,th{border:1px solid #ccc;padding:6px 10px;text-align:left}figure{margin:2.2em 0;padding:1em;background:#fafafa;border:1px solid #eee}img{display:block;max-width:100%;height:auto;margin:auto}figcaption{text-align:center;color:#555;margin-top:.6em;font-size:.95em}</style></head><body><p><a href="../../report/index.html">返回主报告</a></p><h1>附录 · 三轴 scaling 验证（epoch 长度 / exact frequency / table size）</h1>
+<blockquote>**实验线**：T-scaling（极简 setting 下验证三条 scaling 曲线）</blockquote>
+<blockquote>**状态**：🟡 Pilot 完成（6 个 1000-step 完成 run）；L1 no-ngram backbone</blockquote>
+<blockquote>safety 正在长训（截至当前快照 step 1681/5000）</blockquote>
+<blockquote>**数据源**：`data/runs_scaling/`（新 namespace；β₂=0.99 全部生效）</blockquote>
+<blockquote>**代码**：`tasks/s1_scaling_three_axis/`（launchers + analysis + 单测）</blockquote>
+<blockquote>**计划**：`docs/plans/plan-3-fix-and-backfill.md`</blockquote>
+<hr>
+<h2>0. 这个专题回答什么问题</h2>
+<p>在**唯一极简 setting**（vanilla nanoGPT 8L·6H·768D + input n-gram 注入，</p>
+<p>自然语料）下，验证三条 scaling 曲线：</p>
+<p>1. **Epoch 长度** `L`：训练集一个 epoch 的长度如何影响 gap（严格区分</p>
+<p>   fixed-step 与 fixed-epoch 两种对齐）。</p>
+<p>2. **Exact context frequency** `f`：`G(E,f)` 是否服从两因素模型</p>
+<p>   `G(f) = A·f^(−β)·[1 − exp(−c·f^γ)]`（observational consistency）。</p>
+<p>3. **Table size**：从默认 1M 逻辑地址**只向下**缩放，判断 gap 由参数量持续</p>
+<p>   决定，还是由 hash collision / occupancy 决定后饱和。</p>
+<p>**claim 边界**：本专题只用自然语料，frequency 分支是模型一致性检验，</p>
+<p>**不能**把 `f` 宣称为严格因果变量（DoD §9）。</p>
+<hr>
+<h2>1. 冻结 setting</h2>
+<tr><th>项</th><th>值</th></tr>
+<tr><td>backbone</td><td>vanilla nanoGPT 8L/6H/768D，learned abs，LayerNorm，tied</td></tr>
+<tr><th>n-gram 注入</th><th>`input`（wte over-encoding）</th></tr>
+<tr><th>模块臂</th><th>bigram-only / trigram-only / both / no-ngram</th></tr>
+<tr><td>table 优化器</td><td>RMSProp 无动量，**β₂=0.99**（`--table_betas 0.0,0.99`）</td></tr>
+<tr><td>S1 table LR</td><td>`table_lr_scale=1.0`，与 pilot 保持一致；不混入全局默认 ×2</td></tr>
+<tr><td>backbone 优化器</td><td>AdamW (0.8, 0.95)，lr 0.004</td></tr>
+<tr><td>数据</td><td>自然语料 shard 1 嵌套前缀，train/val 零重叠</td></tr>
+<tr><td>测量</td><td>fixed train probe（4 batches，SHA256）+ exact-frequency + occupancy</td></tr>
+<tr><th>结果目录</th><th>`data/runs_scaling/`</th></tr>
+<h2>2. 当前已有数据（seed 42，2026-08-24）</h2>
+<h3>2.0 数据量和完整性</h3>
+<p>当前本地 `data/runs_scaling/` 有 **7 个实验目录**：</p>
+<li>**6 个已完成的 1000-step run**：epoch 轴 4 个，table 轴 3 个；</li>
+<li>**1 个进行中的 backbone safety**：L1 + no-ngram，目标 5000 steps；</li>
+<li>暂无 full-grid、fixed-epoch、trigram-only、both 的 table-size 或多 seed</li>
+<p>  结果，因此当前不能声称三条 scaling 已被完整验证。</p>
+<p>每个已完成 run 都有：</p>
+<li>20 条在线 train/val 记录；</li>
+<li>L1 run 有 43 条 fixed-probe 记录，L4/table run 有 22 条；</li>
+<li>exact-frequency 最后快照覆盖 bigram 3088 个正频率、trigram 1477 个正频率；</li>
+<li>在 `&gt;=1024` tokens 且 `&gt;=32` contexts 的 train/val 共同纳入标准下，</li>
+<p>  最后快照有 63 个 bigram exact-f 值、57 个 trigram exact-f 值可用于</p>
+<p>  初步比较；</p>
+<li>三个 table run 另有逐 branch/layer/hash 的 occupancy 文件。</li>
+<p>日志数据约 **555 MB**，其中约 **142 MB** 来自仍在写入的 backbone safety</p>
+<p>exact-frequency 日志。所有已完成 run 的固定 train probe hash 都是</p>
+<p>`38d1254a827759d6`，可直接横向比较。</p>
+<h3>2.1 Epoch length（fixed-step 1000 步）</h3>
+<tr><th>run</th><th>epoch batches</th><th>重播轮数</th><th>final fixed gap</th></tr>
+<tr><td>`pilot_ep_L1_both_fs`</td><td>42</td><td>~23</td><td>**+3.59**</td></tr>
+<tr><td>`pilot_ep_L4_both_fs`</td><td>336</td><td>~3</td><td>**+0.74**</td></tr>
+<tr><td>`pilot_ep_L1_nogram_fs`</td><td>42</td><td>~23</td><td>+0.17</td></tr>
+<tr><td>`pilot_ep_L4_nogram_fs`</td><td>336</td><td>~3</td><td>−0.004</td></tr>
+<p>**暂时结论 F1 · gap 主要来自 n-gram 表重播，而非 backbone**：两个</p>
+<p>1000-step no-ngram 对照的固定 gap 都接近 0，而 both 臂明显更大。这个结论</p>
+<p>仍需等待 L1 no-ngram 5000-step safety 完成；当前 safety 在 step 1000 时</p>
+<p>gap 为 +0.77，step 1681 时已到 +2.59，说明长训 backbone 也可能产生</p>
+<p>non-negligible gap，不能再写成“backbone 自身不会产生 gap”。</p>
+<p>**暂时结论 F2 · fixed-step 下短 epoch 的 gap 明显更大**：L1（约 23</p>
+<p>次重播）gap = 3.59，L4（约 3 次重播）gap = 0.74，约 4.8 倍。它支持</p>
+<p>“更多 replay 会放大 gap”的解释，但还不是纯粹的 epoch-length scaling，</p>
+<p>因为 fixed-epoch 对齐和完整 L1–L4 网格尚未完成。</p>
+<p>（fixed-epoch 对齐的 full grid 才能分离「重播次数」与「epoch 长度本身」的效应。）</p>
+<h3>2.2 Table size（L4, bigram-only, 1000 步）</h3>
+<tr><td>run</td><td>logical 2R</td><td>final gap</td><td>collision rate (bigram L0 h0)</td></tr>
+<tr><td>`tbl_pilot_1M_bigram`</td><td>1,048,576</td><td>**+0.40**</td><td>0.998+</td></tr>
+<tr><td>`tbl_pilot_128K_bigram`</td><td>131,072</td><td>+0.12</td><td>1.0</td></tr>
+<tr><td>`tbl_pilot_16K_bigram`</td><td>16,384</td><td>+0.03</td><td>1.0</td></tr>
+<p>**暂时结论 F3 · table 越小 gap 越小（单调）**：1M→128K→16K</p>
+<p>（逻辑地址从 1,048,576 降到 16,384），gap 为 **0.394→0.128→0.034**。</p>
+<p>occupancy 诊断显示三点的 bigram collision rate 约为 **0.852→0.981→0.998**，</p>
+<p>平均 co-occupants 约为 **94.6→756→6048**。这与 collision pooling 的方向</p>
+<p>一致：小 table 把更多 context 混入同一 row，削弱逐 context 记忆。但现在只有</p>
+<p>3 个 table size、1 个 module、1 个 seed，尚不足以区分 collision 曲线与</p>
+<p>参数量曲线，也不能判断是否已经进入 plateau。</p>
+<h3>2.3 Exact-frequency 当前能说什么</h3>
+<p>在满足纳入标准的 exact-f 上，bigram 的 gap 随 f 增大总体下降；例如：</p>
+<li>L1 both：低频 `f=1–10` 的中位 gap 约 7.40，高频 `f=11–100` 约 4.67；</li>
+<li>L4 both：对应约 1.82 和 0.84；</li>
+<li>table 1M / 128K / 16K：低频段约 1.20 / 0.37 / 0.08。</li>
+<p>这与“低频 context 更容易产生较大的 train–val gap”的 observational</p>
+<p>pattern 一致。当前图是按 exact-f 先应用纳入标准、再在 log-frequency bins</p>
+<p>内取中位数的降噪展示；它不是两因素公式的正式拟合。正式拟合还缺</p>
+<p>epoch 截面、trigram-only 分支、权重与 profile-likelihood / 可辨识性分析。</p>
+<h3>2.4 Backbone safety 当前状态</h3>
+<p>`bb_safety_L1_nogram_5000` 仍在运行，当前本地快照为 step **1681/5000**：</p>
+<tr><th>step</th><th>fixed train</th><th>fixed val</th><th>fixed gap</th></tr>
+<tr><td>1000</td><td>4.374</td><td>5.148</td><td>+0.774</td></tr>
+<tr><td>1200</td><td>4.022</td><td>5.247</td><td>+1.225</td></tr>
+<tr><td>1400</td><td>3.491</td><td>5.418</td><td>+1.927</td></tr>
+<tr><td>1681</td><td>3.138</td><td>5.724</td><td>**+2.586**</td></tr>
+<p>因此，早期 no-ngram 对照支持 n-gram-induced gap，但长训 safety 已经显示</p>
+<p>backbone-only gap 会增长。最终表述必须以 5000-step 结果为准，不能使用</p>
+<p>“backbone gap 恒为零”的强结论。</p>
+<h2>3. 图片约定</h2>
+<li>**一图一变量**：epoch 图中只变 L（其余全冻结）；table 图中只变 table size。</li>
+<li>**三视图**：每张图同时展示 `train loss`、`val loss`、`gap = val − train`。</li>
+<li>曲线标签直接写在各面板曲线末端；标题写明冻结的 module、alignment 和</li>
+<p>  唯一变化变量，不依赖跨面板共享 legend。</p>
+<li>epoch fixed-step 图固定 module 后只比较 `L1/L2/L3/L4`；no-ngram 图是</li>
+<p>  独立 backbone safety 对照。table 图固定 `L4 + bigram-only` 后只比较</p>
+<p>  `table_mult`。final summary 仍只报告 fixed probe 的 train/val/gap 三项。</p>
+<h2>4. 任务目录与并行运行</h2>
+<p>开发代码全部位于 `tasks/s1_scaling_three_axis/`，包括训练副本、</p>
+<p>`ngram_freq.py`、`table_occupancy.py`、launcher、分析脚本和测试；它们不再</p>
+<p>通过相对路径调用根目录 `code/`。附录目录只保存面向阅读的报告、图和结果摘要。</p>
+<p>各集群均应使用本仓库的独立副本，路径由启动环境中的 `NGLAB_ROOT` 指定，</p>
+<p>结果写入各自的 `data/runs_scaling/`，不会跨机共享同一 run 目录。启动前必须：</p>
+<p>1. 先完成本地 `py_compile` 与测量单测；</p>
+<p>2. 同步整个 `tasks/s1_scaling_three_axis/`；</p>
+<p>3. 用 `md5sum` 核对任务内 `code/` 与 launcher；</p>
+<p>4. 确认目标 GPU 空闲后，再从任务目录启动 pilot/full launcher。</p>
+<p>360-1 当前约有 400 GB 可用空间，可与 360-2 并行排队；这只是资源条件，</p>
+<p>不代表 full grid 已启动。backbone safety 和 pilot QC 完成前不启动完整网格。</p>
+<h2>5. 状态与待办</h2>
+<li>[x] 测量基础设施（epoch_batches / fixed probe / exact-freq / occupancy）+ 11 单测</li>
+<li>[x] Pilot（7 run）：epoch 4 + table 3，全部完成</li>
+<li>[ ] Epoch full grid（L1–L4 × 4 modules × 2 alignments，seed 42；每个 L 配 no-ngram）</li>
+<li>[ ] Table full grid（7 尺寸 × 3 modules）</li>
+<li>[ ] Backbone safety（L1 no-ngram 5000 步）</li>
+<li>[ ] Frequency 两因素拟合 + manifest</li>
+<li>[ ] Seed 43/44 复现 + 三轴联合报告</li><hr><h2>当前图组</h2><figure><img src="figs/epoch_fixedstep_both_train_val_gap.png"><figcaption>Epoch length：both module，fixed-step，train / val / gap</figcaption></figure><figure><img src="figs/epoch_fixedstep_nogram_train_val_gap.png"><figcaption>Backbone safety 对照：no-ngram，fixed-step</figcaption></figure><figure><img src="figs/epoch_fixedprobe_gap_vs_step.png"><figcaption>固定 train probe：both module，fixed-step</figcaption></figure><figure><img src="figs/table_bigram_train_val_gap.png"><figcaption>Table size：bigram-only，L4，train / val / gap</figcaption></figure><figure><img src="figs/table_final_gap_vs_2R.png"><figcaption>Table size：最终 fixed-probe 指标 vs logical addresses</figcaption></figure><figure><img src="figs/exact_freq_gap_by_f_summary.png"><figcaption>Exact frequency：合格频率的 log-bin 中位 gap</figcaption></figure><figure><img src="figs/backbone_safety_L1_nogram_long.png"><figcaption>L1 no-ngram 长训 safety（当前运行快照）</figcaption></figure></body></html>

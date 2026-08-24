@@ -1,6 +1,6 @@
 # Phase 1 confirmatory analysis (toy6, seeds 20001-20040)
 
-raw: /Users/guoshaoyang/Desktop/workdir/OPHIS_gap_repeat_df_runs/20260821_v1/phase1_toy6_confirmation/raw/metrics.jsonl
+raw: raw/metrics.jsonl
 rows: 2560; seeds: 40
 
 ## Gates (runbook 6.2)

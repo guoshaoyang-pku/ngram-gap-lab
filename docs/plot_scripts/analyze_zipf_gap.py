@@ -1,35 +1,51 @@
 #!/usr/bin/env python3
-"""Strict-Zipf reweighting analysis (2026-08-07).
+"""Historical Strict-Zipf reweighting analysis (2026-08-07).
 
 Question: if the toy's ngram frequency distribution were *strict Zipf*
 (N_r ~ 1/r^2, classic rank exponent 1) instead of the current anti-Zipf
 design (N_r ~ 1/r), does the gap-vs-frequency double-log plot become linear?
 
-Answer structure (theory: docs/theory_notes/toy-gap-frequency-distributions.md):
+Answer structure (theory: docs/notes/theory/toy-gap-powerlaw-mechanism.md):
   * per-bucket gap g(r) is a property of training dynamics + val protocol and
     is INDEPENDENT of N_r (separability) -> strict Zipf does not change the
     per-bucket log-log fit;
   * Zipf changes only the WEIGHTS -> aggregate / cumulative curves become
     clean power laws.
 
-Figures -> docs/figs/toy/fig_zipf_gap_analysis.{png,svg}
+The required toy metadata is not shipped in this repository. Supply
+NGLAB_ZIPF_META and NGLAB_ZIPF_REFERENCE explicitly from a reviewed archive.
+
+Figures -> docs/figs/theory/fig_zipf_gap_analysis.{png,svg}
 """
 import json
 import math
 import os
+from pathlib import Path
 
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-RUNS_DIR = os.path.join(REPO_ROOT, "data", "runs")
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "toy")
-os.makedirs(FIGS_DIR, exist_ok=True)
-
-TOY_META = "/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap/toy/runs/t5b_beta_000_999_low/run_meta.json"
-TOY_META_OLD = "/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap/toy/run_meta_table_t5.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RUNS_DIR = Path(os.environ.get("NGLAB_RUNS_DIR", REPO_ROOT / "data" / "runs_fixed"))
+FIGS_DIR = Path(os.environ.get("NGLAB_FIG_DIR", REPO_ROOT / "docs" / "figs" / "theory"))
+TOY_META = Path(os.environ.get(
+    "NGLAB_ZIPF_META",
+    REPO_ROOT / "tasks" / "l1_lookup_replay" / "results" / "inputs"
+    / "t5b_beta_000_999_low" / "run_meta.json",
+))
+TOY_META_OLD = Path(os.environ.get(
+    "NGLAB_ZIPF_REFERENCE",
+    REPO_ROOT / "tasks" / "l1_lookup_replay" / "results" / "inputs"
+    / "run_meta_table_t5.json",
+))
+if "NGLAB_ZIPF_META" not in os.environ or "NGLAB_ZIPF_REFERENCE" not in os.environ:
+    raise SystemExit(
+        "historical T2 inputs are not bundled; set NGLAB_ZIPF_META and "
+        "NGLAB_ZIPF_REFERENCE to reviewed metadata files"
+    )
+FIGS_DIR.mkdir(parents=True, exist_ok=True)
 
 BG = "#f7f5ef"; BORDER = "#c8c1b6"; TEXT = "#686d73"; ANCHOR = "#353d79"
 TRAIN = "#3c8d5a"; VAL = "#d97932"; RED = "#C44E52"
@@ -87,20 +103,24 @@ def strict_zipf_buckets(n_keys=32768, s=2.0, r_max=256):
 
 def main():
     # ---- measured per-bucket g(r) from the toy (final exact eval) ----
-    m = json.load(open(TOY_META))
+    m = json.load(TOY_META.open())
     eg = m["exact_r_gap"]
     rs_toy = np.array(sorted(int(k) for k in eg), float)
     gs_toy = np.array([eg[str(int(r))] for r in rs_toy], float)
 
     # ---- old t5_on_low (clean coincidental/shared kink) ----
-    t5 = json.load(open(TOY_META_OLD))
+    t5 = json.load(TOY_META_OLD.open())
     old = t5["runs"].get("t5_on_low_s42", {})
     eg_old = old.get("exact_r_gap", {})
     rs_old = np.array(sorted(int(k) for k in eg_old), float)
     gs_old = np.array([eg_old[str(int(r))] for r in rs_old], float)
 
     # ---- real model per-bin gap (1x run) ----
-    recs = [json.loads(l) for l in open(os.path.join(RUNS_DIR, "nglab1x_e6", "freq_bin_loss.jsonl")) if l.strip()]
+    recs = [
+        json.loads(line)
+        for line in (RUNS_DIR / "nglab1x_e6_fixed" / "freq_bin_loss.jsonl").open()
+        if line.strip()
+    ]
     last = recs[-1]
     real_x, real_y = [], []
     for gram in ("bigram", "trigram"):
@@ -182,11 +202,11 @@ def main():
                  "not the per-bucket gap curve", fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     for name in ("fig_zipf_gap_analysis",):
-        fig.savefig(os.path.join(FIGS_DIR, name + ".png"), dpi=150)
-        fig.savefig(os.path.join(FIGS_DIR, name + ".svg"))
+        fig.savefig(FIGS_DIR / (name + ".png"), dpi=150)
+        fig.savefig(FIGS_DIR / (name + ".svg"))
     plt.close(fig)
 
-    print("[zipf] wrote", os.path.join(FIGS_DIR, "fig_zipf_gap_analysis.png"))
+    print("[zipf] wrote", FIGS_DIR / "fig_zipf_gap_analysis.png")
     print(f"  toy measured g(r): r={rs_toy.tolist()}")
     print(f"    gaps = {[round(float(g), 2) for g in gs_toy]}")
     fg = loglog_fit(rs_toy, gs_toy)

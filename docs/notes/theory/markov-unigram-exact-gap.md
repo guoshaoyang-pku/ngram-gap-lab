@@ -2,8 +2,8 @@
 
 Date: 2026-08-11
 Status: closed-form theory, numerically verified (all checks pass)
-Code: `code/toy/l2_markov_exact/markov_clean_unigram.py` (self-contained, pure numpy, ~35 s)
-Outputs: `data/toy_results/l2_markov_exact/markov_clean/{fig1_unigram_5epoch,fig2_unigram_saturation,fig3_bigram}.{png,svg}`, `results.json`
+Code: `tasks/l2_markov_exact/markov_clean_unigram.py` (self-contained, pure numpy, ~35 s)
+Outputs: `tasks/l2_markov_exact/results/markov_clean/{fig1_unigram_5epoch,fig2_unigram_saturation,fig3_bigram}.{png,svg}`, `results.json`
 
 ## 0. Question
 
@@ -100,7 +100,7 @@ gamma(l1,l2) = (1 + l1 + l1 l2 - l2^2) / ((1 - l2)(1 - l1 - l2))
 - l1 = 1/4, l2 = 1/2: **gamma = 9 exactly** (numerator 9/8, denominator 1/8).
 
 This coincides with the AR(2) spectral formula used in
-`toy/markov_unigram_gap.py` (section C): both give 9 at (1/4, 1/2).
+`tasks/l2_markov_exact/markov_unigram_gap.py` (section C): both give 9 at (1/4, 1/2).
 
 ## 4. Multi-epoch transient
 
@@ -147,7 +147,7 @@ unigram gap (measured long-run gap 0.227 implies an effective `gamma_b ~ 1.8`
 for the per-context subsequences). Loss and gap curves remain in the same
 qualitative regime: fixed replay positive and saturating, fresh replay ~ 0.
 
-## 6. Clean experiment (`toy/markov_clean_unigram.py`)
+## 6. Clean experiment (`tasks/l2_markov_exact/markov_clean_unigram.py`)
 
 Deliberately minimal setting:
 
@@ -190,20 +190,20 @@ then train/val split below/above it (long-run 3.694 / 3.921); 5-epoch gap
 
 ## 7. Reconciliation of all previous toy runs
 
-- `data/toy_results/l2_markov_exact/bigram_bc_m512` (M=512, 5 ep, per-epoch full-batch
+- `tasks/l2_markov_exact/results/bigram_bc_m512` (M=512, 5 ep, per-epoch full-batch
   eta=0.12): fixed unigram gap 2.5387e-6 vs exact theory 2.5687e-6 (1%
   agreement); fresh +5.0e-7 ~ 0; bigram +1.1e-4 small positive, fresh
   -1.3e-5 ~ 0 (its bigram gap is smaller than this script's 7.3e-4 because
   its per-row update schedule differs; both are far below the M-times-larger
   bigram asymptotic scale).
-- `data/toy_results/l2_markov_exact/unigram_m64_dense` / `unigram_m64_sgd` (M=64, N=2^20):
+- `tasks/l2_markov_exact/results/unigram_m64_dense` / `unigram_m64_sgd` (M=64, N=2^20):
   fixed unigram gap +1.8e-4 / +9.1e-5, both positive and tiny; fresh controls
   +3.1e-5 / +1.4e-5; context-table gaps ~ 0 because N/M^2 is large (dense
   regime, `gamma_b (M-1) M / N ~ 5e-4` scale). Signs and ordering all match
   the theory; exact beta depends on their update schedules.
-- `data/toy_results/l1_lookup_replay/markov_5ep`: gap -1.3e-5 +- 7.5e-5, table_rms = 0 --
+- `tasks/l1_lookup_replay/results/markov_5ep`: gap -1.3e-5 +- 7.5e-5, table_rms = 0 --
   no memorization, consistent with the dense-regime prediction.
-- `toy/markov_unigram_gap.py` (sections A-F, Zipf + uniform T): its AR(2)
+- `tasks/l2_markov_exact/markov_unigram_gap.py` (sections A-F, Zipf + uniform T): its AR(2)
   IACT formula is identical to the gamma closed form above (both give 9 at
   (1/4,1/2)); its Monte Carlo of `E[g_inf]`, the fixed-vs-fresh GD runs, and
   the linearized convergence-rate check are the general-T counterparts of
@@ -226,4 +226,4 @@ then train/val split below/above it (long-run 3.694 / 3.921); 5-epoch gap
    it is the predicted value `beta_5 gamma (M-1)/N = 2.57e-6`, confirmed to
    1% by two independent implementations.
 
-Reproduce: `python3 toy/markov_clean_unigram.py`
+Reproduce: `python3 tasks/l2_markov_exact/markov_clean_unigram.py`

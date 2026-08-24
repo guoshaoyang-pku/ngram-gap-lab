@@ -22,7 +22,7 @@ no RoPE, no RMSNorm, no momentum on the table optimizer.
 | backbone | vanilla nanoGPT — 8L · 6H · 768D, vocab 8192, learned abs position, LayerNorm, tied embeddings |
 | n-gram module | bigram + trigram value table, **`input` / wte injection** (over-encoding) |
 | table size | **1M** (`vocab_size × 64 = 524,288` rows × 2 hash embeddings) — default, never changed |
-| table optimizer | **RMSProp, no momentum**, betas `(0.0, 0.999)` (alternative β₂ = `0.99`) |
+| table optimizer | **RMSProp, no momentum**, betas `(0.0, 0.99)` |
 | backbone optimizer | AdamW `(0.8, 0.95)`, lr 0.004, wd 0.1 |
 | data | fixed-order epoch replay, seed 42, 1000 / 2000 steps |
 | evaluation | validation + freq-bin eval every **10 steps**, **fixed** validation batches |
@@ -50,8 +50,7 @@ ngram-gap-lab/
 │   ├── train.py           # vanilla nanoGPT + n-gram table + 3 injection points (<1000 lines)
 │   ├── ngram_freq.py      # per-frequency-bin loss statistics
 │   ├── cluster/           # cluster launchers + env setup
-│   ├── toy/               # pure numpy/torch theory scripts (no backbone dependency)
-│   └── tools/             # corpus entropy, generator equivalence checks
+│   ├── tools/              # corpus entropy, generator equivalence checks
 ├── ngram5_freq_gap/       # order-5 / trigram controlled experiment package
 ├── docs/
 │   ├── plan.md            # phenomenon definition, ablation variables, experiment queue
@@ -64,15 +63,15 @@ ngram-gap-lab/
 │   ├── archive/           # historical docs (incl. deprecated current-shell results)
 │   ├── plot_scripts/      # figure generation
 │   └── figs/              # figures (figs/theory/ for toy & theory)
-└── data/                  # gitignored: tokenized shards, freq index, run outputs, toy results
+└── data/                  # gitignored: tokenized shards, freq index, and run outputs
 ```
 
 ## Quick start
 
-### On ophis-gpu
+### On a GPU cluster
 
 ```bash
-cd /data3/guoshaoyang/ngram-gap-lab
+cd /path/to/ngram-gap-lab
 bash code/cluster/setup_env.sh                 # env (reuses existing torch)
 bash code/cluster/run_injpos.sh 0 2000         # v/y/input/nogram ablation, 2000 steps
 ```
@@ -96,15 +95,15 @@ python code/train.py --run_id smoke --injection_position input --steps 10 \
 
 The authoritative write-up is the 9-chapter minimal-mainline version at
 [ngram-gap-mechanism-guide](https://guoshaoyang-pku.github.io/blogs/ngram-gap-mechanism-guide/).
-The old chapter 0–19 full version in the deprecated OPHIS repo is **not** maintained — see `agents.md` §2.
+The old chapter 0–19 full version is **not** maintained — see `agents.md` §2.
 
-## Relationship to OPHIS
+## Relationship to the predecessor codebase
 
-This repo is a clean extraction from the larger OPHIS codebase, whose `train.py` was 6966 lines with
-current shell, Muon, RoPE, RMSNorm — all proven unnecessary for the gap phenomenon. **OPHIS_gap is
-deprecated as of 2026-08-23**; theory notes, literature, methodology, toy scripts and figures have been
-migrated here (see `agents.md` §7).
+This repo is a clean extraction from a larger predecessor codebase, whose `train.py` was 6966 lines
+with current shell, Muon, RoPE, and RMSNorm. Those components are not part of the minimal evidence
+base; the theory notes, literature, methodology, toy scripts, and figures needed here have been
+migrated into this repository (see `agents.md` §7).
 
 ## License
 
-Apache-2.0 (inheriting from OPHIS/nanoGPT upstream).
+Apache-2.0 (inheriting from the nanoGPT upstream).

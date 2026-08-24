@@ -49,9 +49,9 @@ for i, (inp, tgt) in enumerate(loader):
 
 ## 2. 证据
 
-- 本地 `data/runs/nglab1x_v10_input/train_log.jsonl`：最后一条 `step 2000, epoch 9`；`freq_bin_loss.jsonl` 共 200 行。
-- 本地 `data/runs/nglab1x_e6`（1400 步）：末尾 `epoch 7` vs 真实 ≈4.15 epoch。
-- 远程 `data/runs/nglab5x_input_fv`、`nglab6x_input_fv`、`nglab8x_input_fv` 等同样受影响。
+- 历史 `data/runs/nglab1x_v10_input/train_log.jsonl`：最后一条 `step 2000, epoch 9`；`freq_bin_loss.jsonl` 共 200 行。
+- 历史 `data/runs/nglab1x_e6`（1400 步）：末尾 `epoch 7` vs 真实 ≈4.15 epoch。
+- 历史 `data/runs/nglab5x_input_fv`、`nglab6x_input_fv`、`nglab8x_input_fv` 等同样受影响。
 - 所有历史 run 的 `train.log` 都有 `[nglab] freq-bin eval enabled`，即诊断路径全部开启。
 
 ## 3. 已应用的修复（reviewer 需复核）
@@ -77,8 +77,8 @@ for i, (inp, tgt) in enumerate(loader):
 
 | 位置 | 路径 | 状态 |
 |---|---|---|
-| 本地（git 仓库） | `/Users/guoshaoyang/Desktop/workdir/ngram-gap-lab/code/train.py` | 已修复，未 commit |
-| 远程 360-2（**非 git**，普通拷贝） | `/data/home/guoshaoyang/ngram-gap-lab/code/train.py` | 已 scp 同步，含修复 |
+| 本地（git 仓库） | `code/train.py` | 已修复，未 commit |
+| 远程副本（**非 git**，普通拷贝） | 由 `NGLAB_ROOT/code/train.py` 指定 | 已同步，含修复 |
 
 远程无版本控制，重跑前必须重新校验一致性（见 §5）。
 
@@ -106,12 +106,12 @@ for i, (inp, tgt) in enumerate(loader):
 判别设计：用 0.25x shard（62），84 batch/epoch，400 步可跨过多次 epoch，新旧代码 epoch 差异明显。
 
 ```bash
-ssh 360-2
-cd /data/home/guoshaoyang/ngram-gap-lab
-mkdir -p data/runs/smoke_fixed_verify
+ssh cluster-alias
+cd /path/to/ngram-gap-lab
+mkdir -p data/runs_fixed/smoke_fixed_verify
 CUDA_VISIBLE_DEVICES=7 python3 -u code/train.py \
   --run_id smoke_fixed_verify --injection_position input --steps 400 --seed 42 \
-  --data_dir data/tokenized --out_dir data/runs \
+  --data_dir data/tokenized --out_dir data/runs_fixed \
   --train_shards 62 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
   --device_batch_size 72 --total_batch_size 147456 \
   --val_interval 10 --val_batches 4 --table_norm_interval 10 --lr 0.004 \
@@ -150,7 +150,7 @@ CUDA_VISIBLE_DEVICES=7 python3 -u code/train.py \
 | 短 epoch b2=0.99（0.25x/0.5x，2000 步） | `code/cluster/run_epoch_short_b2.sh` | `nglab025x_b2_099` / `nglab05x_b2_099` |
 | 早期 2x v/y/input | `code/cluster/run_train2x.sh` | `nglab2x_v` / `_y` / `_input` |
 
-完整 run 清单：本地 `data/runs/`（58 目录）与远程 `data/runs/`（23 目录）的并集。远程缺 v10 系列（本地有数据拷贝）；重跑以远程为准，结果 rsync 回本地归档。
+完整 run 清单：历史 `data/runs/`（58 目录）与远程结果（23 目录）的并集。重跑结果统一回收到 `data/runs_fixed/`。
 
 ### 7.3 对比方法
 
@@ -160,7 +160,7 @@ CUDA_VISIBLE_DEVICES=7 python3 -u code/train.py \
 
 ## 8. 环境与注意事项
 
-- 集群：SSH 别名 `360-2` = gpu02（10.234.161.3，用户 `guoshaoyang`，8×H200，需 QConnect VPN 在线；首连约 10s）。仓库在 `/data/home/guoshaoyang/ngram-gap-lab`。
+- 集群：通过 SSH 别名连接，具体仓库路径由 `NGLAB_ROOT` 指定。
 - 数据与索引：`data/tokenized/shard_*.bin` + `data/freq_index*.npz` 在远程齐全；shard 60/61/62/63/64 为 0.5x/0.25x 分片。
 - 算力：2000 步 1x ≈ 75 min/run（H200）；并行 8 个，全量重跑墙钟约 10-15 h。
 - 旧 run 数据（含 bug 版本）**一律保留**，重跑确认后再决定归档。

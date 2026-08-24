@@ -28,7 +28,7 @@ Env vars (all optional; defaults shown):
   LEARNING_RATE         9e-4  (overridden by NANOGPT_ADAM_LR if set)
   WARMUP_RATIO          0.0
   ADAM_WARMDOWN_RATIO   0.65
-  WARMDOWN_RATIO        0.95  (used for the late n-gram beta2 ramp)
+  WARMDOWN_RATIO        0.95  (legacy schedule variable; does not alter table beta2)
   FINAL_LR_FRAC         0.05
   WEIGHT_DECAY          0.1
   VAL_LOSS_INTERVAL_STEPS 10
@@ -123,8 +123,8 @@ MUON_WARMDOWN_RATIO = float(os.environ.get("WARMDOWN_RATIO", "0.95"))
 FINAL_LR_FRAC = float(os.environ.get("FINAL_LR_FRAC", "0.05"))
 ADAM_BETAS = (0.8, 0.95)
 DEMON_FINAL_BETA1 = 0.55
-NGRAM_VE_BETAS = (0.0, 0.999)
-NGRAM_VE_BETA2_WARMDOWN = 0.9999
+NGRAM_VE_BETAS = (0.0, 0.99)
+NGRAM_VE_LR_SCALE = float(os.environ.get("NGRAM_TABLE_LR_SCALE", "2.0"))
 
 VAL_LOSS_INTERVAL_STEPS = int(os.environ.get("VAL_LOSS_INTERVAL_STEPS", "10"))
 VAL_LOSS_BATCHES = int(os.environ.get("VAL_LOSS_BATCHES", "4"))
@@ -976,7 +976,7 @@ def main() -> None:
             matrix_lr=0.04,
             weight_decay=WEIGHT_DECAY,
             ngram_ve_betas=NGRAM_VE_BETAS,
-            ngram_ve_lr_scale=1.0,
+            ngram_ve_lr_scale=NGRAM_VE_LR_SCALE,
             nanogpt_adam_lr=LEARNING_RATE,
             nanogpt_ngram_optimizer=os.environ.get(
                 "NANOGPT_NGRAM_OPTIMIZER", "mixed"),
@@ -1114,6 +1114,7 @@ def main() -> None:
             "learning_rate": LEARNING_RATE,
             "adam_betas": list(ADAM_BETAS),
             "ngram_ve_betas": list(NGRAM_VE_BETAS),
+            "ngram_ve_lr_scale": NGRAM_VE_LR_SCALE,
             "weight_decay": WEIGHT_DECAY,
             "ngram_optimizer": os.environ.get("NANOGPT_NGRAM_OPTIMIZER", "mixed"),
             "matrix_optimizer": os.environ.get("NANOGPT_MATRIX_OPTIMIZER", "adamw"),
@@ -1239,17 +1240,6 @@ def main() -> None:
                 beta1 = ADAM_BETAS[0] + (DEMON_FINAL_BETA1 - ADAM_BETAS[0]) * adam_frac
                 for group in adam_demon_groups:
                     group["betas"] = (beta1, group["betas"][1])
-            muon_frac = max(
-                0.0,
-                (progress - (1.0 - MUON_WARMDOWN_RATIO)) / MUON_WARMDOWN_RATIO,
-            )
-            late_frac = max(0.0, (muon_frac - 0.7) / 0.3)
-            if late_frac > 0.0:
-                ve_beta2 = NGRAM_VE_BETAS[1] + late_frac * (
-                    NGRAM_VE_BETA2_WARMDOWN - NGRAM_VE_BETAS[1]
-                )
-                for group in ngram_groups:
-                    group["beta2"] = ve_beta2
             optimizer.step()
         else:
             optimizer.step(lr_mult=lrm)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strict-Zipf toy experiment figures (2026-08-07, 360-2).
+"""Historical Strict-Zipf toy experiment figures (2026-08-07).
 
 Compares per-bucket gap g(r) under:
   * strict Zipf N_r ~ 1/r^2 (t5z_zipf_s42/43/44, this batch)
@@ -7,21 +7,33 @@ Compares per-bucket gap g(r) under:
   * old kink design       (t5_on_low_s42, reference)
 and checks whether gap-vs-frequency double-log linearity improves.
 
-Figures -> docs/figs/toy/fig_zipf_experiment.{png,svg}
+The required run metadata is not shipped in this repository. Supply
+NGLAB_TOY_RESULTS explicitly from an archived, reviewed result bundle before
+running this script.
+
+Figures -> docs/figs/theory/fig_zipf_experiment.{png,svg}
 """
 import json
 import os
+from pathlib import Path
 
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIGS_DIR = os.path.join(REPO_ROOT, "docs", "figs", "toy")
-os.makedirs(FIGS_DIR, exist_ok=True)
-
-TOY_RUNS = "/Users/guoshaoyang/Desktop/workdir/OPHIS/OPHIS_gap/toy/runs"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FIGS_DIR = Path(os.environ.get("NGLAB_FIG_DIR", REPO_ROOT / "docs" / "figs" / "theory"))
+TOY_RUNS = Path(os.environ.get(
+    "NGLAB_TOY_RESULTS",
+    REPO_ROOT / "tasks" / "l1_lookup_replay" / "results" / "inputs",
+))
+if "NGLAB_TOY_RESULTS" not in os.environ:
+    raise SystemExit(
+        "historical T2 inputs are not bundled; set NGLAB_TOY_RESULTS "
+        "to a reviewed result bundle"
+    )
+FIGS_DIR.mkdir(parents=True, exist_ok=True)
 BG = "#f7f5ef"; BORDER = "#c8c1b6"; TEXT = "#686d73"; ANCHOR = "#353d79"
 RED = "#C44E52"; GREEN = "#3c8d5a"; ORANGE = "#d97932"
 
@@ -60,12 +72,12 @@ def main():
     zfits = []
     zall = {}
     for s in ["t5z_zipf_s42", "t5z_zipf_s43", "t5z_zipf_s44"]:
-        rs, gs, m = load_eg(os.path.join(TOY_RUNS, s + ".run_meta.json"))
+        rs, gs, m = load_eg(TOY_RUNS / (s + ".run_meta.json"))
         zfits.append((rs, gs, m))
         for r, g in zip(rs, gs):
             zall.setdefault(int(r), []).append(float(g))
-    rs0, gs0, m0 = load_eg(os.path.join(TOY_RUNS, "t5b_beta_000_999_low/run_meta.json"))
-    t5 = json.load(open(os.path.join(TOY_RUNS, "..", "run_meta_table_t5.json")))
+    rs0, gs0, m0 = load_eg(TOY_RUNS / "t5b_beta_000_999_low" / "run_meta.json")
+    t5 = json.load((TOY_RUNS / "run_meta_table_t5.json").open())
     old = t5["runs"]["t5_on_low_s42"]
     eg_old = {int(float(k)): v for k, v in old["exact_r_gap"].items()}
     rs_old = np.array(sorted(eg_old), float)
@@ -98,10 +110,14 @@ def main():
     cur_rs = np.array([1, 2, 4, 8, 16, 32, 64, 128, 256], float)
     cur_ns = np.array([16384, 8192, 4096, 2048, 1024, 512, 256, 128, 128], float)
     zipf_n = {}
-    for r, n in json.load(open(os.path.join(TOY_RUNS, "t5z_zipf_s42.run_meta.json"))) .get("exact_r_gap", {}).items():
+    for r, n in json.load((TOY_RUNS / "t5z_zipf_s42.run_meta.json").open()).get("exact_r_gap", {}).items():
         pass
     # real bucket counts from generator meta (cache data)
-    gen = json.load(open("/tmp/t5zipf_meta.json")) if os.path.exists("/tmp/t5zipf_meta.json") else {}
+    gen_path = Path(os.environ.get(
+        "NGLAB_ZIPF_GENERATOR_META",
+        REPO_ROOT / "tasks" / "l1_lookup_replay" / "results" / "inputs" / "t5zipf_meta.json",
+    ))
+    gen = json.load(gen_path.open()) if gen_path.exists() else {}
     zb = {int(float(k)): v for k, v in gen.get("buckets", {}).items()}
     ax.plot(np.log2(cur_rs), np.log2(cur_ns), "o-", color=GREEN, lw=1.6, label="anti-Zipf t5b (slope ≈ −1)")
     if zb:
@@ -118,11 +134,11 @@ def main():
                  "the per-bucket gap curve does not change", fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     for name in ("fig_zipf_experiment",):
-        fig.savefig(os.path.join(FIGS_DIR, name + ".png"), dpi=150)
-        fig.savefig(os.path.join(FIGS_DIR, name + ".svg"))
+        fig.savefig(FIGS_DIR / (name + ".png"), dpi=150)
+        fig.savefig(FIGS_DIR / (name + ".svg"))
     plt.close(fig)
 
-    print("[zipf-exp] wrote", os.path.join(FIGS_DIR, "fig_zipf_experiment.png"))
+    print("[zipf-exp] wrote", FIGS_DIR / "fig_zipf_experiment.png")
     fz = loglog_fit(zr, zg)
     ft = loglog_fit(rs0[rs0 != 8], gs0[rs0 != 8])
     fo = loglog_fit(rs_old, gs_old)

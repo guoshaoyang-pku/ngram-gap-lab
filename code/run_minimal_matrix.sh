@@ -91,7 +91,7 @@ for arm in "${ARMS[@]}"; do
     NGRAM_GLOBAL_FREQUENCY_DIR="$DATA_DIR" \
     TORCH_COMPILE=0 \
     REMOTE_RESULT_DIR="$RESULT_DIR" \
-    RUN_ID="$RUN_ID" \
+    RUN_ID="${RUN_ID}_fixed" \
     "$PY" -u "$TRAINER" > "$RESULT_DIR/train.log" 2>&1 &
   echo "[launched] $NAME pid=$!"
   i=$((i + 1))

@@ -80,7 +80,7 @@ collision frequency.
 
 ## Files
 
-- generator: `toy/synthetic_transition_gen.py`
+- generator: `tasks/l4_synth_powerlaw/synthetic_transition_gen.py`
 - generated contract: `run_contract.json`
 - exact frequency index: `exact_ngram_counts.npz`
 - dataset metadata: `metadata.json`
