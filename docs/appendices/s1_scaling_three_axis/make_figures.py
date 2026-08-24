@@ -373,16 +373,16 @@ def plot_exact_freq_summary(runs):
         (
             "Epoch scaling by exact f (eligible f; module=both)",
             [
-                ("L1", "pilot_ep_L1_both_fs", "#2196F3"),
-                ("L4", "pilot_ep_L4_both_fs", "#E91E63"),
+                ("L1", epoch_run_id(runs, "L1", "both", "fs"), "#2196F3"),
+                ("L4", epoch_run_id(runs, "L4", "both", "fs"), "#E91E63"),
             ],
         ),
         (
             "Table-size scaling by exact f (eligible f; module=bigram-only)",
             [
-                ("1M", "tbl_pilot_1M_bigram", "#2196F3"),
-                ("128K", "tbl_pilot_128K_bigram", "#FF9800"),
-                ("16K", "tbl_pilot_16K_bigram", "#E91E63"),
+                ("1M", table_run_id(runs, 64, "bigram"), "#2196F3"),
+                ("128K", table_run_id(runs, 8, "bigram"), "#FF9800"),
+                ("16K", table_run_id(runs, 1, "bigram"), "#E91E63"),
             ],
         ),
     ]
@@ -399,7 +399,9 @@ def plot_exact_freq_summary(runs):
         ax.set_ylabel("gap (val−train) @ f")
         ax.set_title(title)
         ax.grid(alpha=0.3, which="both")
-        ax.legend()
+        handles, labels = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
     axs[1].set_xlabel("exact bigram frequency f")
     fig.tight_layout()
     fig.savefig(

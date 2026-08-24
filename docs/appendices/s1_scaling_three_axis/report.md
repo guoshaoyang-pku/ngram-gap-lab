@@ -1,10 +1,9 @@
 # 附录 · 三轴 scaling 验证（epoch 长度 / exact frequency / table size）
 
 > **实验线**：T-scaling（极简 setting 下验证三条 scaling 曲线）
-> **状态**：🟡 旧 pilot QC 已完成；当前标准的 S1 run 尚未形成
-> canonical 证据
-> **数据源**：`data/runs_scaling/<run_id>_fixed/`；现有不带 `_fixed` 的
-> pilot 只作历史 QC
+> **状态**：🟡 当前标准基础 QC 已完成 7 个锚点；完整 S1 scaling 仍未完成
+> **数据源**：`data/runs_scaling/basic_*`（基础 QC）及后续
+> `data/runs_scaling/<run_id>_fixed/`（正式网格）
 > **代码**：`tasks/s1_scaling_three_axis/`（launchers + analysis + 单测）
 > **计划**：`docs/plans/plan-3-fix-and-backfill.md`
 
@@ -40,108 +39,118 @@
 | 数据 | 自然语料 shard 1 嵌套前缀，train/val 零重叠 |
 | 测量 | fixed train probe（4 batches，SHA256）+ exact-frequency + occupancy |
 | compute | bf16 autocast + `torch.compile` |
-| validation / probe | 每 10 步；fixed validation + fixed train probe |
-| 结果目录 | `data/runs_scaling/<run_id>_fixed/` |
+| validation / probe | 基础 QC 每 25 步；正式网格每 10 步；均为 fixed validation + fixed train probe |
+| 结果目录 | 基础 QC：`data/runs_scaling/basic_*`；正式网格：`data/runs_scaling/<run_id>_fixed/` |
 
-## 2. 已有历史 pilot（不属于当前标准证据）
+## 2. 数据分层与当前状态
 
-本地 `data/runs_scaling/` 中现有的 13 个目录均为历史 pilot/basic/safety
-产物：8 个旧 `pilot_*` / safety 目录中，7 个带有 summary 的目录使用
-`table_lr_scale=1.0` 和 50 步 validation/probe 周期，另有 1 个未完成的
-backbone safety 目录没有 summary；5 个 `basic_*` 虽使用 β₂=0.99 和
-table LR×2，但仍使用 25 步周期且没有 bf16/compile metadata；所有目录都不带
-`_fixed`。因此当前分析脚本会拒绝这些目录；它们的数字只能作为历史 QC，
-不能支撑当前 `table_lr_scale=2.0`、v10、bf16+compile 的 scaling 结论。当前标准 run 必须同时满足 `_fixed` 目录、
-`summary.json.run_id` 与物理目录名一致、β 值 `[0.0, 0.99]`、table LR
-scale `2.0` 和 10 步 validation cadence。
+结果分成两层：
+
+1. **历史 pilot**：`pilot_*`、`tbl_pilot_*` 和旧 safety 目录，只用于方法
+   QC 与溯源，不用于当前标准的 scaling 定律。
+2. **当前标准基础 QC**：7 个 `basic_*` 锚点，使用 β₂=0.99、
+   `table_lr_scale=2.0`、bf16 + compile、固定 train probe，但采用
+   25 步打点以降低基础试验开销。它们用于回答“规律是否出现”，不能
+   替代 10 步 cadence 的正式 full grid。
+
+正式网格仍要求 `_fixed` 目录、完整 run contract、10 步 validation/probe
+cadence，并在多 seed 下复现。
+
+本地已有的 7 个 `basic_*` 结果是在本次降频修正之前生成的：它们的
+fixed-probe 与 exact-frequency 记录会同频出现，因此 L1 中日志行数较多。
+代码和 launcher 现已拆开两种 cadence：fixed probe 每 25 步，宽 bucket
+与 exact-frequency 每 100 步，并保留 epoch 边界与最终步；下一批重跑后，
+报告中的运行时比较应以新 contract 为准，不能把旧日志行数当作训练开销。
 
 ### 2.0 数据量和完整性
 
-当前本地 `data/runs_scaling/` 有 **13 个历史实验目录**：
+当前本地 `data/runs_scaling/` 有 **15 个实验目录**：
 
-- **8 个旧 pilot/safety run**：epoch 轴 4 个，table 轴 3 个，另有 1 个
-  未完成的 backbone safety；
-- **5 个 basic QC run**：epoch 轴 2 个，table 轴 3 个；
-- 暂无 full-grid、fixed-epoch、trigram-only、both 的 table-size 或多 seed
+- **8 个历史 pilot/safety run**：epoch 轴 4 个，table 轴 3 个，另有 1 个
+  backbone safety；
+- **7 个当前标准 basic QC run**：epoch 轴 4 个（L1/L4 × both/no-ngram），
+  table 轴 3 个（1M/16K bigram、1M trigram）；
+- 暂无 full-grid、fixed-epoch、完整 table-size、多 seed 或 5000 步 safety
   结果，因此当前不能声称三条 scaling 已被完整验证。
 
-这些历史 QC run 都有：
+7 个 basic run 都有：
 
 - 在线 train/val 记录和 fixed-probe 记录；
-- exact-frequency 最后快照覆盖 bigram 3088 个正频率、trigram 1477 个正频率；
+- exact-frequency 最后快照覆盖 train/val 共同的 63 个 bigram exact-f 值、
+  57 个 trigram exact-f 值（按纳入标准）；
 - 在 `>=1024` tokens 且 `>=32` contexts 的 train/val 共同纳入标准下，
-  最后快照有 63 个 bigram exact-f 值、57 个 trigram exact-f 值可用于
-  初步比较；
-- 三个 table run 另有逐 branch/layer/hash 的 occupancy 文件。
+  可用于基础曲线比较；table 锚点另已生成逐 branch/layer/hash 的 occupancy 文件。
 
-日志数据约 **555 MB**；固定 train probe hash 需要以各 run metadata
-为准，不能因为历史 run 的 hash 相同就越过协议差异。
+7 个 basic 结果日志约 **500 MB**；固定 train probe hash 均为
+`38d1254a827759d6`。summary 将 bf16/compile 记录在顶层
+`compute_dtype` / `torch_compile`，而不是 `config` 内；后续 contract
+校验应读取实际字段，不能仅凭目录名判断。
 
-### 2.1 Epoch length（历史 pilot，fixed-step 1000 步）
+### 2.1 Epoch length（当前标准基础 QC，fixed-step 1000 步）
 
 | run | epoch batches | 重播轮数 | final fixed gap |
 |---|---|---|---|
-| `pilot_ep_L1_both_fs` | 42 | ~23 | **+3.59** |
-| `pilot_ep_L4_both_fs` | 336 | ~3 | **+0.74** |
-| `pilot_ep_L1_nogram_fs` | 42 | ~23 | +0.17 |
-| `pilot_ep_L4_nogram_fs` | 336 | ~3 | −0.004 |
+| `basic_L1_both_fs` | 42 | ~24 | **+2.385** |
+| `basic_L4_both_fs` | 336 | ~3 | **+2.341** |
+| `basic_L1_nogram_fs` | 42 | ~24 | +0.085 |
+| `basic_L4_nogram_fs` | 336 | ~3 | **−0.008** |
 
-**历史观察 F1（非 canonical）· gap 主要来自 n-gram 表重播，而非 backbone**：两个
-1000-step no-ngram 对照的固定 gap 都接近 0，而 both 臂明显更大。这个结论
-仍需等待 L1 no-ngram 5000-step safety 完成；当前 safety 在 step 1000 时
-gap 为 +0.77，step 1681 时已到 +2.59，说明长训 backbone 也可能产生
-non-negligible gap，不能再写成“backbone 自身不会产生 gap”。
+**基础 QC 观察 E1（尚非 scaling 定律）**：在新标准、1000-step 截面，
+both 臂产生约 +2.34–2.39 的 gap，而两个 no-ngram 对照约为 0。这说明
+forking 在新标准下清晰出现；但 L1 与 L4 的终点几乎相同，不能再引用旧
+pilot 的“L1 明显大于 L4”作为当前标准结论。必须等待 L2/L3、fixed-epoch
+对齐和多 seed。
 
-**历史观察 F2（非 canonical）· fixed-step 下短 epoch 的 gap 明显更大**：L1（约 23
-次重播）gap = 3.59，L4（约 3 次重播）gap = 0.74，约 4.8 倍。它支持
-“更多 replay 会放大 gap”的解释，但还不是纯粹的 epoch-length scaling，
-因为 fixed-epoch 对齐和完整 L1–L4 网格尚未完成。
+no-ngram 的两个 1000-step 对照暂未显示明显 backbone gap；但独立的
+`bb_safety_L1_nogram_5000` 仍需完成后，才能界定长训 backbone 的贡献。
 
 （fixed-epoch 对齐的 full grid 才能分离「重播次数」与「epoch 长度本身」的效应。）
 
-### 2.2 Table size（历史 pilot；L4, bigram-only, 1000 步）
+### 2.2 Table size（当前标准基础 QC，L4，fixed-step 1000 步）
 
-| run | logical 2R | final gap | collision rate (bigram L0 h0) |
-|---|---|---|---|
-| `tbl_pilot_1M_bigram` | 1,048,576 | **+0.40** | 0.998+ |
-| `tbl_pilot_128K_bigram` | 131,072 | +0.12 | 1.0 |
-| `tbl_pilot_16K_bigram` | 16,384 | +0.03 | 1.0 |
+| run | logical 2R | module | final fixed gap |
+|---|---:|---|---:|
+| `basic_tbl_1M_bigram` | 1,048,576 | bigram-only | **+0.801** |
+| `basic_tbl_16K_bigram` | 16,384 | bigram-only | **+0.016** |
+| `basic_tbl_1M_trigram` | 1,048,576 | trigram-only | **+0.815** |
 
-**历史观察 F3（非 canonical）· table 越小 gap 越小（单调）**：1M→128K→16K
-（逻辑地址从 1,048,576 降到 16,384），gap 为 **0.394→0.128→0.034**。
-occupancy 诊断显示三点的 bigram collision rate 约为 **0.852→0.981→0.998**，
-平均 co-occupants 约为 **94.6→756→6048**。这与 collision pooling 的方向
-一致：小 table 把更多 context 混入同一 row，削弱逐 context 记忆。但现在只有
-3 个 table size、1 个 module、1 个 seed，尚不足以区分 collision 曲线与
-参数量曲线，也不能判断是否已经进入 plateau。
+**基础 QC 观察 T1（尚非完整 table scaling）**：在同一 L4、同一 seed、同一
+1000-step 预算下，1M→16K bigram gap 从 +0.801 降至 +0.016，方向与
+collision pooling 假设一致；1M trigram 也产生约 +0.815 的 gap。目前仅有
+两个 table size、bigram-only 的直接对比。当前 occupancy（L4 的 24,192
+train chunks）显示：bigram 的 `K=3,532,481`，1M 点 layer-0/hash-0
+collision rate 为 0.8518、mean co-occupants 为 94.7；16K 点分别为
+0.9977 和 6048.0。该方向支持 collision pooling 的候选解释，但仍不能
+判断参数量与 collision 哪个机制占主导，也不能声称 plateau。
 
-### 2.3 Exact-frequency 历史 QC 能说什么
+### 2.3 Exact-frequency（当前标准基础 QC）
 
-在旧 pilot 满足纳入标准的 exact-f 上，bigram 的 gap 随 f 增大总体下降；例如：
+当前标准 exact-f 图显示，`both` 的 L1/L4 曲线都随 `f` 增大而下降，且
+低频段 gap 约在 2–8，高频端降到约 2–3；L1 与 L4 的形状相近。在 table
+轴，1M bigram 的 gap 随 `f` 明显下降（约 5.9→0.3），而 16K 曲线整体
+接近 0。
 
-- L1 both：低频 `f=1–10` 的中位 gap 约 7.40，高频 `f=11–100` 约 4.67；
-- L4 both：对应约 1.82 和 0.84；
-- table 1M / 128K / 16K：低频段约 1.20 / 0.37 / 0.08。
+这与“低频 context 更容易产生较大 gap”的 observational pattern 一致，
+但图中为 exact-f 纳入后再做 log-frequency 分箱中位数的展示，不是两因素
+公式的正式拟合。当前只有 seed 42、有限截面，且缺少 fixed-epoch、完整
+table 网格和 profile-likelihood，因此不能报告 `A,c,β,γ` 的稳定估计。
 
-这与“低频 context 更容易产生较大的 train–val gap”的 observational
-pattern 一致，但只属于旧 pilot QC。当前图是按 exact-f 先应用纳入标准、再在 log-frequency bins
-内取中位数的降噪展示；它不是两因素公式的正式拟合。正式拟合还缺
-epoch 截面、trigram-only 分支、权重与 profile-likelihood / 可辨识性分析。
+### 2.4 Backbone safety
 
-### 2.4 Backbone safety 历史状态
-
-`bb_safety_L1_nogram_5000` 仍在运行，当前本地快照为 step **1681/5000**：
+`bb_safety_L1_nogram_5000` 仍在运行；截至最近快照为 step **4000/5000**，
+固定 probe gap 已达到 **+13.236**。该 run 尚未按当前标准完成并同步最终
+结果：
 
 | step | fixed train | fixed val | fixed gap |
 |---:|---:|---:|---:|
 | 1000 | 4.374 | 5.148 | +0.774 |
 | 1200 | 4.022 | 5.247 | +1.225 |
 | 1400 | 3.491 | 5.418 | +1.927 |
-| 1681 | 3.138 | 5.724 | **+2.586** |
+| 1681 | 3.138 | 5.724 | +2.586 |
+| 4000 | 0.368 | 13.604 | **+13.236** |
 
-因此，旧 no-ngram 对照曾支持 n-gram-induced gap，但长训 safety 已经显示
-backbone-only gap 会增长。最终表述必须以 5000-step 结果为准，不能使用
-“backbone gap 恒为零”的强结论。
+因此目前只能说：1000-step no-ngram 锚点接近零；长训 backbone 是否产生
+non-negligible gap 仍是开放 QC 问题。
 
 ## 3. 图片约定
 

@@ -1047,6 +1047,9 @@ def main():
                         help="path to freq_index.npz; if set, enables freq-bin eval")
     parser.add_argument("--freq_eval_interval", type=int, default=10)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
+    parser.add_argument("--exact_freq_eval_interval", type=int, default=100,
+                        help="steps between exact-frequency evaluations; epoch "
+                             "boundaries and the final step are also evaluated")
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
     parser.add_argument("--epoch_batches", type=int, default=0,
@@ -1252,70 +1255,89 @@ def main():
                   f"| gap {last_val_loss-train_loss:+.4f} | epoch {train_ds._epoch+1} | "
                   f"lr_m {lr_mult:.2f} | {(time.time()-t0):.0f}s")
 
+        epoch_boundary = (train_ds._batch_in_epoch == 0 and step > 0)
+
         # periodic fixed-train probe eval (interval + epoch boundary)
-        if probe_log is not None and fixed_train_probe:
-            epoch_boundary = (train_ds._batch_in_epoch == 0 and step > 0)
-            if (step + 1) % args.probe_eval_interval == 0 or epoch_boundary or step == cfg.max_steps - 1:
-                fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe, dtype=args.dtype)
-                fixed_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
-                last_fixed_train_loss = fixed_train_loss
-                last_fixed_val_loss = fixed_val_loss
-                probe_entry = {
-                    "step": step + 1,
-                    "epoch": train_ds._epoch + 1,
-                    "fixed_train_loss": fixed_train_loss,
-                    "fixed_val_loss": fixed_val_loss,
-                    "fixed_gap": fixed_val_loss - fixed_train_loss,
-                    "lr_mult": lr_mult,
-                }
-                probe_log.write(json.dumps(probe_entry) + "\n")
-                probe_log.flush()
-                print(f"[nglab] probe step {step+1:4d} | ftrain {fixed_train_loss:.4f} "
-                      f"| fval {fixed_val_loss:.4f} | fgap {fixed_val_loss-fixed_train_loss:+.4f} "
-                      f"| epoch {train_ds._epoch+1}")
-                if fixed_train_freq_log is not None:
-                    fixed_train_freq = evaluate_freq_bins(
-                        model,
-                        fixed_train_probe,
-                        freq_index_obj,
-                        len(fixed_train_probe),
-                        cfg.vocab_size,
-                    )
-                    fixed_train_freq_log.write(json.dumps({
-                        "step": step + 1,
-                        "epoch": train_ds._epoch + 1,
-                        "fixed_train": fixed_train_freq,
-                        "probe_batch_count": len(fixed_train_probe),
-                        "probe_batch_sha256": probe_hash,
-                    }) + "\n")
-                    fixed_train_freq_log.flush()
-                if exact_freq_log is not None:
-                    # exact-frequency marginal on the fixed train probe and the
-                    # fixed val batches, plus context-matched gap statistics.
-                    ef_train = {b: evaluate_exact_freq(
-                        model, fixed_train_probe, freq_index_obj,
-                        len(fixed_train_probe), cfg.vocab_size, b)
-                        for b in ("bigram", "trigram")}
-                    ef_val = {b: evaluate_exact_freq(
-                        model, validation_batches, freq_index_obj,
-                        len(validation_batches), cfg.vocab_size, b)
-                        for b in ("bigram", "trigram")}
-                    shared = {b: compute_shared_contexts(
-                        model, fixed_train_probe, validation_batches,
-                        freq_index_obj, cfg.vocab_size, b)
-                        for b in ("bigram", "trigram")}
-                    exact_freq_log.write(json.dumps({
-                        "step": step + 1,
-                        "epoch": train_ds._epoch + 1,
-                        "train": ef_train,
-                        "val": ef_val,
-                        "shared": shared,
-                        "probe_batch_sha256": probe_hash,
-                    }) + "\n")
-                    exact_freq_log.flush()
+        probe_due = (
+            (step + 1) % args.probe_eval_interval == 0
+            or epoch_boundary
+            or step == cfg.max_steps - 1
+        )
+        if probe_log is not None and fixed_train_probe and probe_due:
+            fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe, dtype=args.dtype)
+            fixed_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
+            last_fixed_train_loss = fixed_train_loss
+            last_fixed_val_loss = fixed_val_loss
+            probe_entry = {
+                "step": step + 1,
+                "epoch": train_ds._epoch + 1,
+                "fixed_train_loss": fixed_train_loss,
+                "fixed_val_loss": fixed_val_loss,
+                "fixed_gap": fixed_val_loss - fixed_train_loss,
+                "lr_mult": lr_mult,
+            }
+            probe_log.write(json.dumps(probe_entry) + "\n")
+            probe_log.flush()
+            print(f"[nglab] probe step {step+1:4d} | ftrain {fixed_train_loss:.4f} "
+                  f"| fval {fixed_val_loss:.4f} | fgap {fixed_val_loss-fixed_train_loss:+.4f} "
+                  f"| epoch {train_ds._epoch+1}")
+        fixed_freq_due = (
+            (step + 1) % args.freq_eval_interval == 0
+            or epoch_boundary
+            or step == cfg.max_steps - 1
+        )
+        if fixed_train_freq_log is not None and fixed_freq_due:
+            fixed_train_freq = evaluate_freq_bins(
+                model,
+                fixed_train_probe,
+                freq_index_obj,
+                len(fixed_train_probe),
+                cfg.vocab_size,
+            )
+            fixed_train_freq_log.write(json.dumps({
+                "step": step + 1,
+                "epoch": train_ds._epoch + 1,
+                "fixed_train": fixed_train_freq,
+                "probe_batch_count": len(fixed_train_probe),
+                "probe_batch_sha256": probe_hash,
+            }) + "\n")
+            fixed_train_freq_log.flush()
+        exact_freq_due = (
+            (step + 1) % args.exact_freq_eval_interval == 0
+            or epoch_boundary
+            or step == cfg.max_steps - 1
+        )
+        if exact_freq_log is not None and exact_freq_due:
+            # exact-frequency marginal on the fixed train probe and the
+            # fixed val batches, plus context-matched gap statistics.
+            ef_train = {b: evaluate_exact_freq(
+                model, fixed_train_probe, freq_index_obj,
+                len(fixed_train_probe), cfg.vocab_size, b)
+                for b in ("bigram", "trigram")}
+            ef_val = {b: evaluate_exact_freq(
+                model, validation_batches, freq_index_obj,
+                len(validation_batches), cfg.vocab_size, b)
+                for b in ("bigram", "trigram")}
+            shared = {b: compute_shared_contexts(
+                model, fixed_train_probe, validation_batches,
+                freq_index_obj, cfg.vocab_size, b)
+                for b in ("bigram", "trigram")}
+            exact_freq_log.write(json.dumps({
+                "step": step + 1,
+                "epoch": train_ds._epoch + 1,
+                "train": ef_train,
+                "val": ef_val,
+                "shared": shared,
+                "probe_batch_sha256": probe_hash,
+            }) + "\n")
+            exact_freq_log.flush()
 
         # periodic freq-bin eval (train + val)
-        if freq_bin_log is not None and ((step + 1) % args.freq_eval_interval == 0 or step == cfg.max_steps - 1):
+        if freq_bin_log is not None and (
+            (step + 1) % args.freq_eval_interval == 0
+            or epoch_boundary
+            or step == cfg.max_steps - 1
+        ):
             # train freq-bin (independent diagnostic iterator: fresh train
             # batches, never touches the training stream)
             train_freq = evaluate_freq_bins(model, freq_train_iter, freq_index_obj,
@@ -1360,6 +1382,7 @@ def main():
         "fixed_train_probe_sha256": probe_hash if args.fixed_train_probe > 0 else None,
         "fixed_train_probe_batches": len(fixed_train_probe),
         "probe_eval_interval": args.probe_eval_interval,
+        "exact_freq_eval_interval": args.exact_freq_eval_interval,
         "fixed_train_loss_log": (
             "fixed_train_loss.jsonl" if probe_log is not None else None
         ),

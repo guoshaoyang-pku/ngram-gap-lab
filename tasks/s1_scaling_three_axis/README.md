@@ -70,21 +70,20 @@
 
 1. **fixed train probe**：独立 dataset 实例抓取固定 4 个 train batches，SHA256 记账；
    全程复用，**不消费训练流、不推进 epoch 计数器**（防 B1 bug 复发）。
-2. 周期评估每 10 步 + 每个 epoch 边界触发。
+2. 基础 QC 的 fixed probe 每 25 步 + 每个 epoch 边界触发；宽 bucket 与
+   exact-frequency 诊断每 100 步，避免评估开销淹没训练。
 3. **exact-frequency**：索引 `GlobalFrequencyIndex.build_from_chunks` 与模型 hash
    逐位置一致（有单测）。f=0 novel 只报 val loss，不定义 gap。
 4. gap 主量 = **fixed_val − fixed_train**；在线 train loss 仅作诊断。
 
-## 历史 pilot / basic QC（非当前标准证据）
+## 历史 pilot 与当前标准 basic QC
 
-本地已有的 `pilot_*` 和 `basic_*` 目录是 2026-08-24 的历史 QC。旧
-`pilot_*` 的 `summary.json` 实际记录 `table_lr_scale=1.0`、50 步
-validation/probe 周期；`basic_*` 虽已使用 β₂=0.99 和 table LR×2，但
-仍记录 25 步周期，且没有 bf16/compile metadata。两类目录都没有
-`_fixed` 后缀，因此分析脚本会主动排除它们。下面的数值只保留作历史 QC
-和迁移溯源，不能用于当前 β₂=0.99、table LR×2、v10、bf16+compile
-标准下的 scaling 结论。新的 launcher 会写入
-`data/runs_scaling/<run_id>_fixed/`，并由 metadata 校验后才能进入分析。
+`pilot_*` / `tbl_pilot_*` 是旧协议的历史 QC。当前已有 7 个
+`basic_*` 锚点，使用 β₂=0.99、table LR×2、bf16 + compile、固定 train
+probe 和 exact-frequency 日志，但为了快速 gate 使用 25 步 cadence。
+它们用于判断基础规律是否出现，不替代正式的 10 步 full grid。
+新的正式 launcher 会写入 `data/runs_scaling/<run_id>_fixed/`，并由完整
+metadata 校验后才能进入 canonical 分析。
 
 ### Epoch（fixed-step 1000 步）
 
@@ -138,12 +137,12 @@ launcher 默认从自身位置推导仓库根目录，也可用 `NGLAB_ROOT` 和
 - `docs/appendices/s1_scaling_three_axis/` 是同名报告目录，保存报告、
   组图和结果摘要；这里不覆盖 `docs/report/index.html`。
 
-## 状态
+## 当前状态
 
 - [x] 测量基础设施（epoch_batches / fixed probe / exact-freq / occupancy）+ 11 单测
-- [x] 旧 Pilot QC（7 run，seed 42）：epoch 4 + table 3，全部完成，但不满足当前标准
+- [x] 当前标准基础 QC（7 run，seed 42）：epoch 4 + table 3
 - [ ] Epoch full grid（L1–L4 × 4 modules × 2 alignments；每个 L 都有 no-ngram 基线）
 - [ ] Table full grid（7 尺寸 × 3 modules）
-- [ ] Backbone safety（L1 no-ngram 5000 步）—— 跑完后确认 backbone 长训无 gap
+- [ ] Backbone safety（L1 no-ngram 5000 步）—— 确定长训 backbone gap 的量级（最近快照 4000 步，gap +13.236）
 - [ ] Frequency 拟合（两因素模型 + manifest）
 - [ ] 三轴联合报告回填
