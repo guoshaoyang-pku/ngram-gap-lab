@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -91,6 +92,8 @@ class Config:
     val_shards: list = field(default_factory=list)    # list of shard indices for val
     data_mode: str = "fixed"    # fixed = deterministic epoch replay
     data_seed: int = 42
+    epoch_batches: int = 0      # >0: fix one epoch to exactly this many device batches
+                                # (nested-prefix length control); 0 = use full shard length
     # output
     out_dir: str = ""
 
@@ -353,6 +356,15 @@ class NanoGPT(nn.Module):
         for name, p in self.named_parameters():
             if name.endswith("c_proj.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * self.config.n_layer))
+        self._ngram_init_cpu_rng_state = torch.get_rng_state()
+        self._ngram_init_cuda_rng_state = (
+            torch.cuda.get_rng_state(torch.cuda.current_device())
+            if torch.cuda.is_available() else None
+        )
+        self._initialize_ngram_tables()
+
+    @torch.no_grad()
+    def _initialize_ngram_tables(self):
         s = 3 ** 0.5 * self.config.n_embd ** -0.5
         for ve in self.value_embeds.values():
             torch.nn.init.uniform_(ve.weight, -s, s)
@@ -372,13 +384,15 @@ class NanoGPT(nn.Module):
     def reset_ngram_tables(self):
         """Reset all n-gram table rows to their init distribution (P1: erase
         accumulated historical row state, keeping backbone intact)."""
-        s = 3 ** 0.5 * self.config.n_embd ** -0.5
-        for lvs in self.bigram_ves.values():
-            for bve in lvs:
-                torch.nn.init.uniform_(bve.weight, -s, s)
-        for lvs in self.trigram_ves.values():
-            for tve in lvs:
-                torch.nn.init.uniform_(tve.weight, -s, s)
+        if not hasattr(self, "_ngram_init_cpu_rng_state"):
+            raise RuntimeError("init_weights() must run before reset_ngram_tables()")
+        device = next(self.parameters()).device
+        devices = [torch.cuda.current_device()] if device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices):
+            torch.set_rng_state(self._ngram_init_cpu_rng_state)
+            if device.type == "cuda":
+                torch.cuda.set_rng_state(self._ngram_init_cuda_rng_state, device)
+            self._initialize_ngram_tables()
 
     def apply_intervention(self, epoch0: int):
         """Fire intervention when 0-indexed epoch reaches `intervention_epoch`."""
@@ -444,16 +458,61 @@ class NanoGPT(nn.Module):
                                    device=idx.device, dtype=self.transformer.wte.weight.dtype)
         return residual
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, return_token_losses=False,
+                return_injection_stats=False):
         B, T = idx.size()
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device).unsqueeze(0)
         x = self.transformer.wte(idx)
         x = x + self.transformer.wpe(pos)
-        if self.config.nanogpt_ngram_injection_position == "input":
-            x = x + self._compute_input_ngram_residual(idx)
-        x = self.transformer.drop(x)
+        injection_stats = {
+            "bigram_rms": {"sequence_rms": [], "batch_rms": 0.0},
+            "trigram_rms": {"sequence_rms": [], "batch_rms": 0.0},
+            "total_rms": {"sequence_rms": [], "batch_rms": 0.0},
+            "fourgram_rms": {"sequence_rms": [], "batch_rms": 0.0},
+        }
+        branch_residuals = {
+            "bigram": [],
+            "trigram": [],
+        }
         prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)
         prev2_idx = torch.cat([idx[:, :2], idx[:, :-2]], dim=1)
+        if self.config.nanogpt_ngram_injection_position == "input":
+            ngram_residual = self._compute_input_ngram_residual(idx)
+            x = x + ngram_residual
+            if return_injection_stats:
+                branch_residuals["bigram"] = []
+                branch_residuals["trigram"] = []
+                for li in sorted(self.bigram_ve_layers):
+                    lvs = self.bigram_ves[str(li)]
+                    bi = [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
+                          for p1, p2 in self.bigram_hash_primes_per_layer[li]]
+                    branch_residuals["bigram"].append(
+                        torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1)
+                    )
+                for li in sorted(self.trigram_ve_layers):
+                    lvs = self.trigram_ves[str(li)]
+                    lp = self.trigram_hash_primes_per_layer[li]
+                    ti = (
+                        ((prev2_idx * lp[0]) ^ (prev_idx * lp[1]) ^ (idx * lp[2])) % self.trigram_table_size,
+                        ((prev2_idx * lp[3]) ^ (prev_idx * lp[4]) ^ (idx * lp[5])) % self.trigram_table_size,
+                    )
+                    branch_residuals["trigram"].append(
+                        torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
+                    )
+                for branch, residuals in branch_residuals.items():
+                    if residuals:
+                        branch_residual = torch.stack(residuals).sum(dim=0)
+                        branch_rms = torch.sqrt(torch.mean(branch_residual.float() ** 2, dim=-1))
+                        injection_stats[f"{branch}_rms"] = {
+                            "sequence_rms": branch_rms.mean(dim=0).detach().cpu().tolist(),
+                            "batch_rms": float(branch_rms.mean()),
+                        }
+                total_rms = torch.sqrt(torch.mean(ngram_residual.float() ** 2, dim=-1))
+                injection_stats["total_rms"] = {
+                    "sequence_rms": total_rms.mean(dim=0).detach().cpu().tolist(),
+                    "batch_rms": float(total_rms.mean()),
+                }
+        x = self.transformer.drop(x)
         bigram_indices = {}
         if self.config.enable_bigram_ve:
             for li in self.bigram_ve_layers:
@@ -486,10 +545,18 @@ class NanoGPT(nn.Module):
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
         if targets is not None:
-            loss = F.cross_entropy(
+            token_losses = F.cross_entropy(
                 logits.float().view(-1, logits.size(-1)),
-                targets.view(-1), ignore_index=-1, reduction="mean")
+                targets.view(-1), ignore_index=-1, reduction="none"
+            ).view_as(targets)
+            loss = token_losses[targets.ne(-1)].mean()
+            if return_token_losses or return_injection_stats:
+                return token_losses if return_token_losses else loss, injection_stats
             return loss
+        if return_token_losses:
+            raise ValueError("return_token_losses requires targets")
+        if return_injection_stats:
+            return logits.float(), injection_stats
         return logits.float()
 
 
@@ -672,21 +739,28 @@ class TokenizedShardDataset:
     """
 
     def __init__(self, data_dir: str, shard_ids: list, sequence_len: int,
-                 device_batch_size: int, seed: int = 42):
+                 device_batch_size: int, seed: int = 42, epoch_batches: int = 0):
         self.data_dir = data_dir
         self.shard_ids = list(shard_ids)
         self.sequence_len = sequence_len
         self.chunk_size = sequence_len + 1
         self.device_batch_size = device_batch_size
         self.seed = seed
+        self.epoch_batches = epoch_batches
         self._buffers = {}
         self._epoch = 0
         self._batch_in_epoch = 0
         # total tokens per shard (lazy)
         self._shard_lens = {}
         # yielded batches per full epoch (drop_last per shard), for epoch-anchored LR
-        self._batches_per_epoch = sum(
-            self.shard_chunks(sid) // self.device_batch_size for sid in self.shard_ids)
+        if epoch_batches > 0:
+            # Nested-prefix epoch length: the first `epoch_batches` device
+            # batches from the shard prefix form one epoch; all epoch lengths
+            # are strict prefixes of the same data stream.
+            self._batches_per_epoch = epoch_batches
+        else:
+            self._batches_per_epoch = sum(
+                self.shard_chunks(sid) // self.device_batch_size for sid in self.shard_ids)
 
     def _load_shard(self, sid):
         if sid not in self._buffers:
@@ -705,15 +779,24 @@ class TokenizedShardDataset:
         return sum(self.shard_chunks(s) for s in self.shard_ids)
 
     def _iter_chunks(self):
-        """Yield (input, target) tensors for each chunk in fixed order."""
+        """Yield (input, target) tensors for each chunk in fixed order.
+
+        With epoch_batches > 0, only the first `epoch_batches * device_batch_size`
+        chunks of the train prefix are yielded each epoch (nested-prefix control).
+        """
+        budget = self.epoch_batches * self.device_batch_size if self.epoch_batches > 0 else None
+        emitted = 0
         for sid in self.shard_ids:
             buf = self._load_shard(sid)
             n = self.shard_chunks(sid)
             for i in range(n):
+                if budget is not None and emitted >= budget:
+                    return
                 start = i * self.chunk_size
                 chunk = np.array(buf[start:start + self.chunk_size], dtype=np.int64)
                 inp = torch.from_numpy(chunk[:-1])
                 tgt = torch.from_numpy(chunk[1:])
+                emitted += 1
                 yield inp, tgt
 
     def epoch_progress(self) -> float:
@@ -781,6 +864,22 @@ def evaluate_val(model: NanoGPT, fixed_val_batches) -> float:
     return float(np.mean(losses)) if losses else float("nan")
 
 
+def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe) -> float:
+    """Loss on the FIXED train probe (same train batches every eval).
+
+    Returns the mean loss over the probe.  Used with evaluate_val to form
+    fixed-train gap = fixed_val − fixed_train_probe, which is the scaling
+    main quantity (never the online batch-averaged train loss)."""
+    model.eval()
+    losses = []
+    with torch.no_grad():
+        for inp, tgt in fixed_train_probe:
+            loss = model(inp, targets=tgt)
+            losses.append(loss.item())
+    model.train()
+    return float(np.mean(losses)) if losses else float("nan")
+
+
 def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
                        vocab_size: int) -> dict:
     """Run per-frequency-bin loss accumulation on n_batches from loader.
@@ -808,6 +907,82 @@ def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
     return {branch: acc.summary() for branch, acc in accs.items()}
 
 
+def evaluate_exact_freq(model: NanoGPT, loader, freq_index, n_batches: int,
+                        vocab_size: int, branch: str) -> dict:
+    """Run exact-frequency loss accumulation on n_batches from loader.
+
+    Returns {exact_f: {token_count, distinct_contexts, mean_loss, loss_sum,
+    loss_sq_sum}} for the given branch ("bigram"|"trigram").  Uses an
+    independent iterator over `loader` (a list of batches or an iterable),
+    so it never consumes the training stream.
+    """
+    from ngram_freq import ExactFreqLossAccumulator, compute_per_token_loss
+    model.eval()
+    acc = ExactFreqLossAccumulator(freq_index, vocab_size, branch)
+    with torch.no_grad():
+        loader_iter = iter(loader)
+        for _ in range(n_batches):
+            try:
+                inp, tgt = next(loader_iter)
+            except StopIteration:
+                break
+            ptl = compute_per_token_loss(model, inp, tgt)
+            acc.update(inp, ptl)
+    model.train()
+    return acc.summary()
+
+
+def compute_shared_contexts(model: NanoGPT, train_probe, val_probe,
+                            freq_index, vocab_size, branch: str) -> dict:
+    """Context-matched gap statistics.
+
+    For contexts that appear in BOTH the fixed train probe and the fixed val
+    probe, compute per-exact-f aggregated (train_loss, val_loss) differences.
+    Returns {f: {shared_contexts, train_mean, val_mean, gap}} plus a count of
+    shared contexts overall.
+    """
+    from ngram_freq import ExactFreqLossAccumulator, compute_per_token_loss
+    model.eval()
+    train_keys: dict = {}
+    val_keys: dict = {}
+    with torch.no_grad():
+        for inp, tgt in train_probe:
+            ptl = compute_per_token_loss(model, inp, tgt)
+            acc = ExactFreqLossAccumulator(freq_index, vocab_size, branch)
+            keys = acc._compute_keys(inp).cpu().numpy().ravel()
+            losses = ptl.cpu().numpy().ravel()
+            for k, l in zip(keys, losses):
+                train_keys[int(k)] = float(l)
+        for inp, tgt in val_probe:
+            ptl = compute_per_token_loss(model, inp, tgt)
+            acc = ExactFreqLossAccumulator(freq_index, vocab_size, branch)
+            keys = acc._compute_keys(inp).cpu().numpy().ravel()
+            losses = ptl.cpu().numpy().ravel()
+            for k, l in zip(keys, losses):
+                val_keys[int(k)] = float(l)
+    # contexts present in both
+    shared = set(train_keys) & set(val_keys)
+    per_f = {}
+    for k in shared:
+        f = freq_index.bigram.get(k, 0) if branch == "bigram" else freq_index.trigram.get(k, 0)
+        st = per_f.setdefault(int(f), {"shared_contexts": 0, "train_sum": 0.0, "val_sum": 0.0})
+        st["shared_contexts"] += 1
+        st["train_sum"] += train_keys[k]
+        st["val_sum"] += val_keys[k]
+    out = {}
+    for f, st in per_f.items():
+        n = st["shared_contexts"]
+        out[f] = {
+            "f": f,
+            "shared_contexts": n,
+            "train_mean": st["train_sum"] / n,
+            "val_mean": st["val_sum"] / n,
+            "gap": (st["val_sum"] - st["train_sum"]) / n,
+        }
+    model.train()
+    return {"shared_total": len(shared), "per_f": out, "branch": branch}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_id", default="run")
@@ -833,7 +1008,7 @@ def main():
     parser.add_argument("--table_lr_scale", type=float, default=1.0,
                         help="multiplier on the n-gram table LR (default 1.0)")
     parser.add_argument("--table_betas", default=None,
-                        help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.999")
+                        help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,
                         help="n-gram table size = vocab_size * table_mult (default 64)")
     parser.add_argument("--intervention", default="none",
@@ -856,6 +1031,15 @@ def main():
     parser.add_argument("--freq_eval_batches", type=int, default=4)
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
+    parser.add_argument("--epoch_batches", type=int, default=0,
+                        help=">0: fix one epoch to exactly this many device batches "
+                             "(nested-prefix epoch length); 0 = full shard length")
+    parser.add_argument("--fixed_train_probe", type=int, default=4,
+                        help="number of fixed train batches to hold for the "
+                             "fixed-train probe (0 disables)")
+    parser.add_argument("--probe_eval_interval", type=int, default=10,
+                        help="steps between fixed-train/val probe evals (also fired "
+                             "at every epoch boundary)")
     args = parser.parse_args()
 
     cfg = Config(
@@ -885,6 +1069,7 @@ def main():
         data_dir=args.data_dir,
         train_shards=[int(x) for x in args.train_shards.split(",") if x.strip()],
         val_shards=[int(x) for x in args.val_shards.split(",") if x.strip()],
+        epoch_batches=args.epoch_batches,
         out_dir=os.path.join(args.out_dir, args.run_id),
     )
 
@@ -894,7 +1079,7 @@ def main():
             "table_betas must be two values in [0, 1)"
         cfg.table_betas = tuple(parts)
     else:
-        cfg.table_betas = (0.0, 0.999)
+        cfg.table_betas = (0.0, 0.99)  # β₂=0.99 is the scaling default (plan §1)
 
     set_seed(cfg.seed)
     os.makedirs(cfg.out_dir, exist_ok=True)
@@ -903,7 +1088,8 @@ def main():
 
     # data
     train_ds = TokenizedShardDataset(cfg.data_dir, cfg.train_shards, cfg.sequence_len,
-                                     cfg.device_batch_size, cfg.data_seed)
+                                     cfg.device_batch_size, cfg.data_seed,
+                                     epoch_batches=cfg.epoch_batches)
     val_ds = TokenizedShardDataset(cfg.data_dir, cfg.val_shards, cfg.sequence_len,
                                    cfg.device_batch_size, cfg.data_seed)
     train_iter = train_ds.iter_batches(device)
@@ -912,13 +1098,31 @@ def main():
     # the val-loss curve always measures the same val data.  The val-side
     # freq-bin eval uses its own moving window on val_iter; train is the main
     # queue consumed by training + train-side freq eval.
-    fixed_val_batches = [next(val_iter) for _ in range(cfg.val_batches)]
-    # Fixed freq-bin val batches: the per-bucket val eval also measures the SAME
-    # fixed val data on every eval (no moving window), so both val curves are
-    # directly comparable across steps. Train remains the only moving queue.
-    fixed_freq_val_batches = [next(val_iter) for _ in range(args.freq_eval_batches)]
+    fixed_val_batches = [
+        next(val_iter) for _ in range(max(cfg.val_batches, args.freq_eval_batches))
+    ]
+    validation_batches = fixed_val_batches[:cfg.val_batches]
+    # Fixed freq-bin val batches: use the same prefix as the scalar validation
+    # set whenever the requested batch counts differ.
+    fixed_freq_val_batches = fixed_val_batches[:args.freq_eval_batches]
     print(f"[nglab] fixed val batches: {len(fixed_val_batches)} x shape {tuple(fixed_val_batches[0][0].shape)} "
           f"+ {len(fixed_freq_val_batches)} freq-val batches")
+    # Fixed train probe: captured from a SEPARATE dataset instance that owns its
+    # own iterator, so grabbing the probe never consumes the training stream and
+    # never advances the training epoch counter.  The probe is a fixed set of
+    # train batches reused for every probe eval; its gap is fixed_val − fixed_train.
+    fixed_train_probe = []
+    probe_hash = None
+    if args.fixed_train_probe > 0:
+        probe_ds = TokenizedShardDataset(cfg.data_dir, cfg.train_shards, cfg.sequence_len,
+                                         cfg.device_batch_size, cfg.data_seed,
+                                         epoch_batches=cfg.epoch_batches)
+        probe_iter = probe_ds.iter_batches(device)
+        for _ in range(args.fixed_train_probe):
+            fixed_train_probe.append(next(probe_iter))
+        probe_hash = hashlib.sha256(
+            b"".join(batch[0].cpu().numpy().tobytes() for batch in fixed_train_probe)).hexdigest()[:16]
+        print(f"[nglab] fixed train probe: {len(fixed_train_probe)} batches, sha256={probe_hash}")
     grad_accum = max(1, cfg.total_batch_size // (cfg.device_batch_size * cfg.sequence_len))
     print(f"[nglab] grad_accum={grad_accum} train_chunks={train_ds.total_chunks()} "
           f"val_chunks={val_ds.total_chunks()}")
@@ -939,12 +1143,24 @@ def main():
     # logs
     train_log = open(os.path.join(cfg.out_dir, "train_log.jsonl"), "w")
     table_log = open(os.path.join(cfg.out_dir, "table_norm.jsonl"), "w")
+    probe_log = None
+    if args.fixed_train_probe > 0:
+        probe_log = open(os.path.join(cfg.out_dir, "fixed_train_loss.jsonl"), "w")
+    fixed_train_freq_log = None
     freq_bin_log = None
+    exact_freq_log = None
     freq_index_obj = None
     if args.freq_index and os.path.exists(args.freq_index):
         from ngram_freq import GlobalFrequencyIndex
         freq_index_obj = GlobalFrequencyIndex.load(args.freq_index)
         freq_bin_log = open(os.path.join(cfg.out_dir, "freq_bin_loss.jsonl"), "w")
+        if fixed_train_probe:
+            fixed_train_freq_log = open(
+                os.path.join(cfg.out_dir, "fixed_train_freq_bin_loss.jsonl"), "w"
+            )
+            exact_freq_log = open(
+                os.path.join(cfg.out_dir, "exact_freq_loss.jsonl"), "w"
+            )
         print(f"[nglab] freq-bin eval enabled (index: {args.freq_index})")
         # Independent train-side diagnostic iterator: reads the same shards in
         # the same fixed order but owns its own dataset state, so freq-bin
@@ -957,6 +1173,8 @@ def main():
         freq_train_iter = freq_train_ds.iter_batches(device)
     last_val_loss = float("nan")
     last_train_loss = float("nan")
+    last_fixed_train_loss = float("nan")
+    last_fixed_val_loss = float("nan")
 
     model.train()
     t0 = time.time()
@@ -988,7 +1206,7 @@ def main():
 
         # periodic val
         if (step + 1) % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
-            last_val_loss = evaluate_val(model, fixed_val_batches)
+            last_val_loss = evaluate_val(model, validation_batches)
             last_train_loss = train_loss
             entry = {
                 "step": step + 1,
@@ -1004,6 +1222,68 @@ def main():
             print(f"[nglab] step {step+1:4d} | train {train_loss:.4f} | val {last_val_loss:.4f} "
                   f"| gap {last_val_loss-train_loss:+.4f} | epoch {train_ds._epoch+1} | "
                   f"lr_m {lr_mult:.2f} | {(time.time()-t0):.0f}s")
+
+        # periodic fixed-train probe eval (interval + epoch boundary)
+        if probe_log is not None and fixed_train_probe:
+            epoch_boundary = (train_ds._batch_in_epoch == 0 and step > 0)
+            if (step + 1) % args.probe_eval_interval == 0 or epoch_boundary or step == cfg.max_steps - 1:
+                fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe)
+                fixed_val_loss = evaluate_val(model, validation_batches)
+                last_fixed_train_loss = fixed_train_loss
+                last_fixed_val_loss = fixed_val_loss
+                probe_entry = {
+                    "step": step + 1,
+                    "epoch": train_ds._epoch + 1,
+                    "fixed_train_loss": fixed_train_loss,
+                    "fixed_val_loss": fixed_val_loss,
+                    "fixed_gap": fixed_val_loss - fixed_train_loss,
+                    "lr_mult": lr_mult,
+                }
+                probe_log.write(json.dumps(probe_entry) + "\n")
+                probe_log.flush()
+                print(f"[nglab] probe step {step+1:4d} | ftrain {fixed_train_loss:.4f} "
+                      f"| fval {fixed_val_loss:.4f} | fgap {fixed_val_loss-fixed_train_loss:+.4f} "
+                      f"| epoch {train_ds._epoch+1}")
+                if fixed_train_freq_log is not None:
+                    fixed_train_freq = evaluate_freq_bins(
+                        model,
+                        fixed_train_probe,
+                        freq_index_obj,
+                        len(fixed_train_probe),
+                        cfg.vocab_size,
+                    )
+                    fixed_train_freq_log.write(json.dumps({
+                        "step": step + 1,
+                        "epoch": train_ds._epoch + 1,
+                        "fixed_train": fixed_train_freq,
+                        "probe_batch_count": len(fixed_train_probe),
+                        "probe_batch_sha256": probe_hash,
+                    }) + "\n")
+                    fixed_train_freq_log.flush()
+                if exact_freq_log is not None:
+                    # exact-frequency marginal on the fixed train probe and the
+                    # fixed val batches, plus context-matched gap statistics.
+                    ef_train = {b: evaluate_exact_freq(
+                        model, fixed_train_probe, freq_index_obj,
+                        len(fixed_train_probe), cfg.vocab_size, b)
+                        for b in ("bigram", "trigram")}
+                    ef_val = {b: evaluate_exact_freq(
+                        model, validation_batches, freq_index_obj,
+                        len(validation_batches), cfg.vocab_size, b)
+                        for b in ("bigram", "trigram")}
+                    shared = {b: compute_shared_contexts(
+                        model, fixed_train_probe, validation_batches,
+                        freq_index_obj, cfg.vocab_size, b)
+                        for b in ("bigram", "trigram")}
+                    exact_freq_log.write(json.dumps({
+                        "step": step + 1,
+                        "epoch": train_ds._epoch + 1,
+                        "train": ef_train,
+                        "val": ef_val,
+                        "shared": shared,
+                        "probe_batch_sha256": probe_hash,
+                    }) + "\n")
+                    exact_freq_log.flush()
 
         # periodic freq-bin eval (train + val)
         if freq_bin_log is not None and ((step + 1) % args.freq_eval_interval == 0 or step == cfg.max_steps - 1):
@@ -1032,8 +1312,14 @@ def main():
 
     train_log.close()
     table_log.close()
+    if probe_log is not None:
+        probe_log.close()
+    if fixed_train_freq_log is not None:
+        fixed_train_freq_log.close()
     if freq_bin_log is not None:
         freq_bin_log.close()
+    if exact_freq_log is not None:
+        exact_freq_log.close()
 
     # summary
     summary = {
@@ -1041,9 +1327,27 @@ def main():
         "injection_position": cfg.nanogpt_ngram_injection_position,
         "steps": cfg.max_steps,
         "seed": cfg.seed,
+        "epoch_batches": cfg.epoch_batches,
+        "fixed_train_probe_sha256": probe_hash if args.fixed_train_probe > 0 else None,
+        "fixed_train_probe_batches": len(fixed_train_probe),
+        "probe_eval_interval": args.probe_eval_interval,
+        "fixed_train_loss_log": (
+            "fixed_train_loss.jsonl" if probe_log is not None else None
+        ),
+        "fixed_train_freq_bin_log": (
+            "fixed_train_freq_bin_loss.jsonl"
+            if fixed_train_freq_log is not None else None
+        ),
+        "exact_freq_log": (
+            "exact_freq_loss.jsonl" if exact_freq_log is not None else None
+        ),
+        "freq_index": args.freq_index if args.freq_index else None,
         "final_train_loss": last_train_loss,
         "final_val_loss": last_val_loss,
         "final_gap": last_val_loss - last_train_loss,
+        "final_fixed_train_loss": last_fixed_train_loss,
+        "final_fixed_val_loss": last_fixed_val_loss,
+        "final_fixed_gap": last_fixed_val_loss - last_fixed_train_loss,
         "n_params": n_params,
         "config": cfg.__dict__,
     }

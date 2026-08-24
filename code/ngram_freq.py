@@ -156,6 +156,53 @@ class GlobalFrequencyIndex:
         all_tokens = np.concatenate(chunks)
         return cls.build(all_tokens, vocab_size)
 
+    @classmethod
+    def build_from_chunks(cls, data_dir: str, shard_ids: list, vocab_size: int,
+                          n_chunks: int, chunk_size: int) -> "GlobalFrequencyIndex":
+        """Build the index from the FIRST `n_chunks` training chunks.
+
+        Each chunk is processed independently with the model's exact context
+        semantics (first / first-two positions repeated, never crossing a
+        chunk boundary), so the index counts exactly the contexts the model
+        actually sees in one epoch.  This fixes the old build_from_shards
+        behaviour, which concatenated raw tokens and therefore counted
+        cross-chunk pairs the model never sees.
+
+        Chunk layout matches TokenizedShardDataset: each chunk is
+        `chunk_size = sequence_len + 1` packed tokens; position t predicts
+        token t+1, and the n-gram context at position t is built from
+        chunk[max(0, t-1)] (bigram) / chunk[max(0, t-2)], chunk[max(0, t-1)]
+        (trigram) plus the current token chunk[t].
+        """
+        bigram: dict = {}
+        trigram: dict = {}
+        v2 = vocab_size * vocab_size
+        seen = 0
+        T = chunk_size - 1
+        for sid in shard_ids:
+            if seen >= n_chunks:
+                break
+            path = os.path.join(data_dir, f"shard_{sid:05d}.bin")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Missing shard: {path}")
+            buf = np.memmap(path, dtype=np.uint16, mode="r")
+            n = len(buf) // chunk_size
+            take = min(n, n_chunks - seen)
+            tokens = np.array(buf[:take * chunk_size], dtype=np.int64).reshape(take, chunk_size)
+            cur = tokens[:, :T]                                        # (M, T)
+            prev = np.concatenate([tokens[:, :1], tokens[:, :T - 1]], axis=1)   # (M, T)
+            prev2 = np.concatenate([tokens[:, :2], tokens[:, :T - 2]], axis=1)  # (M, T)
+            b_keys = prev * vocab_size + cur
+            t_keys = prev2 * v2 + prev * vocab_size + cur
+            for b_u, b_c in zip(*np.unique(b_keys, return_counts=True)):
+                key = int(b_u)
+                bigram[key] = bigram.get(key, 0) + int(b_c)
+            for t_u, t_c in zip(*np.unique(t_keys, return_counts=True)):
+                key = int(t_u)
+                trigram[key] = trigram.get(key, 0) + int(t_c)
+            seen += take
+        return cls(bigram, trigram, vocab_size)
+
     def save(self, path: str):
         b_keys = np.array(list(self.bigram.keys()), dtype=np.int64)
         b_counts = np.array(list(self.bigram.values()), dtype=np.int32)
@@ -278,6 +325,101 @@ class FreqBinLossAccumulator:
         d["buckets"] = self.summary()
         with open(path, "w") as f:
             json.dump(d, f, indent=2)
+
+
+class ExactFreqLossAccumulator:
+    """Accumulate per-exact-frequency loss statistics (no wide buckets).
+
+    For each position we compute the exact n-gram context key (identical to
+    the model's hashing input), look up its train hit count f in the
+    GlobalFrequencyIndex, and accumulate token count / loss sum / loss^2 sum
+    keyed by that exact f.  f=0 (novel context) is reported separately with
+    only its mean loss (no gap is defined for novel contexts).
+
+    Provides both marginal summaries (token-weighted mean loss per f) and the
+    raw sufficient statistics needed for context-matched gap analysis.
+    """
+
+    def __init__(self, freq_index: GlobalFrequencyIndex, vocab_size: int,
+                 branch: str = "trigram"):
+        self.freq_index = freq_index
+        self.vocab_size = vocab_size
+        self.branch = branch
+        # exact f -> dict(token_count, loss_sum, loss_sq_sum, distinct_keys)
+        self._stats: dict = {}
+        self._total_tokens = 0
+
+    def _compute_keys(self, inp: torch.Tensor) -> torch.Tensor:
+        """Context key per position, matching FreqBinLossAccumulator semantics."""
+        return FreqBinLossAccumulator._compute_keys(self, inp)
+
+    def update(self, inp: torch.Tensor, per_token_loss: torch.Tensor):
+        """Accumulate one batch. inp: (B,T) token ids, per_token_loss: (B,T).
+
+        Vectorized accumulation: counts / loss sums use np.bincount per exact
+        f; distinct-context counts use a single lexsort over (f, key) so the
+        whole batch is handled in numpy, not per-token Python loops.
+        """
+        keys = self._compute_keys(inp)                    # (B,T) long
+        key_np = keys.cpu().numpy().ravel()
+        loss_np = per_token_loss.detach().cpu().numpy().astype(np.float64).ravel()
+        counts = self.freq_index.bigram if self.branch == "bigram" else self.freq_index.trigram
+        get = np.vectorize(lambda r: counts.get(int(r), 0))
+        freq_np = get(key_np).astype(np.int64)
+        self._total_tokens += len(loss_np)
+
+        # distinct (f, key) pairs -> distinct contexts per f
+        order = np.lexsort((key_np, freq_np))
+        sf = freq_np[order]
+        sk = key_np[order]
+        # mark start of each new (f, key) group: length len(sf)+1 sentinel
+        is_start = np.ones(len(sf) + 1, dtype=bool)
+        is_start[1:-1] = (sf[1:] != sf[:-1]) | (sk[1:] != sk[:-1])
+        is_start[-1] = False
+        # per-f token counts and distinct-context counts
+        f_groups, starts = np.unique(sf, return_index=True)
+        token_counts = np.add.reduceat(np.ones(len(sf), dtype=np.int64),
+                                       starts) if len(sf) else np.array([], dtype=np.int64)
+        # distinct contexts per f = count of starts within [starts[i], starts[i+1])
+        dc_counts = np.add.reduceat(is_start.astype(np.int64)[:-1],
+                                    starts) if len(sf) else np.array([], dtype=np.int64)
+        # per-f loss sums / sq sums via bincount (f may be large; use sparse dict path)
+        max_f = int(freq_np.max()) if len(freq_np) else 0
+        loss_sums = np.bincount(freq_np, weights=loss_np, minlength=max_f + 1)
+        loss_sq_sums = np.bincount(freq_np, weights=loss_np * loss_np, minlength=max_f + 1)
+        for f, tc, dc in zip(f_groups.tolist(), token_counts.tolist(), dc_counts.tolist()):
+            st = self._stats.setdefault(int(f), {
+                "token_count": 0, "distinct_contexts": 0,
+                "loss_sum": 0.0, "loss_sq_sum": 0.0,
+            })
+            st["token_count"] += int(tc)
+            st["distinct_contexts"] += int(dc)
+            st["loss_sum"] += float(loss_sums[int(f)])
+            st["loss_sq_sum"] += float(loss_sq_sums[int(f)])
+
+    def summary(self, min_contexts: int = 0) -> dict:
+        """Return per-exact-f summary dict (f -> stats with mean loss)."""
+        out = {}
+        for f, st in sorted(self._stats.items()):
+            n = st["token_count"]
+            if n <= 0:
+                continue
+            entry = {
+                "f": int(f),
+                "token_count": n,
+                "distinct_contexts": st["distinct_contexts"],
+                "mean_loss": st["loss_sum"] / n,
+                "loss_sum": st["loss_sum"],
+                "loss_sq_sum": st["loss_sq_sum"],
+            }
+            if min_contexts and st["distinct_contexts"] < min_contexts:
+                entry["excluded"] = f"distinct_contexts < {min_contexts}"
+            out[int(f)] = entry
+        return out
+
+    def clean(self) -> dict:
+        """Return JSON-serializable per-f dict."""
+        return {int(f): {k: v for k, v in st.items()} for f, st in self._stats.items()}
 
 
 # ---------------------------------------------------------------------------
