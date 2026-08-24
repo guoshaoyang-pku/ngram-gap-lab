@@ -67,10 +67,10 @@ class Config:
     nanogpt_ngram_injection_position: str = "input"  # v | y | input
     # optimizer
     nanogpt_adam_lr: float = 0.004
-    ngram_table_betas: tuple = (0.0, 0.999)
+    ngram_table_betas: tuple = (0.0, 0.99)
     table_optimizer: str = "rmsprop"  # rmsprop | adamw | sgd
-    table_lr_scale: float = 1.0       # multiplier on the n-gram table LR
-    table_betas: tuple = (0.0, 0.999)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
+    table_lr_scale: float = 2.0       # multiplier on the n-gram table LR
+    table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     table_mult: int = 64              # n-gram table size = vocab_size * table_mult
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
     intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
@@ -1005,8 +1005,8 @@ def main():
     parser.add_argument("--table_optimizer", default="rmsprop",
                         choices=["rmsprop", "adamw", "sgd"],
                         help="optimizer for n-gram table params (default rmsprop)")
-    parser.add_argument("--table_lr_scale", type=float, default=1.0,
-                        help="multiplier on the n-gram table LR (default 1.0)")
+    parser.add_argument("--table_lr_scale", type=float, default=2.0,
+                        help="multiplier on the n-gram table LR (default 2.0; the SSOT standard)")
     parser.add_argument("--table_betas", default=None,
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,

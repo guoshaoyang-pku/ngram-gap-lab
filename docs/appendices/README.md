@@ -14,6 +14,7 @@
 | 附录 | 主题 | 状态 |
 |---|---|---|
 | [`lr_beta_ablation/`](lr_beta_ablation/report.html) | 表学习率 × β₂ 消融及交互；高表学习率体检（发现 ×2/×4 崩坏） | 🟡 进行中（2 个补点跑中） |
+| [`s1_scaling_three_axis/`](s1_scaling_three_axis/report.md) | Epoch length / exact frequency / table size 三轴 scaling | 🟡 Pilot 完成，full grid 待跑 |
 
 ## 新增附录的约定
 

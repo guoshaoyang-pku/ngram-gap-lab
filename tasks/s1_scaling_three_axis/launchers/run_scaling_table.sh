@@ -16,6 +16,7 @@
 set -euo pipefail
 
 ROOT=/data/home/guoshaoyang/ngram-gap-lab
+TASK_ROOT="$ROOT/tasks/s1_scaling_three_axis"
 PY=/usr/bin/python3
 DATA_DIR="$ROOT/data/tokenized"
 OUT_DIR="$ROOT/data/runs_scaling"
@@ -29,7 +30,7 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
   local RESULT_DIR="$OUT_DIR/$RUN_ID"
   mkdir -p "$RESULT_DIR"
   echo "[table] $RUN_ID mult=$TM bigram=$BI trigram=$TRI -> GPU $GPU at $(date)"
-  CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
+  CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \
     --run_id "$RUN_ID" --injection_position input \
     --steps 1000 --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
@@ -47,7 +48,7 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
     --table_mult "$TM" \
     > "$RESULT_DIR/train.log" 2>&1
   # occupancy diagnostic (offline, cheap, per run)
-  "$PY" -u "$ROOT/code/table_occupancy.py" \
+  "$PY" -u "$TASK_ROOT/code/table_occupancy.py" \
     --data_dir "$DATA_DIR" --train_shards 1 \
     --vocab_size 8192 --sequence_len 2048 \
     --device_batch_size 72 --epoch_batches 336 \

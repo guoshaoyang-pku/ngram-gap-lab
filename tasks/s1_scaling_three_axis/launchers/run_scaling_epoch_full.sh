@@ -14,6 +14,7 @@
 set -euo pipefail
 
 ROOT=/data/home/guoshaoyang/ngram-gap-lab
+TASK_ROOT="$ROOT/tasks/s1_scaling_three_axis"
 PY=/usr/bin/python3
 DATA_DIR="$ROOT/data/tokenized"
 OUT_DIR="$ROOT/data/runs_scaling"
@@ -29,7 +30,7 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
   local RESULT_DIR="$OUT_DIR/$RUN_ID"
   mkdir -p "$RESULT_DIR"
   echo "[epoch-full] $RUN_ID epb=$EPB steps=$STEPS sched=$SCHED bi=$BI tri=$TRI -> GPU $GPU at $(date)"
-  CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
+  CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \
     --run_id "$RUN_ID" --injection_position input \
     --steps "$STEPS" --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \

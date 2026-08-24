@@ -97,10 +97,10 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | 项 | 值 | 说明 |
 |---|---|---|
 | n-gram table | **RMSProp，无动量** | `table_optimizer=rmsprop` |
-| table betas | `(0.0, 0.99)` | **scaling 主实验默认（用户 2026-08-24 拍板）**；β₁=0 即无动量。所有新 launcher 必须显式传 `--table_betas 0.0,0.99` |
+| table betas | `(0.0, 0.99)` | **新标准（用户 2026-08-24 拍板）**；β₁=0 即无动量。所有新 launcher 显式传 `--table_betas 0.0,0.99` |
 | 历史 β₂=0.999 | 仅保留历史身份 | 早期 run 用 `(0.0, 0.999)`；那批 run 的 β₂ 对比因 B2 bug 无有效证据（见 `docs/experiment-log.md` §9d） |
 | backbone | AdamW，betas `(0.8, 0.95)`，weight_decay 0.1 | |
-| lr | 0.004 | table_lr_scale = 1.0 |
+| lr | 0.004 | table_lr_scale = **2.0（用户 2026-08-24 拍板，新标准）**；表实际学习率 = 0.008 |
 | lr schedule | warmdown_ratio 0.65 | step-anchored；`--lr_schedule_epochs N` 可切 epoch-anchored |
 
 ### 1.4 数据与训练

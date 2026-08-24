@@ -19,6 +19,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 RUNS = REPO / "data" / "runs_fixed"
+RUNS_PARTIAL = REPO / "data" / "runs_partial"   # 补点进行中的部分结果（快照）
 OUT = HERE / "results" / "appendix_data.json"
 
 # 本附录覆盖的全部 run（β₂ 消融 + 表学习率消融 + 短 epoch 对照）
@@ -59,15 +60,27 @@ RUN_IDS = {
 
 def load_run(run_id: str) -> dict | None:
     d = RUNS / run_id
+    partial = False
+    if not d.exists():
+        d = RUNS_PARTIAL / run_id          # 补点进行中：用部分快照
+        partial = True
     if not d.exists():
         return None
-    s = json.loads((d / "summary.json").read_text())
-    rec = {"run_id": run_id, "final_gap": s.get("final_gap"),
-           "steps": s.get("steps"),
-           "config": {k: s["config"][k] for k in
-                      ("table_optimizer", "table_betas", "table_lr_scale",
-                       "train_shards", "val_shards", "max_steps")
-                      if k in s.get("config", {})}}
+    sp = d / "summary.json"
+    if sp.exists():
+        s = json.loads(sp.read_text())
+        rec = {"run_id": run_id, "final_gap": s.get("final_gap"),
+               "steps": s.get("steps"), "partial": False,
+               "config": {k: s["config"][k] for k in
+                          ("table_optimizer", "table_betas", "table_lr_scale",
+                           "train_shards", "val_shards", "max_steps")
+                          if k in s.get("config", {})}}
+    else:
+        # 部分快照：配置按补点定义写死（β₂=0.99 · 表 LR×1 · 极简 setting）
+        rec = {"run_id": run_id, "final_gap": None, "steps": None,
+               "partial": True,
+               "config": {"table_optimizer": "rmsprop",
+                          "table_betas": [0.0, 0.99], "table_lr_scale": 1.0}}
     traj = {"step": [], "train_loss": [], "val_loss": [], "gap": [],
             "epoch": [], "epoch_bounds": []}
     prev_ep = 0

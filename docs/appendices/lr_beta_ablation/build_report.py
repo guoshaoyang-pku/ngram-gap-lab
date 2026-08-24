@@ -128,7 +128,9 @@ def main() -> None:
 <body>
 <h1>附录 · 表学习率 × β₂ 消融</h1>
 <div class="meta">
-实验线：T-table-opt（表优化器消融）子专题 · 状态：🟡 进行中（两个补点运行中）<br>
+实验线：T-table-opt（表优化器消融）子专题 ·
+<b style="color:#2C9C5A">★ 已决策（2026-08-24）：新标准 = β₂=0.99（无动量）· 表学习率 ×2（0.008）。</b>
+LR×1 补点继续跑完作对照，不再影响决策。<br>
 数据源：<code>data/runs_fixed/*_fixed/</code>（post-fix 权威数据） · 代码：<code>extract_data.py</code> + <code>make_figures.py</code>
 </div>
 
