@@ -226,7 +226,7 @@
 | T12 | 抽 `docs/plot_scripts/table_opt_common.py`。三个 `analyze_table_opt*.py` 约 40% 行重复（三个入口保留，问题确实不同） |
 | T13 | `ngram5_freq_gap` 更名 `controlled_ngram`（包名 `ngram5` 是历史误称，launcher 实际跑 `--order 3`）。需同步 3 个调用点 + 集群 rsync 路径 |
 | T14 | `ngram5_freq_gap/resample_aligned_dataset.py` 无 launcher 引用，确认后删除 |
-| T12 | **接线干预机制**：`code/train.py` 已有 `apply_intervention()`（reset_table / mask_readout / freeze_table / freeze_backbone）与 `table_mult`，但**主循环无调用点、无 CLI 参数**。接线后才能重跑 `agents.md` §6.3 的因果实验队列 |
+| T12 | ✅ 干预机制已接线：`apply_intervention()` + `table_mult` 已接通 CLI → Config → 主循环（一次性闩锁）。`run_causal_minimal.sh` 就位。**只剩在 GPU 上实跑验证**（因果重跑队列，见 `agents.md` §6.3） |
 
 ---
 
