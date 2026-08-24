@@ -8,10 +8,9 @@ probe steps it evaluates train/val loss *at the target position of each block*
 (position 5, the ``next`` token) and decomposes the loss by the natural
 5-gram bucket frequency ``r(b)`` so we can plot gap-vs-frequency.
 
-The model is imported from ``model.py`` which, on the cluster, resolves to
-``NanoGPTOriginal`` (with live n-gram injection tables); locally it falls back
-to the vanilla GPT for CPU smoke tests.  When the user supplies the special
-training setting, only ``model.py`` changes; this trainer stays as-is.
+The model is imported from ``model.py`` which resolves to the repository's
+minimal ``NanoGPT`` (with live n-gram injection tables).  The cluster launcher
+syncs the same ``code/train.py`` source beside this package.
 
 The frequency decomposition reads ``fivegram_counts.npz`` (written by
 data_gen) and looks up each target position's 5-gram bucket via hash5 %
@@ -62,8 +61,6 @@ import torch.nn.functional as F
 
 _HERE = Path(__file__).resolve().parent
 _PROJECT_ROOT = _HERE.parent
-sys.path.insert(0, str(_PROJECT_ROOT / "nanogpt_gap_causal"))
-sys.path.insert(0, str(_PROJECT_ROOT / "nanogpt_gap_vanilla_control"))
 sys.path.insert(0, str(_HERE))
 
 # Load the experiment's patched runtime lib under a private module name.

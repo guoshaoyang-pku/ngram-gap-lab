@@ -23,11 +23,11 @@ EXTRA=("$@")
 
 # ---- cluster config ----
 SSH_HOST="ophis-gpu"
-CLUSTER_ROOT="/data3/guoshaoyang/ngram-gap-exp"
+CLUSTER_ROOT="/data3/guoshaoyang/ngram-gap-lab"
 CLUSTER_PY="$CLUSTER_ROOT/.venv/bin/python"
 CACHE="/data2/ncpl-pathA/work/vbird_autoresearch/cache"
 RUNTIME_TMP="$CLUSTER_ROOT/.tmp/ngram5"
-DATA_BASE="$CLUSTER_ROOT/ngram5_data"
+DATA_BASE="$CLUSTER_ROOT/data/ngram5_controlled"
 DATA_DIR="${NGRAM5_DATA_DIR_OVERRIDE:-$DATA_BASE/trigram_alpha${ALPHA}}"
 LOCAL_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # ngram5_freq_gap/
 REPO_ROOT="$(cd "$LOCAL_HERE/.." && pwd)"

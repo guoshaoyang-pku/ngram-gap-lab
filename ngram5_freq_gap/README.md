@@ -55,7 +55,7 @@ k(b)       = clip((r_ref / r(b))^alpha, k_min, k_max)
 | `data_gen.py` | 1556 | ★ **不可替代资产**。受控数据集生成器：Mersenne 多项式 hash → 精确直方图扫描 → alpha 重采样 → 流式发射。支持任意 `--order`、`--val-source {train,test}`（巧合 gap vs 真 held-out）、`--emit-format bin`、token cache / fast scan / fast emit（全语料性能路径） |
 | `trainer.py` | 1467 | 训练循环。**独有能力**：DDP、checkpoint/resume、全 batch trace、probe details npz、60+ 字段 run contract（含 batch SHA256）。**不含模型与优化器** |
 | `lib.py` | 830 | 集群 canonical `lib.py` 的 **fork**，新增 `ngram5_blocks` data mode。⛔ **禁止合并回主线**——历史上该合并曾让集群 `lib.py` 不可导入 |
-| `model.py` | 126 | 动态加载器：从集群 `train.py` 源码截取定义段并 exec，取出 `NanoGPTOriginal`。⚠️ 见下方 P0 |
+| `model.py` | 126 | 动态加载器：从仓库 `code/train.py`（或 launcher 同步副本）加载 `NanoGPT`，取出主线模型与优化器 |
 | `hash_utils.py` | 80 | `data_gen.py` hash 的精确 torch 张量版（31-bit limb 避免 int64 溢出）。与主线 table 寻址 hash **数学上无关**，不可合并 |
 | `gap_experiment.py` | — | 已提升为 `code/gap_experiment.py`，此处为兼容 re-export |
 | `_gap_experiment_vendored.py` | 312 | 集群同步用的 vendored 副本（集群上没有 `code/`） |
@@ -67,19 +67,14 @@ k(b)       = clip((r_ref / r(b))^alpha, k_min, k_max)
 
 ## 5. 已知阻塞项
 
-### P0 · `model.py` 的 fallback 是死路径（本包当前在本仓库跑不起来）
+### P0 · `model.py` 与主线模型绑定 ✅ 已修复（2026-08-24）
 
-`model.py` 依次尝试仓库根 `train.py` 与集群 `/data3/guoshaoyang/ngram-gap-exp/train.py`，
-CPU 回退指向 `nanogpt_gap_vanilla_control/`——**这三个在本仓库都不存在**。
-`data_gen.py` 的 `_load_upstream_lib()` 同理找不到 upstream `lib.py`。
+`model.py` 现在优先加载仓库内的 `code/train.py`；集群 launcher 将同一份文件
+同步为 package 根目录的 `train.py`，作为远程副本入口。不存在 vanilla fallback、
+current-shell fallback 或仓库外历史模型 fallback。
 
-后果有两层：
-1. 本地 `import model` 直接 `ModuleNotFoundError`；
-2. 更严重的是，§2 那张「符合极简 setting」的表**只是环境变量声明，无法在仓库内验证**，
-   因为真正的 backbone 代码不在这里。主线 `code/train.py` 是可直接审计的。
-
-**修法**：把 fallback 改为主线 `code/train.py`。这一步同时消灭「两份 nanoGPT 实现」的隐患，
-是把本包真正并入主线的关键动作。
+因此 ngram5 的 backbone、n-gram table、初始化和 `MixedOptimizer` 都来自同一份
+主线实现；`run_contract.json` 会记录实际加载的 source path 与 optimizer 口径。
 
 ### P1 · full-163 线 ✅ 已退役（2026-08-23）
 
@@ -100,7 +95,7 @@ code/run_minimal_matrix.sh ──────────────┐
 tasks/l4_synth_powerlaw/cluster/*.sh ────┼──> ngram5_freq_gap/trainer.py
 code/tools/validate_fastgen.py ──────────┘         │
                                                     ├──> lib.py ──> code/gap_experiment.py
-                                                    ├──> model.py ──> ⚠️ 集群 train.py（仓库外）
+                                                    ├──> model.py ──> code/train.py
                                                     └──> hash_utils.py
 
 code/make_ngram_blocks.py ──(输出契约兼容)─────────> ngram5_blocks loader

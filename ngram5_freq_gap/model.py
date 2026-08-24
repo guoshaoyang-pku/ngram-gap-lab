@@ -2,7 +2,7 @@
 
 This module provides a single ``GPT`` / ``GPTConfig`` / ``MODEL_PROVENANCE``
 interface to the trainer.  It loads the repository's minimal ``NanoGPT`` first,
-then keeps the historical cluster source as an explicit compatibility fallback.
+then the launcher-synced copy of the same source.
 
 When the user supplies a new architecture, replace the body of this file with
 that implementation; the trainer only depends on the three names above plus a
@@ -19,17 +19,18 @@ from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# Try to load the repository's minimal model first.  The historical cluster
-# source remains available only for compatibility with old remote launchers.
+# Try to load the repository's minimal model first.  The launcher-synced copy
+# is the same file because cluster workspaces do not contain the full repository
+# tree.
 _MAIN_TRAIN_PY = _PROJECT_ROOT / "code" / "train.py"
-_NGRAM_GAP_EXP = Path("/data3/guoshaoyang/ngram-gap-exp/train.py")
+_SYNCED_TRAIN_PY = _PROJECT_ROOT / "train.py"
 
 NanoGPTOriginal = None
 NanoGPTMLPTrunk = None
 _cluster_model_loaded = False
 _cluster_model_source = None
 
-for _candidate in (_MAIN_TRAIN_PY, _NGRAM_GAP_EXP):
+for _candidate in (_MAIN_TRAIN_PY, _SYNCED_TRAIN_PY):
     if _candidate.exists():
         try:
             source = _candidate.read_text(encoding="utf-8")
@@ -39,7 +40,7 @@ for _candidate in (_MAIN_TRAIN_PY, _NGRAM_GAP_EXP):
                 "# ---------------------------------------------------------------------------"
             )
             definition_source = (
-                source if _candidate == _MAIN_TRAIN_PY
+                source if _candidate in (_MAIN_TRAIN_PY, _SYNCED_TRAIN_PY)
                 else source.split(marker, 1)[0]
             )
 
@@ -130,10 +131,10 @@ if NanoGPTOriginal is not None:
             "source": _cluster_model_source,
             "source_description": "repository NanoGPT with n-gram injection tables"
             if _cluster_model_source == str(_MAIN_TRAIN_PY)
-            else "historical cluster NanoGPTOriginal with n-gram injection tables",
+            else "launcher-synced repository NanoGPT with n-gram injection tables",
             "note": "loaded from the repository model definition"
             if _cluster_model_source == str(_MAIN_TRAIN_PY)
-            else "loaded from the historical cluster definition-only prefix",
+            else "loaded from the launcher-synced repository model",
             "trunk": "transformer",
         }
     else:
@@ -141,7 +142,7 @@ if NanoGPTOriginal is not None:
 else:
     raise RuntimeError(
         "cannot load the repository model from code/train.py or the "
-        "historical cluster compatibility source"
+        "launcher-synced train.py"
     )
 
 __all__ = ["GPT", "GPTConfig", "MODEL_PROVENANCE", "NanoGPTOriginal", "NanoGPTMLPTrunk", "TRUNK_VARIANT"]

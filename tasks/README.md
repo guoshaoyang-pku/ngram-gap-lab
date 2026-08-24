@@ -98,6 +98,18 @@
 
 ---
 
+## 消融附录（M3/M4 线深挖）
+
+| 任务 | 问题 | 脚本 | 结果 | 图 |
+|---|---|---|---|---|
+| `apendix_lr_beta_ablation/` | 表学习率与 β₂ 的消融及交互；高表学习率体检 | `extract_data.py` + `make_figures.py` + `build_report.py` | `results/appendix_data.json` | `figs/`（7 张 SVG） |
+
+这是主线表优化器消融（M3+M4）的深挖专题，**自包含**：`report.md`（实验报告）、
+`report.html`（内嵌 SVG 的阅读版）、`figs/`、`results/` 全部在本目录内。
+跑法：`extract_data.py`（可选 `--remote ophis-gpu` 拉补点）→ `make_figures.py` → `build_report.py`。
+
+---
+
 ## 运行
 
 所有脚本都可从仓库根目录直接跑，无需额外配置：

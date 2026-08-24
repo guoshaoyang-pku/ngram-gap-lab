@@ -10,6 +10,11 @@
 |---|---|---|---|---|---|
 | `vanilla_input_1000_seed42` | 2026-08-23 | 干净 vanilla 复现 · input 注入 · 1000 步 | ✅ done | **+0.858 @1000** | §14 |
 | `vanilla_nogram_1000_seed42` | 2026-08-23 | 干净 vanilla 复现 · 无 n-gram 对照 · 1000 步 | ✅ done | **+0.038 @1000** | §14 |
+| `nglab1x_input_reset_e2` | 2026-08-24 | P1 因果 · e2 边界全 table 回滚 | ✅ done | **+0.054 @1000（−94%）** | §15 |
+| `nglab1x_input_reset_e1` | 2026-08-24 | P1 因果 · e1 边界全 table 回滚 | ✅ done | +0.351 @1000（−59%） | §15 |
+| `nglab1x_input_mask_e1` | 2026-08-24 | P2 因果 · e1 边界屏蔽 readout | ✅ done | **+0.058 @1000（−93%）** | §15 |
+| `nglab1x_input_freeze_table_e1` | 2026-08-24 | P2 因果 · e1 边界冻结 table | ✅ done | +0.601 @1000（−30%） | §15 |
+| `nglab1x_input_freeze_backbone_e1` | 2026-08-24 | P2 因果 · e1 边界冻结 backbone | ✅ done | +0.780 @1000（−9%） | §15 |
 | `nglab_v` | 2026-08-05 | 注入点消融 · v | ✅ done | 0.33 @999 | §2 |
 | `nglab_y` | 2026-08-05 | 注入点消融 · y | ✅ done | 3.50 @999 | §2 |
 | `nglab_input` | 2026-08-05 | 注入点消融 · input | ✅ done | 0.79 @999 | §2 |
@@ -982,3 +987,63 @@ step 对齐下的单调递减主要来自**大 shard 看到的重播轮数更少
 - 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/vanilla_input_1000_seed42/`（train_log.jsonl + summary.json）
 - 集群 `/data3/guoshaoyang/ngram-gap-exp/nglab/data/runs/vanilla_nogram_1000_seed42/`
 - 训练代码 `code/train.py`（未改动），数据生成 `code/prepare_data.py`（shard 1/2 现生成）
+
+## 15. P1/P2 因果干预 · 极简 setting 重跑（2026-08-24）
+
+### 目的
+复现 `agents.md` §6.3「废弃结论，保留问题」队列的四条因果结论（原 current-shell 数字），
+在极简 setting（vanilla nanoGPT + input 注入 + table 1M + RMSProp 无动量）下重跑。
+旧结论（DEPRECATED SETTING，见 `docs/_archive/docs/p12-causal-results.md`）：
+table 回滚 −89% / readout 屏蔽 −89% / 冻结 table −49% / 冻结 backbone −54%。
+
+### Setting
+
+| 项 | 值 |
+|---|---|
+| backbone / n-gram | 同 §14（8L·6H·768D，bigram+trigram input 注入，table 1M） |
+| 优化器 / 数据 / 步数 | 同 §14（RMSProp+AdamW，shard1 train / shard2 val，1000 步，seed42，v10 fixed-val） |
+| 干预触发点 | epoch 边界（`--intervention_epoch`，0-indexed：1 = e1→e2 边界 ~step337，2 = e2→e3 边界 ~step674） |
+| 控制臂 | 复用 `vanilla_input_1000_seed42`（+0.858 @1000），不重跑 |
+
+### 干预臂矩阵
+
+| 臂 | 干预 | 触发 | 复现旧结论 |
+|---|---|---|---|
+| `nglab1x_input_reset_e2` | 全 table 行回滚 init | e2 边界 | p1_reset_all_e2（−89%）|
+| `nglab1x_input_reset_e1` | 全 table 行回滚 init | e1 边界 | p1_reset_all_e1（−13%，对照）|
+| `nglab1x_input_mask_e1` | 屏蔽 bigram/trigram readout | e1 边界 | p2_readout_mask_e1（−89%）|
+| `nglab1x_input_freeze_table_e1` | 冻结 table（保留 e1 内容）| e1 边界 | p2_freeze_table_e1（−49%）|
+| `nglab1x_input_freeze_backbone_e1` | 冻结 backbone（仅 table 更新）| e1 边界 | p2_table_gate_only_e1（−54%）|
+
+### 状态（已完成 2026-08-24）
+
+| 臂 | 状态 | final gap@1000 | train@1000 | val@1000 | vs 控制 |
+|---|---|---|---:|---:|---:|---|
+| 控制 `vanilla_input_1000_seed42` | ✅ done | +0.858 | 3.608 | 4.466 | — |
+| `nglab1x_input_reset_e2` | ✅ done | **+0.054** | 4.014 | 4.068 | **−94%** |
+| `nglab1x_input_reset_e1` | ✅ done | +0.351 | 4.004 | 4.355 | −59% |
+| `nglab1x_input_mask_e1` | ✅ done | **+0.058** | 4.269 | 4.327 | **−93%** |
+| `nglab1x_input_freeze_table_e1` | ✅ done | +0.601 | 3.851 | 4.453 | −30% |
+| `nglab1x_input_freeze_backbone_e1` | ✅ done | +0.780 | 4.159 | 4.939 | −9% |
+
+**关键观察 / 结论**
+
+1. **两个 −89% 级关键干预在极简 setting 上复现**：
+   - e2 边界全 table 回滚（`reset_e2`）：gap 0.858 → 0.054（**−94%**，旧 −89%）。
+     e1/e2 两 epoch 累积的行内容是 e3 大 gap 的必要条件。
+   - e1 边界屏蔽 readout（`mask_e1`）：gap 0.858 → 0.058（**−93%**，旧 −89%）。
+     n-gram readout 通道是 gap 的必要传导口。
+2. **回滚时机剂量**：e1 回滚（−59%）比 e2 回滚（−94%）弱——e1 擦掉后 e2 还能重写，
+   到 e3 时行历史部分恢复；e2 擦掉后只剩 e3 一个 epoch 重写，恢复不了。与旧的
+   「e1 −13% / e2 −89%」方向一致（本批 e1 干预更大，因极简 setting 的 e1 行写入更强）。
+3. **table write vs backbone 各贡献一半的旧结论未完全复现**：本批 freeze_table −30%、
+   freeze_backbone −9%，backbone 冻结影响远小于旧的 −54%。即极简 setting 下 gap 更依赖
+   table 持续写入 + backbone 放大，backbone 本身的训练动态贡献较小（旧 current-shell 有
+   gate/reader 等额外可训练放大器，占一半）。
+4. 与 §14 控制臂串起来：**gap 的产生与传导完全依赖 n-gram 表**（回滚/屏蔽 → 塌缩到
+   nogram 对照量级 0.04~0.06），主干结论稳定跨 backbone 架构。
+
+### 产物
+- 干预实现：`code/train.py`（新增 `--intervention` / `--intervention_epoch` / `--table_mult`）
+- launcher：`code/cluster/run_causal_minimal.sh`
+- 集群数据：`data/runs/nglab1x_input_{reset_e2,reset_e1,mask_e1,freeze_table_e1,freeze_backbone_e1}/`
