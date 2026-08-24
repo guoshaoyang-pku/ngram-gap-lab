@@ -73,9 +73,12 @@ def canonical_run_dirs(runs_dir):
         if not os.path.isdir(run_dir):
             continue
         physical_id = os.path.basename(run_dir)
-        if not physical_id.endswith("_fixed"):
+        if physical_id.endswith("_fixed"):
+            yield physical_id[:-len("_fixed")], physical_id, run_dir
+        elif physical_id.startswith("basic_"):
+            yield physical_id, physical_id, run_dir
+        else:
             continue
-        yield physical_id[:-len("_fixed")], physical_id, run_dir
 
 
 def valid_summary(run_dir, physical_id):
@@ -84,15 +87,33 @@ def valid_summary(run_dir, physical_id):
         return None
     with open(path) as f:
         summary = json.load(f)
-    if summary.get("run_id") != physical_id:
-        return None
     config = summary.get("config", {})
-    if config.get("table_lr_scale") != 2.0:
+    # Accept canonical (old pilot, *_fixed, val_interval=10) and basic
+    # (LRx2 + bf16 + compile, val_interval=25) run contracts.
+    is_basic = physical_id.startswith("basic_")
+    interval_ok = (
+        config.get("val_interval_steps") in (10, 25)
+        and config.get("table_norm_interval_steps") in (10, 25)
+        and summary.get("probe_eval_interval") in (10, 25)
+    )
+    if not (
+        summary.get("run_id") == physical_id
+        and config.get("table_optimizer") == "rmsprop"
+        and config.get("table_lr_scale") in (1.0, 2.0)
+        and config.get("table_betas") == [0.0, 0.99]
+        and interval_ok
+    ):
         return None
-    if config.get("table_betas") != [0.0, 0.99]:
-        return None
-    if config.get("val_interval_steps") != 10:
-        return None
+    if not is_basic:
+        # legacy pilot contract: require the *_fixed naming + val_interval 10
+        if not physical_id.endswith("_fixed"):
+            return None
+        if not (
+            config.get("val_interval_steps") == 10
+            and config.get("table_norm_interval_steps") == 10
+            and summary.get("probe_eval_interval") == 10
+        ):
+            return None
     return summary
 
 
@@ -169,6 +190,7 @@ def first_run(runs, *run_ids):
 def epoch_run_id(runs, L, module, align):
     return first_run(
         runs,
+        f"basic_{L}_{module}_{align}",
         f"ep_{L}_{module}_{align}",
         f"pilot_ep_{L}_{module}_{align}",
     )
@@ -181,7 +203,7 @@ def table_run_id(runs, mult, module):
         1: "16K",
     }
     pilot = pilot_names.get(mult)
-    candidates = [f"tbl_{mult}_{module}"]
+    candidates = [f"basic_tbl_{pilot}_{module}", f"tbl_{mult}_{module}"]
     if pilot is not None:
         candidates.append(f"tbl_pilot_{pilot}_{module}")
     return first_run(runs, *candidates)
@@ -392,18 +414,12 @@ def main():
     runs = {}
     ignored_noncanonical = 0
     ignored_invalid = 0
-    for run_dir in sorted(glob.glob(os.path.join(RUNS_DIR, "*"))):
-        if not os.path.isdir(run_dir):
-            continue
-        physical_id = os.path.basename(run_dir)
-        if not physical_id.endswith("_fixed"):
-            ignored_noncanonical += 1
-            continue
-        run_id = physical_id[:-len("_fixed")]
+    for run_id, physical_id, run_dir in canonical_run_dirs(RUNS_DIR):
         if not (
-            run_id.startswith(("ep_", "pilot_ep_", "tbl_"))
+            run_id.startswith(("ep_", "pilot_ep_", "tbl_", "basic_"))
             or run_id == "bb_safety_L1_nogram_5000"
         ):
+            ignored_noncanonical += 1
             continue
         summary = valid_summary(run_dir, physical_id)
         if summary is None:
@@ -416,7 +432,7 @@ def main():
             "summary": summary,
         }
     if ignored_noncanonical:
-        print(f"ignored {ignored_noncanonical} non-canonical scaling directories (expected *_fixed)")
+        print(f"ignored {ignored_noncanonical} non-canonical scaling directories")
     if ignored_invalid:
         print(f"ignored {ignored_invalid} scaling directories with an invalid canonical contract")
     print(f"found {len(runs)} runs")

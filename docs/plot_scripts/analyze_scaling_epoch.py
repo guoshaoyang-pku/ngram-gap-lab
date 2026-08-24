@@ -74,6 +74,21 @@ def load_summary(run_dir):
         return json.load(f)
 
 
+def is_current_scaling_summary(summary, physical_id):
+    config = summary.get("config", {})
+    return (
+        summary.get("run_id") == physical_id
+        and config.get("table_optimizer") == "rmsprop"
+        and config.get("table_lr_scale") == 2.0
+        and config.get("table_betas") == [0.0, 0.99]
+        and config.get("val_interval_steps") == 10
+        and config.get("table_norm_interval_steps") == 10
+        and summary.get("probe_eval_interval") == 10
+        and summary.get("compute_dtype") == "bf16"
+        and summary.get("torch_compile") is True
+    )
+
+
 def canonical_run_dirs(runs_dir):
     for run_dir in sorted(glob.glob(os.path.join(runs_dir, "*"))):
         if not os.path.isdir(run_dir):
@@ -112,7 +127,7 @@ def collect(runs_dir):
         if not meta.get("L") or not meta.get("module") or not meta.get("align"):
             continue
         summary = load_summary(run_dir)
-        if not summary or summary.get("run_id") != physical_id:
+        if not is_current_scaling_summary(summary, physical_id):
             rejected_count += 1
             continue
         probe = load_probe(run_dir)

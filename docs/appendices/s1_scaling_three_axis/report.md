@@ -45,36 +45,37 @@
 
 ## 2. 已有历史 pilot（不属于当前标准证据）
 
-本地 `data/runs_scaling/` 中现有的 7 个目录均为旧 pilot/safety 产物：
-它们的实际 metadata 使用 `table_lr_scale=1.0`，validation 和 fixed-train
-probe 周期为 50 步，目录也不带 `_fixed`。因此当前分析脚本会拒绝这些目录；
-它们的数字只能作为历史 QC，不能支撑当前 `table_lr_scale=2.0`、v10、
-bf16+compile 的 scaling 结论。当前标准 run 必须同时满足 `_fixed` 目录、
+本地 `data/runs_scaling/` 中现有的 13 个目录均为历史 pilot/basic/safety
+产物：8 个旧 `pilot_*` / safety 目录中，7 个带有 summary 的目录使用
+`table_lr_scale=1.0` 和 50 步 validation/probe 周期，另有 1 个未完成的
+backbone safety 目录没有 summary；5 个 `basic_*` 虽使用 β₂=0.99 和
+table LR×2，但仍使用 25 步周期且没有 bf16/compile metadata；所有目录都不带
+`_fixed`。因此当前分析脚本会拒绝这些目录；它们的数字只能作为历史 QC，
+不能支撑当前 `table_lr_scale=2.0`、v10、bf16+compile 的 scaling 结论。当前标准 run 必须同时满足 `_fixed` 目录、
 `summary.json.run_id` 与物理目录名一致、β 值 `[0.0, 0.99]`、table LR
 scale `2.0` 和 10 步 validation cadence。
 
 ### 2.0 数据量和完整性
 
-当前本地 `data/runs_scaling/` 有 **7 个历史实验目录**：
+当前本地 `data/runs_scaling/` 有 **13 个历史实验目录**：
 
-- **6 个已完成的 1000-step run**：epoch 轴 4 个，table 轴 3 个；
-- **1 个进行中的 backbone safety**：L1 + no-ngram，目标 5000 steps；
+- **8 个旧 pilot/safety run**：epoch 轴 4 个，table 轴 3 个，另有 1 个
+  未完成的 backbone safety；
+- **5 个 basic QC run**：epoch 轴 2 个，table 轴 3 个；
 - 暂无 full-grid、fixed-epoch、trigram-only、both 的 table-size 或多 seed
   结果，因此当前不能声称三条 scaling 已被完整验证。
 
-每个已完成 run 都有：
+这些历史 QC run 都有：
 
-- 20 条在线 train/val 记录；
-- L1 run 有 43 条 fixed-probe 记录，L4/table run 有 22 条；
+- 在线 train/val 记录和 fixed-probe 记录；
 - exact-frequency 最后快照覆盖 bigram 3088 个正频率、trigram 1477 个正频率；
 - 在 `>=1024` tokens 且 `>=32` contexts 的 train/val 共同纳入标准下，
   最后快照有 63 个 bigram exact-f 值、57 个 trigram exact-f 值可用于
   初步比较；
 - 三个 table run 另有逐 branch/layer/hash 的 occupancy 文件。
 
-日志数据约 **555 MB**，其中约 **142 MB** 来自仍在写入的 backbone safety
-exact-frequency 日志。所有已完成 run 的固定 train probe hash 都是
-`38d1254a827759d6`，可直接横向比较。
+日志数据约 **555 MB**；固定 train probe hash 需要以各 run metadata
+为准，不能因为历史 run 的 hash 相同就越过协议差异。
 
 ### 2.1 Epoch length（历史 pilot，fixed-step 1000 步）
 
@@ -159,7 +160,8 @@ backbone-only gap 会增长。最终表述必须以 5000-step 结果为准，不
 通过相对路径调用根目录 `code/`。附录目录只保存面向阅读的报告、图和结果摘要。
 
 各集群均应使用本仓库的独立副本；路径由启动环境中的 `NGLAB_ROOT` 指定，
-结果写入各自的 `data/runs_scaling/`，不会跨机共享同一 run 目录。启动前必须：
+结果写入各自的 `data/runs_scaling/<run_id>_fixed/`，不会跨机共享同一 run
+目录。启动前必须：
 
 1. 先完成本地 `py_compile` 与测量单测；
 2. 同步整个 `tasks/s1_scaling_three_axis/`；

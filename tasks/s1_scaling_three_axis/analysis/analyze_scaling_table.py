@@ -77,6 +77,21 @@ def canonical_run_dirs(runs_dir):
         yield physical_id[:-len("_fixed")], physical_id, run_dir
 
 
+def is_current_scaling_summary(summary, physical_id):
+    config = summary.get("config", {})
+    return (
+        summary.get("run_id") == physical_id
+        and config.get("table_optimizer") == "rmsprop"
+        and config.get("table_lr_scale") == 2.0
+        and config.get("table_betas") == [0.0, 0.99]
+        and config.get("val_interval_steps") == 10
+        and config.get("table_norm_interval_steps") == 10
+        and summary.get("probe_eval_interval") == 10
+        and summary.get("compute_dtype") == "bf16"
+        and summary.get("torch_compile") is True
+    )
+
+
 def main():
     runs = {}
     legacy_count = 0
@@ -109,7 +124,7 @@ def main():
             continue
         with open(summary_path) as f:
             summary = json.load(f)
-        if summary.get("run_id") != physical_id:
+        if not is_current_scaling_summary(summary, physical_id):
             rejected_count += 1
             continue
         probe = load_probe_final(run_dir)

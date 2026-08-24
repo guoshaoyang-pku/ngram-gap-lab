@@ -75,13 +75,15 @@
    逐位置一致（有单测）。f=0 novel 只报 val loss，不定义 gap。
 4. gap 主量 = **fixed_val − fixed_train**；在线 train loss 仅作诊断。
 
-## 历史 pilot QC（非当前标准证据）
+## 历史 pilot / basic QC（非当前标准证据）
 
-本地已有的 `pilot_*` 目录是 2026-08-24 的旧 pilot。它们的
-`summary.json` 实际记录 `table_lr_scale=1.0`、50 步 validation/probe
-周期，且目录没有 `_fixed` 后缀，因此分析脚本会主动排除它们。下面的数值只
-保留作历史 QC 和迁移溯源，不能用于当前 β₂=0.99、table LR×2、v10、
-bf16+compile 标准下的 scaling 结论。新的 launcher 会写入
+本地已有的 `pilot_*` 和 `basic_*` 目录是 2026-08-24 的历史 QC。旧
+`pilot_*` 的 `summary.json` 实际记录 `table_lr_scale=1.0`、50 步
+validation/probe 周期；`basic_*` 虽已使用 β₂=0.99 和 table LR×2，但
+仍记录 25 步周期，且没有 bf16/compile metadata。两类目录都没有
+`_fixed` 后缀，因此分析脚本会主动排除它们。下面的数值只保留作历史 QC
+和迁移溯源，不能用于当前 β₂=0.99、table LR×2、v10、bf16+compile
+标准下的 scaling 结论。新的 launcher 会写入
 `data/runs_scaling/<run_id>_fixed/`，并由 metadata 校验后才能进入分析。
 
 ### Epoch（fixed-step 1000 步）
