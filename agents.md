@@ -175,7 +175,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 ## 3. 仓库结构
 
 设计原则：
-- **`docs/` 只保留 5 个子目录**；图按实验线分目录。
+- **`docs/` 只保留 6 个子目录**；图按实验线分目录；专题深挖放 `docs/appendices/`。
 - **独立的敏捷验证任务放 `tasks/`**，每个任务目录**自包含**（脚本 + `results/` + 输入 fixture）。
 - **发现是 bug 的内容彻底删除，不归档**——避免污染代码库。
 
@@ -228,6 +228,8 @@ ngram-gap-lab/
 │   │   ├── toy/                 #   T1 + T2（跑在真 harness 上的 toy 线）
 │   │   └── theory/              #   L1–L5 理论图（sync_to_blog.sh 依赖此路径名）
 │   ├── plot_scripts/            # 作图脚本（gen_all_figures.py 为 canonical 入口）
+│   ├── appendices/              # ★ 主线专题深挖附录（自包含：报告+代码+图+数据）
+│   │   └── lr_beta_ablation/    #   表学习率 × β₂ 消融（进行中）
 │   ├── _archive/docs/           # 历史文档（含 current-shell 结论，仅供溯源）
 │   └── sync_to_blog.sh          # 同步图与报告到 blog（不覆盖 index.html、不自动 push）
 └── data/                        # ★ gitignored

@@ -110,8 +110,8 @@
 
 ```bash
 cd ngram-gap-lab
-.venv/bin/python tasks/apendix_lr_beta_ablation/extract_data.py            # 提取已有数据
-.venv/bin/python tasks/apendix_lr_beta_ablation/extract_data.py --remote ophis-gpu  # 补点完成后拉回
-.venv/bin/python tasks/apendix_lr_beta_ablation/make_figures.py            # 重画全部图
-.venv/bin/python tasks/apendix_lr_beta_ablation/build_report.py            # 重建 report.html
+.venv/bin/python docs/appendices/lr_beta_ablation/extract_data.py            # 提取已有数据
+.venv/bin/python docs/appendices/lr_beta_ablation/extract_data.py --remote ophis-gpu  # 补点完成后拉回
+.venv/bin/python docs/appendices/lr_beta_ablation/make_figures.py            # 重画全部图
+.venv/bin/python docs/appendices/lr_beta_ablation/build_report.py            # 重建 report.html
 ```

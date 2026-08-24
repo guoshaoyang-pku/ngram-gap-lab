@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[1]
+REPO = HERE.parents[2]
 RUNS = REPO / "data" / "runs_fixed"
 OUT = HERE / "results" / "appendix_data.json"
 
