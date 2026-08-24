@@ -527,7 +527,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the independent Toy6 lookup-memory x replay matrix."
     )
-    parser.add_argument("--output-dir", type=Path, default=Path("toy/results/toy6_lookup_replay"))
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(__file__).resolve().parent / "results" / "toy6_lookup_replay",
+    )
     parser.add_argument(
         "--replay-modes",
         type=lambda text: _csv_choices(text, {"fixed", "fresh"}, "replay modes"),

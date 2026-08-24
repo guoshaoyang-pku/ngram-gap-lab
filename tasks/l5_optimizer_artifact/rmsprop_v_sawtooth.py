@@ -29,8 +29,7 @@ from pathlib import Path
 
 import torch
 
-# Self-contained: the two RMSProp kernels are vendored next to this script
-# (originally OPHIS nanogpt_gap_onset_source/ngram_rms.py, which is deprecated).
+# Self-contained: the two RMSProp kernels are vendored next to this script.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ngram_rms_kernels import (  # noqa: E402
     rmsprop_global_bias_step_,
@@ -56,7 +55,14 @@ W_WD = 0.1
 SEED = 0
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
 
-FREQ_JSON = REPO / "data/toy_results/l5_optimizer_artifact/inputs/exact_frequency_distribution.json"
+FREQ_JSON = (
+    REPO
+    / "tasks"
+    / "l5_optimizer_artifact"
+    / "results"
+    / "inputs"
+    / "exact_frequency_distribution.json"
+)
 
 
 def build_contexts() -> torch.Tensor:
@@ -226,8 +232,14 @@ if __name__ == "__main__":
         for s in summ:
             print(f"  {name} epoch {s['epoch']}: boundary_drop={s['boundary_drop']:+.4f} "
                   f"within_epoch_rise={s['within_epoch_rise']:+.4f}", flush=True)
-        out = (REPO / "data" / "toy_results" / "l5_optimizer_artifact"
-               / "rmsprop_v_sawtooth" / f"rmsprop_v_sawtooth_{name}.json")
+        out = (
+            REPO
+            / "tasks"
+            / "l5_optimizer_artifact"
+            / "results"
+            / "rmsprop_v_sawtooth"
+            / f"rmsprop_v_sawtooth_{name}.json"
+        )
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(log))
         print(f"  saved {out}", flush=True)

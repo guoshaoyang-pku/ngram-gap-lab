@@ -22,10 +22,16 @@ ALPHA="${1:?alpha required}"; GPU="${2:?gpu_id required}"; MAXSTEPS="${3:-2000}"
 EXTRA=("$@")
 
 # ---- cluster config ----
-SSH_HOST="ophis-gpu"
-CLUSTER_ROOT="/data3/guoshaoyang/ngram-gap-lab"
+SSH_HOST="${NGLAB_SSH_HOST:-ophis-gpu}"
+CLUSTER_ROOT="${NGLAB_CLUSTER_ROOT:?set NGLAB_CLUSTER_ROOT to the repository path on the target host}"
 CLUSTER_PY="$CLUSTER_ROOT/.venv/bin/python"
-CACHE="/data2/ncpl-pathA/work/vbird_autoresearch/cache"
+REMOTE_CACHE="${NGLAB_CLUSTER_CACHE:?set NGLAB_CLUSTER_CACHE to the tokenizer/parquet cache on the target host}"
+LOCAL_CACHE="${NGLAB_CACHE_DIR:-}"
+if [[ -n "$LOCAL_CACHE" ]]; then
+  CACHE="$LOCAL_CACHE"
+else
+  CACHE="$REMOTE_CACHE"
+fi
 RUNTIME_TMP="$CLUSTER_ROOT/.tmp/ngram5"
 DATA_BASE="$CLUSTER_ROOT/data/ngram5_controlled"
 DATA_DIR="${NGRAM5_DATA_DIR_OVERRIDE:-$DATA_BASE/trigram_alpha${ALPHA}}"

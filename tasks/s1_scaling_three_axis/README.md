@@ -16,8 +16,7 @@
 - N-gram 注入：`input`（wte over-encoding）。
 - 模块臂：`bigram-only` / `trigram-only` / `both` / `no-ngram`（共享 table 基线）。
 - Table 优化器：RMSProp 无动量，**β₂=0.99**（`--table_betas 0.0,0.99`，全部显式传）。
-- S1 launcher 固定 `--table_lr_scale 1.0`，与已完成 pilot 保持同一学习率；
-  全局默认的 `table_lr_scale=2.0` 不得混入本实验线。
+- S1 launcher 固定 `--table_lr_scale 2.0`，与当前极简基线保持一致。
 - Backbone：AdamW (0.8, 0.95) lr 0.004。
 - 数据：自然语料、固定顺序 replay；train/val shard 严格不重叠。
 - 结果目录：`data/runs_scaling/`（新 namespace，不与历史 `runs_fixed/` 混用）。
@@ -70,7 +69,7 @@
 
 1. **fixed train probe**：独立 dataset 实例抓取固定 4 个 train batches，SHA256 记账；
    全程复用，**不消费训练流、不推进 epoch 计数器**（防 B1 bug 复发）。
-2. 周期评估每 50 步 + 每个 epoch 边界触发。
+2. 周期评估每 10 步 + 每个 epoch 边界触发。
 3. **exact-frequency**：索引 `GlobalFrequencyIndex.build_from_chunks` 与模型 hash
    逐位置一致（有单测）。f=0 novel 只报 val loss，不定义 gap。
 4. gap 主量 = **fixed_val − fixed_train**；在线 train loss 仅作诊断。
@@ -107,15 +106,14 @@ python3 -m py_compile tasks/s1_scaling_three_axis/code/*.py
 python3 tasks/s1_scaling_three_axis/analysis/test_scaling_measurement.py
 
 # 360-1 / 360-2：同步本任务目录和必要数据后，再从任务 launcher 启动
-rsync -avz tasks/s1_scaling_three_axis/ \
-  guoshaoyang@360-1:/data/home/guoshaoyang/ngram-gap-lab/tasks/s1_scaling_three_axis/
-nohup bash /data/home/guoshaoyang/ngram-gap-lab/tasks/s1_scaling_three_axis/launchers/run_scaling_epoch.sh \
-  > /data/home/guoshaoyang/ngram-gap-lab/logs/scaling_epoch.log 2>&1 &
+rsync -avz tasks/s1_scaling_three_axis/ user@cluster:/path/to/ngram-gap-lab/tasks/s1_scaling_three_axis/
+nohup bash /path/to/ngram-gap-lab/tasks/s1_scaling_three_axis/launchers/run_scaling_epoch.sh \
+  > /path/to/ngram-gap-lab/logs/scaling_epoch.log 2>&1 &
 ```
 
-launcher 内的绝对路径仍指向集群仓库副本；正式启动前应先完成
-`md5sum` 核对，并只运行 `run_scaling_epoch_full.sh` /
-`run_scaling_table_full.sh`（pilot QC 通过后）。
+launcher 默认从自身位置推导仓库根目录，也可用 `NGLAB_ROOT` 和
+`NGLAB_PY` 覆盖；正式启动前仍应完成 `md5sum` 核对，并只运行
+`run_scaling_epoch_full.sh` / `run_scaling_table_full.sh`（pilot QC 通过后）。
 多 seed（43/44）在分析脚本冻结后补跑。
 
 ## 图表和报告约定

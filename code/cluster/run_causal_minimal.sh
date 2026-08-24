@@ -16,12 +16,13 @@ set -euo pipefail
 GPU="${1:?gpu id}"
 ARM="${2:?arm}"
 
-ROOT=/data3/guoshaoyang/ngram-gap-lab
-PY="$ROOT/.venv/bin/python"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 
 EXP="nglab1x_input_${ARM}"
-RESULT_DIR="$ROOT/data/runs/$EXP"
+RESULT_DIR="$ROOT/data/runs_fixed/${EXP}_fixed"
 mkdir -p "$RESULT_DIR"
 
 declare -A INTERV
@@ -49,7 +50,7 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --steps 1000 \
   --seed 42 \
   --data_dir "$DATA_DIR" \
-  --out_dir "$ROOT/data/runs" \
+  --out_dir "$ROOT/data/runs_fixed" \
   --train_shards 1 \
   --val_shards 2,3,4,5,6,7,8,9,10,6542 \
   --device_batch_size 72 \
@@ -62,6 +63,9 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --enable_bigram 1 \
   --enable_trigram 1 \
   --table_mult 64 \
+  --table_optimizer rmsprop \
+  --table_betas 0.0,0.99 \
+  --table_lr_scale 2.0 \
   --intervention "$INTERV_VAL" \
   --intervention_epoch "$EPOCH_VAL" \
   --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \

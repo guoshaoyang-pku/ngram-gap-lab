@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""toy/gap_vs_samples_unigram.py
+"""gap_vs_samples_unigram.py
 
 Most-basic N-Gram Gap problem: one context row, true conditional P(·|c),
 r iid training draws n ~ Multinomial(r, P).  A unigram/count table fits the
@@ -49,8 +49,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "docs" / "figs"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OUT = Path(__import__("os").environ.get(
+    "NGLAB_FIG_DIR", REPO_ROOT / "docs" / "figs" / "theory"
+))
 OUT.mkdir(parents=True, exist_ok=True)
 rng = np.random.default_rng(20260812)
 

@@ -17,13 +17,14 @@ set -euo pipefail
 GPU2X="${1:-0}"
 GPU05X="${2:-5}"
 
-ROOT=/data3/guoshaoyang/ngram-gap-lab
-PY="$ROOT/.venv/bin/python"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 
 run_one() {
   local GPU="$1"; local EXP="$2"; shift 2
-  local RESULT_DIR="$ROOT/data/runs/$EXP"
+  local RESULT_DIR="$ROOT/data/runs_fixed/${EXP}_fixed"
   mkdir -p "$RESULT_DIR"
   echo "[launch] $EXP on GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
@@ -32,7 +33,7 @@ run_one() {
     --steps 2000 \
     --seed 42 \
     --data_dir "$DATA_DIR" \
-    --out_dir "$ROOT/data/runs" \
+    --out_dir "$ROOT/data/runs_fixed" \
     --device_batch_size 72 \
     --total_batch_size 147456 \
     --val_interval 10 \
@@ -49,6 +50,9 @@ run_one() {
     --sequence_len 2048 \
     --freq_eval_interval 10 \
     --freq_eval_batches 4 \
+    --table_optimizer rmsprop \
+    --table_betas 0.0,0.99 \
+    --table_lr_scale 2.0 \
     "$@" \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[launch] $EXP exit=$? at $(date)"

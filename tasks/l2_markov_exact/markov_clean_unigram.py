@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""toy/markov_clean_unigram.py
+"""markov_clean_unigram.py
 
 Cleanest-possible verification of the exact unigram gap theory on the
 l1/l2 second-order Markov chain. Pure numpy + matplotlib, one seeded RNG,
@@ -36,7 +36,7 @@ future entries and produced out-of-range token ids. We assert the token
 range and check the empirical marginal and adjacent-repeat rate against
 their closed forms before training.
 
-Outputs: toy/results/markov_clean/{fig1,fig2,fig3}.{png,svg}, results.json
+Outputs: results/markov_clean/{fig1,fig2,fig3}.{png,svg}, results.json
 """
 from __future__ import annotations
 
@@ -48,8 +48,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "toy" / "results" / "markov_clean"
+TASK_ROOT = Path(__file__).resolve().parent
+OUT = TASK_ROOT / "results" / "markov_clean"
 OUT.mkdir(parents=True, exist_ok=True)
 
 # ---------------- config ----------------
@@ -259,9 +259,9 @@ ratio = cnt4.var(axis=0, ddof=1) / (N4 * (1.0 / M) * (1 - 1.0 / M))
 print(f"  Var ratio over {M} tokens: mean={ratio.mean():.3f} "
       f"(se~{ratio.std()/np.sqrt(M):.3f})  theory gamma={GAM:.3f}")
 
-# ---------------- reconciliation with previous toy runs ----------------
-print("\n[5] reconciliation with previous toy results")
-prev_path = ROOT / "toy" / "results" / "markov_bc_5epoch_fast" / "summary.json"
+# ---------------- reconciliation with an optional local reference result ----------------
+print("\n[5] reconciliation with an optional local reference result")
+prev_path = TASK_ROOT / "results" / "markov_bc_5epoch_fast" / "summary.json"
 recon = {}
 if prev_path.exists():
     prev = json.load(open(prev_path))["final"]

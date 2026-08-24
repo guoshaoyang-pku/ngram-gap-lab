@@ -15,7 +15,8 @@ GPU="${2:?gpu_id required}"
 STEPS="${3:-2000}"
 SEED="${4:-42}"
 
-ROOT="${NGLAB_ROOT:-/data3/guoshaoyang/ngram-gap-lab}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 
@@ -26,7 +27,7 @@ case "$ARM" in
 esac
 
 EXP="nglab${ARM}"
-RESULT_DIR="$ROOT/data/runs/$EXP"
+RESULT_DIR="$ROOT/data/runs_fixed/${EXP}_fixed"
 mkdir -p "$RESULT_DIR"
 
 echo "=== $EXP (shards=$SHARDS, beta2=$B2) on GPU $GPU at $(date) ==="
@@ -36,7 +37,7 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --steps "$STEPS" \
   --seed "$SEED" \
   --data_dir "$DATA_DIR" \
-  --out_dir "$ROOT/data/runs" \
+  --out_dir "$ROOT/data/runs_fixed" \
   --train_shards "$SHARDS" \
   --val_shards 2,3,4,5,6,7,8,9,10,6542 \
   --device_batch_size 72 \
@@ -58,5 +59,6 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --freq_eval_batches 4 \
   --table_optimizer rmsprop \
   --table_betas 0.0,$B2 \
+  --table_lr_scale 2.0 \
   > "$RESULT_DIR/train.log" 2>&1
 echo "=== $EXP exit=$? at $(date) ==="

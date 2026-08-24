@@ -9,8 +9,9 @@
 # Usage: ./run_scaling_table_full.sh [gpu1] [gpu2] [gpu3]
 set -euo pipefail
 
-ROOT=/data/home/guoshaoyang/ngram-gap-lab
-PY=/usr/bin/python3
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 OUT_DIR="$ROOT/data/runs_scaling"
 FREQ_IDX="$ROOT/data/freq_index.npz"
@@ -27,16 +28,16 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
     --steps 1000 --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
     --device_batch_size 72 --total_batch_size 147456 \
-    --val_interval 50 --val_batches 4 --table_norm_interval 50 --lr 0.004 \
+    --val_interval 10 --val_batches 4 --table_norm_interval 10 --lr 0.004 \
     --enable_unigram 0 --enable_bigram "$BI" --enable_trigram "$TRI" \
     --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
-    --freq_eval_interval 50 --freq_eval_batches 4 \
+    --freq_eval_interval 10 --freq_eval_batches 4 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
     --epoch_batches 336 \
     --fixed_train_probe 4 --probe_eval_interval 50 \
     --table_betas 0.0,0.99 \
-    --table_lr_scale 1.0 \
+    --table_lr_scale 2.0 \
     --table_mult "$TM" \
     > "$RESULT_DIR/train.log" 2>&1
   "$PY" -u "$ROOT/code/table_occupancy.py" \

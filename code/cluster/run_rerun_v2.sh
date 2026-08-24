@@ -16,9 +16,10 @@ VAL_SHARDS="${4:?val shards}"
 STEPS="${5:?steps}"
 shift 5
 
-ROOT=/data3/guoshaoyang/ngram-gap-lab
-PY="$ROOT/.venv/bin/python"
-RESULT_DIR="$ROOT/data/runs_fixed/$RUN_ID"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
+RESULT_DIR="$ROOT/data/runs_fixed/${RUN_ID}_fixed"
 mkdir -p "$RESULT_DIR"
 
 echo "=== $RUN_ID  GPU=$GPU  shards=$TRAIN_SHARDS  steps=$STEPS  extra=$*  $(date) ==="

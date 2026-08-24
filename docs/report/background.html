@@ -10,7 +10,7 @@
 </style>
 </head>
 <body><main>
-<div class="back"><a href="index.html">← 返回主线结果页</a>　·　<a href="index_archive_20260805.html">查看历史完整版本</a></div>
+<div class="back"><a href="index.html">← 返回主线结果页</a>　·　<a href="versions/blog-index-20260805.html">查看历史完整版本</a></div>
 <h1>背景与 debug：从 current shell 回到最小 n-gram setting</h1>
 <div class="lead">这是一份可选阅读。主页面只依赖一个干净结论：vanilla nanoGPT 加 bigram / trigram value memory，在固定顺序 replay 下即可出现 gap。本页解释术语、实现路径和曾经排除的错误。</div>
 <h2>1. 术语表：每个东西到底是什么</h2>
@@ -68,5 +68,5 @@ bucket = "novel" if hit_count == 0 else frequency_bucket(hit_count)</pre>
 <p>这是一项让现象稳定、便于复现的训练 setting；gap 的来源仍然是 train-specific n-gram memory 与固定顺序 replay 的组合，而不是 optimizer 名字本身。</p>
 <h2>7. 相关记录</h2>
 <p><a href="https://svbird.github.io/ngram-gap-regime-bridge/">svbird 的 regime-bridge 报告</a>记录了从 vanilla 负例逐步接近 current core 的历史路径。它对理解项目演化有用，但本页的最小复现结论以 <a href="https://github.com/guoshaoyang-pku/ngram-gap-lab">ngram-gap-lab</a> 的 clean setting 为准。</p>
-<p class="footer">返回 <a href="index.html">主线结果页</a>，或查看 <a href="agent-experiment-log.html">完整实验日志</a>。</p>
+<p class="footer">返回 <a href="index.html">主线结果页</a>，或查看 <a href="../experiment-log.md">完整实验日志</a>。</p>
 </main></body></html>

@@ -5,10 +5,11 @@
 # Usage: ./run_shard_sweep_360.sh [gpu5x] [gpu6x] [gpu8x]
 set -euo pipefail
 
-ROOT=/data/home/guoshaoyang/ngram-gap-lab
-PY="python3"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
-OUT_DIR="$ROOT/data/runs"
+OUT_DIR="$ROOT/data/runs_fixed"
 G5="${1:-0}" G6="${2:-1}" G8="${3:-2}"
 
 run_one() {  # run_one <gpu> <run_id> <train_shards> <val_shards> <steps> <freq_index>
@@ -19,6 +20,7 @@ run_one() {  # run_one <gpu> <run_id> <train_shards> <val_shards> <steps> <freq_
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
     --run_id "$RUN_ID" --injection_position input --steps "$STEPS" --seed 42 \
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
+    --table_optimizer rmsprop --table_betas 0.0,0.99 --table_lr_scale 2.0 \
     --device_batch_size 72 --total_batch_size 147456 \
     --val_interval 10 --val_batches 4 --table_norm_interval 10 --lr 0.004 \
     --enable_unigram 0 --enable_bigram 1 --enable_trigram 1 \

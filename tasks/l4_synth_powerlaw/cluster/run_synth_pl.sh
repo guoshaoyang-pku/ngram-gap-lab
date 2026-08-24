@@ -5,11 +5,14 @@
 #   bash run_synth_pl.sh all          # table on/off x seeds 42,43 (2 free GPUs, 2 waves)
 set -uo pipefail
 
-ROOT=${SYNTH_ROOT:-/data/home/guoshaoyang/ngram-gap-exp}
-PY=python3
-RUNS_DIR=$ROOT/runs/ngram5
-DATA=$ROOT/ngram5_data/synth_pl_A
-CACHE_DIR=$ROOT/toy/cache/base
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../../.." && pwd)}"
+TASK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PY="${NGLAB_PY:-$REPO_ROOT/.venv/bin/python}"
+RUNS_DIR="${SYNTH_RUNS_DIR:-$TASK_ROOT/results/runs}"
+DATA="${SYNTH_DATA_DIR:-$TASK_ROOT/results/inputs/synth_pl_A}"
+CACHE_DIR="${SYNTH_CACHE_DIR:?set SYNTH_CACHE_DIR to the external tokenizer/cache directory}"
+TRAINER="$REPO_ROOT/ngram5_freq_gap/trainer.py"
 
 pick_gpus() {
   local free
@@ -32,7 +35,7 @@ run_job() {
     NANOGPT_NGRAM_INJECTION_IMPL=nanogpt NANOGPT_NGRAM_INJECTION_POSITION=input \
     NANOGPT_ENABLE_NGRAM_VE=$([ "$inject" = nanogpt ] && echo 1 || echo 0) \
     ENABLE_UNIGRAM_VE=0 ENABLE_BIGRAM_VE=1 ENABLE_TRIGRAM_VE=1 ENABLE_FOURGRAM_VE=0 \
-    NANOGPT_ADAM_LR=0.004 NGRAM_TABLE_BETAS=0.0,0.999 NGRAM_TABLE_LR_SCALE=1.0 \
+    NANOGPT_ADAM_LR=0.004 NGRAM_TABLE_BETAS=0.0,0.99 NGRAM_TABLE_LR_SCALE=2.0 \
     POSITION_ENCODING=learned_abs CURRENT_NORMALIZATION=layernorm \
     CURRENT_EMBEDDING_TYING=tied CURRENT_NGRAM_INJECTION_IMPL=none \
     CURRENT_EMBEDDING_INIT=nanogpt_like CURRENT_BLOCK_INIT=nanogpt_style \
@@ -52,7 +55,7 @@ run_job() {
     TORCH_COMPILE=0 \
     TORCHINDUCTOR_CACHE_DIR=$ROOT/.inductor_cache TRITON_CACHE_DIR=$ROOT/.triton_cache \
     REMOTE_RESULT_DIR=$out RUN_ID=$name \
-    "$PY" -u ngram5_freq_gap/trainer.py > "$out/train.log" 2>&1
+    "$PY" -u "$TRAINER" > "$out/train.log" 2>&1
   local rc=$?
   printf '%s\n' "$rc" > "$out/exit_code.txt"
   [ "$rc" -eq 0 ] && touch "$out/done"
@@ -60,7 +63,7 @@ run_job() {
   return "$rc"
 }
 
-cd "$ROOT"
+cd "$REPO_ROOT"
 MODE=${1:-all}
 case "$MODE" in
   smoke)

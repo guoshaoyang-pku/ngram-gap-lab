@@ -68,7 +68,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def _load_upstream_lib():
     os.environ.setdefault(
         "AUTORESEARCH_CACHE_DIR",
-        "/data2/ncpl-pathA/work/vbird_autoresearch/cache",
+        os.path.join(os.path.expanduser("~"), ".cache", "autoresearch"),
     )
     os.environ.setdefault(
         "DATA_DIR_OVERRIDE",

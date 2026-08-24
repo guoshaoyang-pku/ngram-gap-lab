@@ -47,7 +47,7 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
 
-    # Set env so OPHIS lib.py finds data
+    # Set the cache location before loading the compatible upstream library.
     os.environ["AUTORESEARCH_CACHE_DIR"] = args.cache_dir
     sys.path.insert(0, args.lib_dir)
 

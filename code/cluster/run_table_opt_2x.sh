@@ -16,7 +16,8 @@ GPU="${2:?gpu_id required}"
 STEPS="${3:-2000}"
 SEED="${4:-42}"
 
-ROOT="${NGLAB_ROOT:-/data3/guoshaoyang/ngram-gap-lab}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 FREQ_IDX="$ROOT/data/freq_index_train2x_fine.npz"
@@ -37,7 +38,7 @@ case "$ARM" in
 esac
 
 if [ "$SEED" = "42" ]; then EXP="nglab2x_opt_$ARM"; else EXP="nglab2x_opt_${ARM}_s${SEED}"; fi
-RESULT_DIR="$ROOT/data/runs/$EXP"
+RESULT_DIR="$ROOT/data/runs_fixed/${EXP}_fixed"
 mkdir -p "$RESULT_DIR"
 
 echo "=== $EXP on GPU $GPU at $(date) ==="
@@ -47,7 +48,7 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --steps "$STEPS" \
   --seed "$SEED" \
   --data_dir "$DATA_DIR" \
-  --out_dir "$ROOT/data/runs" \
+  --out_dir "$ROOT/data/runs_fixed" \
   --train_shards 1,2 \
   --val_shards 3,4,5,6,7,8,9,10,6542 \
   --device_batch_size 72 \

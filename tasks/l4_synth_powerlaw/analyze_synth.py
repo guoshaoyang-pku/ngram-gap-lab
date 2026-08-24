@@ -19,8 +19,9 @@ from pathlib import Path
 
 import numpy as np
 
-RUNS_ROOT = Path("/data/home/guoshaoyang/ngram-gap-exp/runs/ngram5")
-DATA_ROOT = Path("/data/home/guoshaoyang/ngram-gap-exp/ngram5_data")
+TASK_ROOT = Path(__file__).resolve().parent
+RUNS_ROOT = TASK_ROOT / "results" / "runs"
+DATA_ROOT = TASK_ROOT / "results" / "inputs"
 
 
 def load_entropy(dataset: str) -> dict[tuple[int, ...], float]:
@@ -93,13 +94,18 @@ def analyze_run(run: str, dataset: str, entropy: dict, edges: list[int]) -> dict
 
 
 def main() -> None:
+    global RUNS_ROOT, DATA_ROOT
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", required=True)
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--edges", default="0,1,2,3,4,5,6,11,21,51,101,201,501,1001,5001")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--runs-root", type=Path, default=RUNS_ROOT)
+    ap.add_argument("--data-root", type=Path, default=DATA_ROOT)
     args = ap.parse_args()
 
+    RUNS_ROOT = args.runs_root.resolve()
+    DATA_ROOT = args.data_root.resolve()
     edges = [int(x) for x in args.edges.split(",")]
     entropy = load_entropy(args.dataset)
     results = [analyze_run(r, args.dataset, entropy, edges)

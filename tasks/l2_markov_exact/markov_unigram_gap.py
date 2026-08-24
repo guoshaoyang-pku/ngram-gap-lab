@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""toy/markov_unigram_gap.py
+"""markov_unigram_gap.py
 
 Minimal experiment: pure unigram table model on an l1/l2 Markov chain.
 
@@ -40,8 +40,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = Path(__file__).resolve().parents[1]
-FIG_DIR = ROOT / "docs" / "figs"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FIG_DIR = Path(__import__("os").environ.get(
+    "NGLAB_FIG_DIR", REPO_ROOT / "docs" / "figs" / "theory"
+))
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 SEED = 20260811
 rng = np.random.default_rng(SEED)

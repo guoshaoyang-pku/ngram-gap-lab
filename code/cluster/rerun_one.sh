@@ -14,10 +14,11 @@ STEPS="$1"; shift
 FREQ_INDEX="$1"; shift
 EXTRA_ARGS="$@"
 
-ROOT="/data/home/guoshaoyang/ngram-gap-lab"
-PY="python3"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
-OUT_DIR="$ROOT/data/runs"
+OUT_DIR="$ROOT/data/runs_fixed"
 RESULT_DIR="$OUT_DIR/$RUN_ID"
 LOG_FILE="$RESULT_DIR/train.log"
 
@@ -51,6 +52,7 @@ CUDA_VISIBLE_DEVICES="$GPU" $PY -u "$ROOT/code/train.py" \
     --freq_index "$FREQ_INDEX" \
     --freq_eval_interval 10 \
     --freq_eval_batches 4 \
+    --table_optimizer rmsprop --table_betas 0.0,0.99 --table_lr_scale 2.0 \
     $EXTRA_ARGS \
     > "$LOG_FILE" 2>&1
 

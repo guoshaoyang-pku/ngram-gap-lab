@@ -4,8 +4,9 @@ set -euo pipefail
 GPU_LIST="${1:-1,2,3}"
 STEPS="${2:-2000}"
 
-ROOT=/data3/guoshaoyang/ngram-gap-lab
-PY="$ROOT/.venv/bin/python"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 DATA_DIR="$ROOT/data/tokenized"
 FREQ_INDEX="$ROOT/data/freq_index_train2x.npz"
 TRAIN_SHARDS=1,2
@@ -17,7 +18,7 @@ run_one() {
   local GPU="$1"
   local EXP="$2"
   local INJ="$3"
-  local RESULT_DIR="$ROOT/data/runs/$EXP"
+  local RESULT_DIR="$ROOT/data/runs_fixed/${EXP}_fixed"
   mkdir -p "$RESULT_DIR"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
     --run_id "$EXP" \
@@ -25,12 +26,12 @@ run_one() {
     --steps "$STEPS" \
     --seed 42 \
     --data_dir "$DATA_DIR" \
-    --out_dir "$ROOT/data/runs" \
+    --out_dir "$ROOT/data/runs_fixed" \
     --train_shards "$TRAIN_SHARDS" \
     --val_shards "$VAL_SHARDS" \
     --device_batch_size 72 \
     --total_batch_size 147456 \
-    --val_interval 50 \
+    --val_interval 10 \
     --val_batches 4 \
     --table_norm_interval 10 \
     --lr 0.004 \
@@ -43,7 +44,10 @@ run_one() {
     --vocab_size 8192 \
     --sequence_len 2048 \
     --freq_index "$FREQ_INDEX" \
-    --freq_eval_interval 50 \
+    --freq_eval_interval 10 \
+    --table_optimizer rmsprop \
+    --table_betas 0.0,0.99 \
+    --table_lr_scale 2.0 \
     --freq_eval_batches 4 \
     > "$RESULT_DIR/train.log" 2>&1
 }

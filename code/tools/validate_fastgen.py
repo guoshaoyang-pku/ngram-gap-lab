@@ -166,17 +166,16 @@ def main():
         if args.token_cache is not None
         else Path(os.environ.get("NGLAB_TOKEN_CACHE", CACHE)).resolve()
     )
-    cache_home = (
-        args.cache_home.resolve()
-        if args.cache_home is not None
-        else Path(os.environ.get("AUTORESEARCH_CACHE_DIR", "")).resolve()
-    )
-    if not CACHE.is_dir():
-        raise SystemExit(f"token cache does not exist: {CACHE}")
-    if not cache_home.is_dir():
+    cache_home_arg = args.cache_home or os.environ.get("AUTORESEARCH_CACHE_DIR")
+    if cache_home_arg is None:
         raise SystemExit(
             "cache home is required; pass --cache-home or set AUTORESEARCH_CACHE_DIR"
         )
+    cache_home = Path(cache_home_arg).resolve()
+    if not CACHE.is_dir():
+        raise SystemExit(f"token cache does not exist: {CACHE}")
+    if not cache_home.is_dir():
+        raise SystemExit(f"cache home does not exist: {cache_home}")
     os.environ["AUTORESEARCH_CACHE_DIR"] = str(cache_home)
     sys.path.insert(0, str(ROOT / "ngram5_freq_gap"))
     import data_gen as dg_module
