@@ -56,17 +56,22 @@
   （0.25x：9.69 vs 8.97；0.5x：3.99 vs 4.02）。初步看 β₂ 0.99 与 0.999 差异不大。
 - **待补点完成后**才能下主线结论；届时若差异 <20%，保持默认 0.999 即可（不动默认值）。
 
-## 2. 全部图片（`figs/`）
+## 2. 全部图片（`figs/`，一图一变量）
 
-| 文件 | 内容 |
-|---|---|
-| `fig_beta2_curves.svg` | β₂ 消融 · gap 全程曲线簇（3 面板：1x·LR×2 / 2ep·LR×2 / 1x·LR×4），含 epoch 分界与终点压差 |
-| `fig_lr_curves.svg` | 表 LR 消融 · gap 全程曲线簇（β₂=0.999） |
-| `fig_val_loss_beta2_lr.svg` | **val loss 体检**：β₂=0.99 高表学习率是否崩坏 |
-| `fig_val_loss_short_epoch.svg` | 短 epoch 家族 val loss（0.25x/0.5x，表学习率 ×1） |
-| `fig_beta2_finalgap.svg` | β₂ 消融终点柱状汇总 |
-| `fig_beta2_spread_vs_lr.svg` | **关键分析图**：β₂ 压差随表学习率衰减 |
-| `fig_lr_sweep_b2_099.svg` | β₂=0.99 下的表学习率扫描（补点完成后数据齐全） |
+每张图**只变一个变量**（其余固定项写在图副标题），每张图三个面板：**train loss / val loss / gap**，
+虚线为 epoch 边界。A 组变表学习率，B 组变 β₂，C 组看交互。
+
+| 文件 | 固定 | 变化 |
+|---|---|---|
+| `fig_lr_sweep_b2_099_1x.svg` | 1x shard · β₂=0.99 | 表学习率 ×1/×2/×4 |
+| `fig_lr_sweep_b2_099_2ep.svg` | 2-epoch shard · β₂=0.99 | 表学习率 ×1/×2/×4 |
+| `fig_lr_sweep_b2_0999_1x.svg` | 1x shard · β₂=0.999 | 表学习率 ×1/×2/×4 |
+| `fig_lr_sweep_b2_0999_2ep.svg` | 2-epoch shard · β₂=0.999 | 表学习率 ×1/×2/×4 |
+| `fig_b2_sweep_1x_lr2.svg` | 1x shard · 表学习率 ×2 | β₂ 0.98/0.99/0.999 |
+| `fig_b2_sweep_2ep_lr2.svg` | 2-epoch shard · 表学习率 ×2 | β₂ 0.98→0.99999 |
+| `fig_b2_sweep_1x_lr4.svg` | 1x shard · 表学习率 ×4 | β₂ 0.98/0.99/0.999 |
+| `fig_b2_sweep_2ep_lr4.svg` | 2-epoch shard · 表学习率 ×4 | β₂ 0.98→0.9999 |
+| `fig_beta2_spread_vs_lr.svg` | — | β₂ 压差（0.98−0.999）随表学习率衰减 |
 
 ## 3. 实验清单
 

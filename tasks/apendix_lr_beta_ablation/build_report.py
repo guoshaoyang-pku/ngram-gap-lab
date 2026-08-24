@@ -13,13 +13,24 @@ FIGS = HERE / "figs"
 OUT = HERE / "report.html"
 
 SVG_ORDER = [
-    ("fig_beta2_curves.svg", "β₂ 消融 · gap 全程曲线簇"),
-    ("fig_lr_curves.svg", "表学习率消融 · gap 全程曲线簇（β₂=0.999）"),
-    ("fig_val_loss_beta2_lr.svg", "val loss 体检 · β₂=0.99 在高表学习率下是否崩坏"),
-    ("fig_val_loss_short_epoch.svg", "短 epoch 家族 val loss（0.25x / 0.5x，表学习率 ×1）"),
-    ("fig_beta2_finalgap.svg", "β₂ 消融 · 终点 gap 汇总"),
-    ("fig_beta2_spread_vs_lr.svg", "关键分析 · β₂ 压差随表学习率衰减"),
-    ("fig_lr_sweep_b2_099.svg", "β₂=0.99 下的表学习率扫描（补点完成后完整）"),
+    ("fig_lr_sweep_b2_099_1x.svg",
+     "A1 · 表学习率扫描 · 1x shard · β₂=0.99（变：表学习率 ×1/×2/×4）"),
+    ("fig_lr_sweep_b2_099_2ep.svg",
+     "A2 · 表学习率扫描 · 2-epoch shard · β₂=0.99（变：表学习率 ×1/×2/×4）"),
+    ("fig_lr_sweep_b2_0999_1x.svg",
+     "A3 · 表学习率扫描 · 1x shard · β₂=0.999（变：表学习率 ×1/×2/×4）"),
+    ("fig_lr_sweep_b2_0999_2ep.svg",
+     "A4 · 表学习率扫描 · 2-epoch shard · β₂=0.999（变：表学习率 ×1/×2/×4）"),
+    ("fig_b2_sweep_1x_lr2.svg",
+     "B1 · β₂ 扫描 · 1x shard · 表学习率 ×2（变：β₂ 0.98/0.99/0.999）"),
+    ("fig_b2_sweep_2ep_lr2.svg",
+     "B2 · β₂ 扫描 · 2-epoch shard · 表学习率 ×2（变：β₂ 0.98→0.99999）"),
+    ("fig_b2_sweep_1x_lr4.svg",
+     "B3 · β₂ 扫描 · 1x shard · 表学习率 ×4（变：β₂ 0.98/0.99/0.999）"),
+    ("fig_b2_sweep_2ep_lr4.svg",
+     "B4 · β₂ 扫描 · 2-epoch shard · 表学习率 ×4（变：β₂ 0.98→0.9999）"),
+    ("fig_beta2_spread_vs_lr.svg",
+     "C · 交互分析 · β₂ 压差（0.98−0.999）随表学习率衰减"),
 ]
 
 FINDINGS = [
@@ -94,7 +105,7 @@ def main() -> None:
 <meta charset="utf-8">
 <title>附录 · 表学习率 × β₂ 消融</title>
 <style>
-  body {{ font-family: -apple-system, "PingFang SC", sans-serif; max-width: 1100px;
+  body {{ font-family: -apple-system, "PingFang SC", sans-serif; max-width: 1500px;
           margin: 0 auto; padding: 24px; color: #222; line-height: 1.55; }}
   h1 {{ font-size: 26px; border-bottom: 2px solid #4878CF; padding-bottom: 8px; }}
   h2 {{ font-size: 20px; margin-top: 34px; color: #2c5fa0; }}
@@ -106,7 +117,7 @@ def main() -> None:
   .fid {{ font-weight: 700; color: #4878CF; font-size: 18px; min-width: 40px; }}
   .fig {{ margin: 22px 0; }}
   .fig figcaption {{ font-size: 13px; color: #555; text-align: center; margin-top: 4px; }}
-  .svgbox svg {{ width: 100%; height: auto; max-width: 1080px; display: block; margin: auto; }}
+  .svgbox svg {{ width: 100%; height: auto; max-width: 1480px; display: block; margin: auto; }}
   table {{ border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }}
   th, td {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; }}
   th {{ background: #eef3fa; }}
@@ -125,6 +136,7 @@ def main() -> None:
 {findings_html}
 
 <h2>2. 全部图片</h2>
+<p style="color:#666;font-size:14px">每张图只变一个变量（其余固定，写在副标题里）；每张图三个面板：train loss / val loss / gap。虚线 = epoch 边界。A 组变表学习率，B 组变 β₂，C 组看交互。</p>
 {figs_html}
 
 <h2>3. 已有实验（_fixed 权威数据）</h2>
