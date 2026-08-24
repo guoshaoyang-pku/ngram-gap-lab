@@ -26,6 +26,10 @@ mkdir -p "$OUT_DIR"
 run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
   local GPU="$1" RUN_ID="$2" TM="$3" BI="$4" TRI="$5"
   local RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
+  if [ -f "$RESULT_DIR/summary.json" ] && [ -f "$RESULT_DIR/table_occupancy.json" ]; then
+    echo "[table-full] SKIP $RUN_ID (summary + occupancy already present)"
+    return 0
+  fi
   mkdir -p "$RESULT_DIR"
   echo "[table-full] $RUN_ID mult=$TM bi=$BI tri=$TRI -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \

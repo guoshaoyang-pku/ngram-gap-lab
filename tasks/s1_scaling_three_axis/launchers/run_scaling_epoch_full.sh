@@ -41,6 +41,10 @@ declare -A FESTEPS=( [L1]=252 [L2]=504 [L3]=1008 [L4]=2022 )
 run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> <bigram> <trigram>
   local GPU="$1" RUN_ID="$2" EPB="$3" STEPS="$4" SCHED="$5" BI="$6" TRI="$7"
   local RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
+  if [ -f "$RESULT_DIR/summary.json" ]; then
+    echo "[epoch-full] SKIP $RUN_ID (summary.json already present)"
+    return 0
+  fi
   mkdir -p "$RESULT_DIR"
   echo "[epoch-full] $RUN_ID epb=$EPB steps=$STEPS sched=$SCHED bi=$BI tri=$TRI -> GPU $GPU at $(date)"
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \
