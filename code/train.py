@@ -72,7 +72,7 @@ class Config:
     table_betas: tuple = (0.0, 0.999)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     table_mult: int = 64              # n-gram table size = vocab_size * table_mult
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
-    intervention_epoch: int = 1       # fire at start of epoch N+1 (epoch 1-indexed)
+    intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
     adam_betas: tuple = (0.8, 0.95)
     weight_decay: float = 0.1
     # training
@@ -368,7 +368,52 @@ class NanoGPT(nn.Module):
                 if g is not None:
                     torch.nn.init.zeros_(g.weight)
 
+    @torch.no_grad()
+    def reset_ngram_tables(self):
+        """Reset all n-gram table rows to their init distribution (P1: erase
+        accumulated historical row state, keeping backbone intact)."""
+        s = 3 ** 0.5 * self.config.n_embd ** -0.5
+        for lvs in self.bigram_ves.values():
+            for bve in lvs:
+                torch.nn.init.uniform_(bve.weight, -s, s)
+        for lvs in self.trigram_ves.values():
+            for tve in lvs:
+                torch.nn.init.uniform_(tve.weight, -s, s)
+
+    def apply_intervention(self, epoch0: int):
+        """Fire intervention when 0-indexed epoch reaches `intervention_epoch`."""
+        if self.config.intervention == "none":
+            return
+        if epoch0 != self.config.intervention_epoch:
+            return
+        if self.config.intervention == "reset_table":
+            self.reset_ngram_tables()
+        elif self.config.intervention == "mask_readout":
+            self.config.enable_bigram_ve = False
+            self.config.enable_trigram_ve = False
+        elif self.config.intervention == "freeze_table":
+            for p in self._ngram_params():
+                p.requires_grad_(False)
+        elif self.config.intervention == "freeze_backbone":
+            for p in self._backbone_params():
+                p.requires_grad_(False)
+
+    def _ngram_params(self):
+        markers = ("value_embeds", "bigram_ves", "trigram_ves",
+                   "ve_gate", "bigram_gate", "trigram_gate")
+        for name, p in self.named_parameters():
+            if any(m in name for m in markers):
+                yield p
+
+    def _backbone_params(self):
+        markers = ("value_embeds", "bigram_ves", "trigram_ves",
+                   "ve_gate", "bigram_gate", "trigram_gate")
+        for name, p in self.named_parameters():
+            if not any(m in name for m in markers):
+                yield p
+
     def _compute_input_ngram_residual(self, idx):
+        """Over-encoding: sum all enabled layers' n-gram values, no gate."""
         _B, T = idx.size()
         residual = None
         prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)
@@ -581,8 +626,11 @@ class MixedOptimizer:
         table_lr_t = lr_t * self.table_lr_scale
         with torch.no_grad():
             for name, p in self.adam_params:
-                self._adamw_step(name, p, lr_t)
+                if p.requires_grad:
+                    self._adamw_step(name, p, lr_t)
             for name, p in self.ngram_params:
+                if not p.requires_grad:
+                    continue
                 if self.table_optimizer == "adamw":
                     self._table_adamw_step(name, p, table_lr_t)
                 elif self.table_optimizer == "sgd":
@@ -786,6 +834,14 @@ def main():
                         help="multiplier on the n-gram table LR (default 1.0)")
     parser.add_argument("--table_betas", default=None,
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.999")
+    parser.add_argument("--table_mult", type=int, default=64,
+                        help="n-gram table size = vocab_size * table_mult (default 64)")
+    parser.add_argument("--intervention", default="none",
+                        choices=["none", "reset_table", "mask_readout",
+                                 "freeze_table", "freeze_backbone"],
+                        help="causal intervention fired at intervention_epoch boundary")
+    parser.add_argument("--intervention_epoch", type=int, default=1,
+                        help="0-indexed epoch at which the intervention fires (1 = start of epoch 2)")
     parser.add_argument("--enable_unigram", type=int, default=0)
     parser.add_argument("--enable_bigram", type=int, default=1)
     parser.add_argument("--enable_trigram", type=int, default=1)
@@ -901,6 +957,7 @@ def main():
 
     model.train()
     t0 = time.time()
+    intervention_fired = False
     for step in range(cfg.max_steps):
         # gradient accumulation
         optimizer.zero_grad()
@@ -911,6 +968,9 @@ def main():
             except StopIteration:
                 train_iter = train_ds.iter_batches(device)
                 inp, tgt = next(train_iter)
+            if not intervention_fired and train_ds._epoch >= cfg.intervention_epoch:
+                model.apply_intervention(train_ds._epoch)
+                intervention_fired = True
             loss = model(inp, targets=tgt) / grad_accum
             loss.backward()
             accum_loss += loss.item()
