@@ -44,7 +44,7 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
     --epoch_batches 336 \
     --fixed_train_probe 4 --probe_eval_interval 50 \
     --table_betas 0.0,0.99 \
-    --table_lr_scale 1.0 \  # frozen: pilots ran under the pre-2026-08-24 default
+    --table_lr_scale 1.0 \
     --table_mult "$TM" \
     > "$RESULT_DIR/train.log" 2>&1
   # occupancy diagnostic (offline, cheap, per run)

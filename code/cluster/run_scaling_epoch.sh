@@ -49,7 +49,7 @@ run_arm() {  # run_guard <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs
     --epoch_batches "$EPB" \
     --fixed_train_probe 4 --probe_eval_interval 50 \
     --table_betas 0.0,0.99 \
-    --table_lr_scale 1.0 \  # frozen: pilots ran under the pre-2026-08-24 default
+    --table_lr_scale 1.0 \
     ${SCHED:+--lr_schedule_epochs "$SCHED"} \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[epoch] $RUN_ID done (exit=$?) at $(date)"

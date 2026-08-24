@@ -98,6 +98,22 @@
 
 ---
 
+## S1 · 三轴 scaling（epoch length / exact frequency / table size）
+
+**问题**：在唯一极简 nanoGPT setting 下，分别检验 epoch 长度、exact
+context frequency 与 table size 对 train/val gap 的影响。该任务只用自然语料；
+frequency 分支是 observational consistency，不是频率因果证明。
+
+| | |
+|---|---|
+| 任务目录 | `tasks/s1_scaling_three_axis/`（自包含代码、launcher、分析与测试） |
+| 报告目录 | `docs/appendices/s1_scaling_three_axis/`（报告、三视图组图、结果摘要） |
+| 变量控制 | 每个组图只改变一个变量，并固定 module、seed、optimizer、数据前缀与训练预算 |
+| 观测口径 | 固定 train probe、固定 val probe、`gap = val − train`；在线 train loss 仅作诊断 |
+| 状态 | Pilot 已完成；full grid 与多 seed 待运行 |
+
+---
+
 ## 运行
 
 所有脚本都可从仓库根目录直接跑，无需额外配置：

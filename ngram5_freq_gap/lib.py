@@ -53,14 +53,13 @@ DATA_DIR = "/data" if _USE_UPSTREAM_DATA_DIR else os.path.join(_CACHE_DIR, "data
 DEFAULT_TOKENIZER_DIR = os.path.join(DATA_DIR, "tokenizer") if _USE_UPSTREAM_DATA_DIR else os.path.join(_CACHE_DIR, "tokenizer")
 FIXED_TOKENIZER_DIR = os.environ.get("FIXED_TOKENIZER_DIR", "").strip()
 TOKENIZER_DIR = FIXED_TOKENIZER_DIR or DEFAULT_TOKENIZER_DIR
-# data_split.json lives in the repo root (parent of ngram5_freq_gap/ on the
-# cluster), not in this directory.
+# data_split.json lives in the repository root or at the explicit override.
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(PROJECT_ROOT) if os.path.basename(PROJECT_ROOT) == "ngram5_freq_gap" else PROJECT_ROOT
-DATA_SPLIT_PATH = os.path.join(_REPO_ROOT, "data_split.json")
-if not os.path.exists(DATA_SPLIT_PATH):
-    # fallback: cluster convention, data_split.json next to train.py
-    DATA_SPLIT_PATH = "/data3/guoshaoyang/ngram-gap-exp/data_split.json"
+DATA_SPLIT_PATH = os.environ.get(
+    "NGLAB_DATA_SPLIT",
+    os.path.join(_REPO_ROOT, "data_split.json"),
+)
 BOS_TOKEN = "<|reserved_0|>"
 
 

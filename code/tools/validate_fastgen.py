@@ -11,6 +11,7 @@ full163 cache-home.  Uses cached shards only (no re-tokenization).
   D. generate() CLI wiring on a 3-shard subset (npz == fast scan counts, meta,
      loader smoke)
 """
+import argparse
 import json
 import os
 import shutil
@@ -21,18 +22,15 @@ from pathlib import Path
 import numpy as np
 import torch  # noqa: F401
 
-ROOT = Path("/data3/guoshaoyang/ngram-gap-exp")
-sys.path.insert(0, str(ROOT / "ngram5_freq_gap"))
-
-import data_gen as dg  # noqa: E402
-
-CACHE = ROOT / "ngram5_data" / "token_cache_full163"
+ROOT = Path(__file__).resolve().parents[2]
+CACHE = ROOT / "data" / "token_cache_full163"
 TRAIN_SHARDS = [0, 1, 2]
 ORDER = 3
 VOCAB = 8192
 SEP = 8191
 DATASET_SEED = 20260808
 LAM_TRAIN = 0.8
+dg = None
 
 
 def load_flat(shard_id):
@@ -130,6 +128,71 @@ def fast_emit_window(flat, offsets, rng_gen, max_occ):
 
 
 def main():
+    global ROOT, CACHE, dg
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path(os.environ.get("NGLAB_ROOT", ROOT)),
+    )
+    parser.add_argument(
+        "--token-cache",
+        type=Path,
+        default=None,
+        help="directory containing cached shard_*.npy and offsets files",
+    )
+    parser.add_argument(
+        "--cache-home",
+        type=Path,
+        default=None,
+        help="upstream cache home containing the parquet data and tokenizer",
+    )
+    parser.add_argument(
+        "--tokenizer-dir",
+        type=Path,
+        default=None,
+        help="tokenizer directory used by the generate() smoke",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="temporary output directory for the generate() smoke",
+    )
+    args = parser.parse_args()
+    ROOT = args.repo_root.resolve()
+    CACHE = (
+        args.token_cache.resolve()
+        if args.token_cache is not None
+        else Path(os.environ.get("NGLAB_TOKEN_CACHE", CACHE)).resolve()
+    )
+    cache_home = (
+        args.cache_home.resolve()
+        if args.cache_home is not None
+        else Path(os.environ.get("AUTORESEARCH_CACHE_DIR", "")).resolve()
+    )
+    if not CACHE.is_dir():
+        raise SystemExit(f"token cache does not exist: {CACHE}")
+    if not cache_home.is_dir():
+        raise SystemExit(
+            "cache home is required; pass --cache-home or set AUTORESEARCH_CACHE_DIR"
+        )
+    os.environ["AUTORESEARCH_CACHE_DIR"] = str(cache_home)
+    sys.path.insert(0, str(ROOT / "ngram5_freq_gap"))
+    import data_gen as dg_module
+
+    dg = dg_module
+    tokenizer_dir = (
+        args.tokenizer_dir.resolve()
+        if args.tokenizer_dir is not None
+        else Path(os.environ.get("NGLAB_TOKENIZER_DIR", cache_home / "tokenizer"))
+    )
+    out_dir = (
+        args.out_dir.resolve()
+        if args.out_dir is not None
+        else ROOT / "data" / "validation" / "fastgen"
+    )
+
     # ---- A. scan equivalence on shard 00000 ----
     flat0, off0 = load_flat(0)
     ref_counts, ref_total = ref_scan_docs(flat0, off0)
@@ -164,7 +227,7 @@ def main():
     # ---- D. CLI-level generate() on 3-shard subset ----
     def split3(split):
         ids = TRAIN_SHARDS if split == "train" else [6542]
-        base = os.path.join(os.environ.get("AUTORESEARCH_CACHE_DIR", ""), "data")
+        base = os.path.join(str(cache_home), "data")
         return [os.path.join(base, f"shard_{i:05d}.parquet") for i in ids]
 
     _orig_load = dg._load_upstream_lib
@@ -175,7 +238,6 @@ def main():
         return mod
 
     dg._load_upstream_lib = _patched_load
-    out_dir = ROOT / "validate_fastgen_out"
     if out_dir.exists():
         shutil.rmtree(out_dir)
     dg.generate(
@@ -183,7 +245,7 @@ def main():
         alpha=0.0, bucket_count=5_000_000, f_train=0.8, f_val=0.2,
         k_min=0.25, k_max=8.0, r_ref_mode="median", r_ref_fixed=None,
         dataset_seed=DATASET_SEED, doc_len=2048, max_tokens=None,
-        tokenizer_dir=str(ROOT / "ngram5_data" / "full163_cache_home" / "tokenizer"),
+        tokenizer_dir=str(tokenizer_dir),
         order=ORDER, val_source="train", val_frac=0.02, emit_format="bin",
         token_cache_dir=str(CACHE), use_fast_scan=True, use_fast_emit=True,
     )

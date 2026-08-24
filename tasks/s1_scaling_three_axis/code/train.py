@@ -40,7 +40,6 @@ from typing import Optional
 
 import numpy as np
 import torch
-import contextlib
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -851,36 +850,20 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
-def _autocast_ctx(dtype: str):
-    """Return the autocast context for a compute dtype spec.
-
-    fp32  -> nullcontext (no autocast)
-    bf16  -> torch.autocast bfloat16
-    fp8   -> torch.autocast float8_e4m3fn (H200/TensorRT capable)
-    """
-    if dtype == "bf16":
-        return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
-    if dtype == "fp8":
-        return torch.autocast(device_type="cuda", dtype=torch.float8_e4m3fn)
-    return contextlib.nullcontext()
-
-
-def evaluate_val(model: NanoGPT, fixed_val_batches, dtype: str = "fp32") -> float:
+def evaluate_val(model: NanoGPT, fixed_val_batches) -> float:
     """Val loss on a FIXED batch set captured once at startup and reused for
     every evaluation, so the val-loss curve always measures the same val data."""
     model.eval()
     losses = []
-    ctx = _autocast_ctx(dtype)
     with torch.no_grad():
         for inp, tgt in fixed_val_batches:
-            with ctx:
-                loss = model(inp, targets=tgt)
+            loss = model(inp, targets=tgt)
             losses.append(loss.item())
     model.train()
     return float(np.mean(losses)) if losses else float("nan")
 
 
-def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe, dtype: str = "fp32") -> float:
+def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe) -> float:
     """Loss on the FIXED train probe (same train batches every eval).
 
     Returns the mean loss over the probe.  Used with evaluate_val to form
@@ -888,11 +871,9 @@ def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe, dtype: str = "fp32")
     main quantity (never the online batch-averaged train loss)."""
     model.eval()
     losses = []
-    ctx = _autocast_ctx(dtype)
     with torch.no_grad():
         for inp, tgt in fixed_train_probe:
-            with ctx:
-                loss = model(inp, targets=tgt)
+            loss = model(inp, targets=tgt)
             losses.append(loss.item())
     model.train()
     return float(np.mean(losses)) if losses else float("nan")
@@ -1058,9 +1039,6 @@ def main():
     parser.add_argument("--probe_eval_interval", type=int, default=10,
                         help="steps between fixed-train/val probe evals (also fired "
                              "at every epoch boundary)")
-    parser.add_argument("--dtype", default="fp32", choices=["fp32", "bf16", "fp8"],
-                        help="compute dtype for the forward pass (autocast; "
-                             "weights/optimizer stay fp32): fp32 | bf16 | fp8")
     args = parser.parse_args()
 
     cfg = Config(
@@ -1200,7 +1178,6 @@ def main():
     model.train()
     t0 = time.time()
     intervention_fired = False
-    amp_ctx = _autocast_ctx(args.dtype)
     for step in range(cfg.max_steps):
         # gradient accumulation
         optimizer.zero_grad()
@@ -1214,8 +1191,7 @@ def main():
             if not intervention_fired and train_ds._epoch >= cfg.intervention_epoch:
                 model.apply_intervention(train_ds._epoch)
                 intervention_fired = True
-            with amp_ctx:
-                loss = model(inp, targets=tgt) / grad_accum
+            loss = model(inp, targets=tgt) / grad_accum
             loss.backward()
             accum_loss += loss.item()
         train_loss = accum_loss
@@ -1229,7 +1205,7 @@ def main():
 
         # periodic val
         if (step + 1) % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
-            last_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
+            last_val_loss = evaluate_val(model, validation_batches)
             last_train_loss = train_loss
             entry = {
                 "step": step + 1,
@@ -1250,8 +1226,8 @@ def main():
         if probe_log is not None and fixed_train_probe:
             epoch_boundary = (train_ds._batch_in_epoch == 0 and step > 0)
             if (step + 1) % args.probe_eval_interval == 0 or epoch_boundary or step == cfg.max_steps - 1:
-                fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe, dtype=args.dtype)
-                fixed_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
+                fixed_train_loss = evaluate_fixed_probe(model, fixed_train_probe)
+                fixed_val_loss = evaluate_val(model, validation_batches)
                 last_fixed_train_loss = fixed_train_loss
                 last_fixed_val_loss = fixed_val_loss
                 probe_entry = {

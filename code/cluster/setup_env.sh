@@ -1,25 +1,26 @@
 #!/usr/bin/env bash
 # One-time environment setup on ophis-gpu for ngram-gap-lab.
-# Creates venv (reuses torch from existing ngram-gap-exp venv to avoid re-download).
+# Creates the repository-local virtual environment.
 set -euo pipefail
 
-ROOT=/data3/guoshaoyang/ngram-gap-lab
+ROOT="${NGLAB_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 VENV="$ROOT/.venv"
+TORCH_SOURCE="${NGLAB_TORCH_SOURCE:-}"
 
 if [ -d "$VENV" ]; then
   echo "[setup] venv already exists at $VENV"
 else
-  echo "[setup] creating venv (reusing torch from ngram-gap-exp)..."
-  # Reuse the existing venv's packages by creating a symlink-based venv
+  echo "[setup] creating venv..."
   python3 -m venv "$VENV"
-  # Copy torch + numpy from existing venv site-packages
-  SRC=/data3/guoshaoyang/ngram-gap-exp/.venv/lib/python*/site-packages
-  DST="$VENV/lib/python*/site-packages"
-  for pkg in torch numpy; do
-    for src in $SRC/$pkg*; do
-      [ -e "$src" ] && ln -sf "$src" $DST/ 2>/dev/null || true
+  if [[ -n "$TORCH_SOURCE" ]]; then
+    SRC="$TORCH_SOURCE/lib/python*/site-packages"
+    DST="$VENV/lib/python*/site-packages"
+    for pkg in torch numpy; do
+      for src in $SRC/$pkg*; do
+        [ -e "$src" ] && ln -sf "$src" $DST/ 2>/dev/null || true
+      done
     done
-  done
+  fi
 fi
 
 # Verify

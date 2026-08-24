@@ -6,11 +6,12 @@
 # table RMSProp(0.0, 0.99) / backbone AdamW(0.8, 0.95), fixed train probe +
 # exact-frequency diagnostics.
 #
-# Fixed-step (fs): 1000 steps, step-anchored LR, all L1-L4 x 3 modules.
+# Fixed-step (fs): 1000 steps, step-anchored LR, all L1-L4 x 4 modules.
 # Fixed-epoch (fe): 6 full epochs, epoch-anchored LR (--lr_schedule_epochs 6),
-#   target steps L1=252 L2=504 L3=1008 L4=2016.
+#   target steps L1=252 L2=504 L3=1008 L4=2016.  no-ngram is run at
+#   every L so each n-gram arm has a same-L baseline.
 #
-# Usage: ./run_scaling_epoch_full.sh [gpu1] [gpu2] [gpu3]
+# Usage: ./run_scaling_epoch_full.sh [gpu1] [gpu2] [gpu3] [gpu4]
 set -euo pipefail
 
 ROOT=/data/home/guoshaoyang/ngram-gap-lab
@@ -19,7 +20,7 @@ PY=/usr/bin/python3
 DATA_DIR="$ROOT/data/tokenized"
 OUT_DIR="$ROOT/data/runs_scaling"
 FREQ_IDX="$ROOT/data/freq_index.npz"
-G1="${1:-0}" G2="${2:-1}" G3="${3:-2}"
+G1="${1:-0}" G2="${2:-1}" G3="${3:-2}" G4="${4:-3}"
 mkdir -p "$OUT_DIR"
 
 declare -A EPB=( [L1]=42 [L2]=84 [L3]=168 [L4]=336 )
@@ -44,25 +45,27 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs> 
     --epoch_batches "$EPB" \
     --fixed_train_probe 4 --probe_eval_interval 50 \
     --table_betas 0.0,0.99 \
-    --table_lr_scale 1.0 \  # frozen: pilots ran under the pre-2026-08-24 default
+    --table_lr_scale 1.0 \
     ${SCHED:+--lr_schedule_epochs "$SCHED"} \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[epoch-full] $RUN_ID done (exit=$?) at $(date)"
 }
 
-# Fixed-step: L1-L4 x {bigram, trigram, both}  (no-ngram baseline from pilot)
+# Fixed-step: L1-L4 x {bigram, trigram, both, no-ngram}
 for L in L1 L2 L3 L4; do
   run_arm "$G1" "ep_${L}_bigram_fs"  "${EPB[$L]}" 1000 0 1 0 &
   run_arm "$G2" "ep_${L}_trigram_fs" "${EPB[$L]}" 1000 0 0 1 &
   run_arm "$G3" "ep_${L}_both_fs"    "${EPB[$L]}" 1000 0 1 1 &
+  run_arm "$G4" "ep_${L}_nogram_fs"  "${EPB[$L]}" 1000 0 0 0 &
   wait
 done
 
-# Fixed-epoch: L1-L4 x {bigram, trigram, both}
+# Fixed-epoch: L1-L4 x {bigram, trigram, both, no-ngram}
 for L in L1 L2 L3 L4; do
   run_arm "$G1" "ep_${L}_bigram_fe"  "${EPB[$L]}" "${FESTEPS[$L]}" 6 1 0 &
   run_arm "$G2" "ep_${L}_trigram_fe" "${EPB[$L]}" "${FESTEPS[$L]}" 6 0 1 &
   run_arm "$G3" "ep_${L}_both_fe"    "${EPB[$L]}" "${FESTEPS[$L]}" 6 1 1 &
+  run_arm "$G4" "ep_${L}_nogram_fe"  "${EPB[$L]}" "${FESTEPS[$L]}" 6 0 0 &
   wait
 done
 

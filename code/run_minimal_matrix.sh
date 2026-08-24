@@ -15,12 +15,13 @@ set -euo pipefail
 STEPS="${1:-1000}"
 GPU_LIST="${2:-2}"
 
-CLUSTER_ROOT="/data3/guoshaoyang/ngram-gap-exp"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLUSTER_ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 PY="${PYTHON:-$CLUSTER_ROOT/.venv/bin/python}"
-CACHE="/data2/ncpl-pathA/work/vbird_autoresearch/cache"
-RUNTIME_TMP="$CLUSTER_ROOT/.tmp/ngram5"
-DATA_DIR="${NGLAB_DATA_DIR:-$CLUSTER_ROOT/ngram5_data/minimal_order5_full}"
-RUNS_DIR="${NGLAB_RUNS_DIR:-$CLUSTER_ROOT/runs/ngram5_minimal}"
+CACHE="${NGLAB_CACHE_DIR:-$CLUSTER_ROOT/data/cache}"
+RUNTIME_TMP="${NGLAB_TMP_DIR:-$CLUSTER_ROOT/data/tmp/ngram5}"
+DATA_DIR="${NGLAB_DATA_DIR:-$CLUSTER_ROOT/data/ngram5_minimal_order5}"
+RUNS_DIR="${NGLAB_RUNS_DIR:-$CLUSTER_ROOT/data/runs_fixed}"
 TRAINER="$CLUSTER_ROOT/ngram5_freq_gap/trainer.py"
 
 if [[ ! -f "$DATA_DIR/meta.json" ]]; then
@@ -45,7 +46,8 @@ i=0
 for arm in "${ARMS[@]}"; do
   read -r NAME NGRAM_EN BIGRAM TRI SHUF <<<"$arm"
   GPU="$(echo "$GPU_LIST" | awk -v n="$i" '{print $( (n % NF) + 1 )}')"
-  RESULT_DIR="$RUNS_DIR/${NAME}_${TS}"
+  RUN_ID="ngram5_minimal_${NAME}_${TS}"
+  RESULT_DIR="$RUNS_DIR/${RUN_ID}_fixed"
   mkdir -p "$RESULT_DIR"
 
   echo ""
@@ -67,7 +69,7 @@ for arm in "${ARMS[@]}"; do
     NANOGPT_NGRAM_INJECTION_POSITION=input \
     NANOGPT_ENABLE_NGRAM_VE="$NGRAM_EN" \
     ENABLE_UNIGRAM_VE=0 ENABLE_BIGRAM_VE="$BIGRAM" ENABLE_TRIGRAM_VE="$TRI" ENABLE_FOURGRAM_VE=0 \
-    NANOGPT_ADAM_LR=0.004 NGRAM_TABLE_BETAS=0.0,0.999 NGRAM_TABLE_LR_SCALE=1.0 \
+    NANOGPT_ADAM_LR=0.004 NGRAM_TABLE_BETAS=0.0,0.99 NGRAM_TABLE_LR_SCALE=2.0 \
     POSITION_ENCODING=learned_abs CURRENT_NORMALIZATION=layernorm \
     CURRENT_EMBEDDING_TYING=tied CURRENT_NGRAM_INJECTION_IMPL=none \
     CURRENT_EMBEDDING_INIT=nanogpt_like CURRENT_BLOCK_INIT=nanogpt_style \
@@ -89,7 +91,7 @@ for arm in "${ARMS[@]}"; do
     NGRAM_GLOBAL_FREQUENCY_DIR="$DATA_DIR" \
     TORCH_COMPILE=0 \
     REMOTE_RESULT_DIR="$RESULT_DIR" \
-    RUN_ID="ngram5_minimal_${NAME}" \
+    RUN_ID="$RUN_ID" \
     "$PY" -u "$TRAINER" > "$RESULT_DIR/train.log" 2>&1 &
   echo "[launched] $NAME pid=$!"
   i=$((i + 1))

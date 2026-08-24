@@ -13,7 +13,7 @@
 #   ./run_on_cluster.sh 0.0 0 2000              # baseline, no resampling
 #   ./run_on_cluster.sh 0.5 1 2000              # mild low-freq up-sampling
 #   ./run_on_cluster.sh 0.5 1 2000 SEED=43
-#   NGRAM5_DATA_DIR_OVERRIDE=/data3/guoshaoyang/ngram-gap-exp/ngram5_data/alpha0.0_pilot \
+#   NGRAM5_DATA_DIR_OVERRIDE=/path/to/audited/dataset \
 #     ./run_on_cluster.sh 0.0 1 10              # reuse an audited pilot dataset
 
 set -euo pipefail
@@ -77,7 +77,8 @@ ssh "$SSH_HOST" "
 # ---- 3. launch trainer ----
 echo "=== [3/3] launching trainer ==="
 echo "=== trace: every train batch + 4 fixed validation batches per step; token_loss=float32; norm=sqrt(mean(x^2)); compile=0 ==="
-RESULT_DIR="$CLUSTER_ROOT/runs/ngram5/alpha${ALPHA}_${RUN_LABEL}_$(date +%Y%m%d-%H%M%S)"
+RUN_ID="ngram5_alpha${ALPHA}_${RUN_LABEL}_$(date +%Y%m%d-%H%M%S)"
+RESULT_DIR="$CLUSTER_ROOT/data/runs_fixed/${RUN_ID}_fixed"
 ssh "$SSH_HOST" "
   set -e
   mkdir -p '$RESULT_DIR'
@@ -96,7 +97,7 @@ ssh "$SSH_HOST" "
     NANOGPT_ATTENTION_IMPL=fused NANOGPT_NGRAM_INJECTION_IMPL=nanogpt \\
     NANOGPT_NGRAM_INJECTION_POSITION=input \\
     NANOGPT_ENABLE_NGRAM_VE=1 ENABLE_UNIGRAM_VE=0 ENABLE_BIGRAM_VE=1 ENABLE_TRIGRAM_VE=1 ENABLE_FOURGRAM_VE=0 \\
-    NANOGPT_ADAM_LR=0.004 NGRAM_TABLE_BETAS=0.0,0.999 NGRAM_TABLE_LR_SCALE=1.0 \\
+    NANOGPT_ADAM_LR=0.004 NGRAM_TABLE_BETAS=0.0,0.99 NGRAM_TABLE_LR_SCALE=2.0 \\
     POSITION_ENCODING=learned_abs CURRENT_NORMALIZATION=layernorm \\
     CURRENT_EMBEDDING_TYING=tied CURRENT_NGRAM_INJECTION_IMPL=none \\
     CURRENT_EMBEDDING_INIT=nanogpt_like CURRENT_BLOCK_INIT=nanogpt_style \\
@@ -117,7 +118,7 @@ ssh "$SSH_HOST" "
     NGRAM_GLOBAL_FREQUENCY_DIR='$DATA_DIR' \\
     TORCH_COMPILE=0 \\
     REMOTE_RESULT_DIR='$RESULT_DIR' \\
-    RUN_ID=ngram5_alpha${ALPHA} \\
+    RUN_ID='$RUN_ID' \\
     ${EXTRA[@]:+} ${EXTRA[*]:-} \\
     '$CLUSTER_PY' -u ngram5_freq_gap/trainer.py > '$RESULT_DIR/train.log' 2>&1 || rc=\$?
   rc=\${rc:-0}
@@ -129,4 +130,4 @@ ssh "$SSH_HOST" "
   exit \"\$rc\"
 "
 echo "=== done. results at $SSH_HOST:$RESULT_DIR ==="
-echo "=== fetch with: rsync -avz $SSH_HOST:$RESULT_DIR/ ./runs/$(basename $RESULT_DIR)/ ==="
+echo "=== fetch with: rsync -avz $SSH_HOST:$RESULT_DIR/ ./data/runs_fixed/$(basename "$RESULT_DIR")/ ==="

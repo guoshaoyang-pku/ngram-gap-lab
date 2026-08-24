@@ -50,14 +50,14 @@ run_arm() {  # run_guard <gpu> <run_id> <epoch_batches> <steps> <schedule_epochs
     --epoch_batches "$EPB" \
     --fixed_train_probe 4 --probe_eval_interval 50 \
     --table_betas 0.0,0.99 \
-    --table_lr_scale 1.0 \  # frozen: pilots ran under the pre-2026-08-24 default
+    --table_lr_scale 1.0 \
     ${SCHED:+--lr_schedule_epochs "$SCHED"} \
     > "$RESULT_DIR/train.log" 2>&1
   echo "[epoch] $RUN_ID done (exit=$?) at $(date)"
 }
 
 # Fixed-step arms (steps=1000, step-anchored LR): all 4 L × 4 modules
-# Fixed-epoch arms: L1/L4 (both + no-ngram) to 6 epochs (lr_schedule_epochs=6)
+# Fixed-epoch arms: all 4 L × 4 modules to 6 epochs (lr_schedule_epochs=6)
 #   target steps: L1~252, L2~504, L3~1008, L4~2016
 
 # --- Pilot gate (seed 42, quick signal check) ---
@@ -75,14 +75,15 @@ run_arm "$G4" pilot_ep_L4_nogram_fe    336 2016 6 0 0 &
 wait
 
 # --- Full grid (after pilot QC) ---
-# Fixed-step full: all L × {bigram-only, trigram-only, both} (no-ngram reused from pilot)
+# Fixed-step full: all L × {bigram-only, trigram-only, both, no-ngram}
 for L in L1 L2 L3 L4; do
   run_arm "$G1" "ep_${L}_bigram_fs"  "${EPB[$L]}" 1000 0 1 0 &
   run_arm "$G2" "ep_${L}_trigram_fs" "${EPB[$L]}" 1000 0 0 1 &
   run_arm "$G3" "ep_${L}_both_fs"    "${EPB[$L]}" 1000 0 1 1 &
+  run_arm "$G4" "ep_${L}_nogram_fs"  "${EPB[$L]}" 1000 0 0 0 &
   wait
 done
-# Fixed-epoch full: L1/L2/L3/L4 × {bigram, trigram, both}
+# Fixed-epoch full: L1/L2/L3/L4 × {bigram, trigram, both, no-ngram}
 for L in L1 L2 L3 L4; do
   case "$L" in
     L1) ST=252;; L2) ST=504;; L3) ST=1008;; L4) ST=2016;;
@@ -90,6 +91,7 @@ for L in L1 L2 L3 L4; do
   run_arm "$G1" "ep_${L}_bigram_fe"  "${EPB[$L]}" "$ST" 6 1 0 &
   run_arm "$G2" "ep_${L}_trigram_fe" "${EPB[$L]}" "$ST" 6 0 1 &
   run_arm "$G3" "ep_${L}_both_fe"    "${EPB[$L]}" "$ST" 6 1 1 &
+  run_arm "$G4" "ep_${L}_nogram_fe"  "${EPB[$L]}" "$ST" 6 0 0 &
   wait
 done
 

@@ -1,17 +1,17 @@
 """ngram-gap-lab · code/prepare_data.py
 
-Pre-tokenize parquet shards into packed .bin files using the SAME packing
-logic as OPHIS lib.py (BOS-aligned, best-fit packing). This ensures the
-token sequence is byte-identical to the old pipeline, so gap is reproducible.
+Pre-tokenize parquet shards into packed .bin files using the same packing
+logic as the configured upstream lib.py (BOS-aligned, best-fit packing).
 
 Output: data/tokenized/shard_<id>.bin  (uint16 token stream, packed rows of
         sequence_len+1 each, BOS at start of each row)
 
-Usage (on ophis-gpu, with OPHIS lib.py accessible):
+Usage:
   python code/prepare_data.py \
-    --ophis_dir /data3/guoshaoyang/ngram-gap-exp \
-    --cache_dir /data2/ncpl-pathA/work/vbird_autoresearch/cache \
+    --lib_dir /path/to/upstream \
+    --cache_dir /path/to/cache \
     --out_dir data/tokenized \
+    --split_path /path/to/upstream/data_split.json \
     --shards 1,2,3,4,5,6,7,8,9,10,6542 \
     --seq_len 2048
 """
@@ -19,6 +19,7 @@ Usage (on ophis-gpu, with OPHIS lib.py accessible):
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import numpy as np
@@ -27,11 +28,16 @@ import torch
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ophis_dir", required=True,
-                        help="Path to OPHIS repo (containing lib.py)")
+    parser.add_argument("--lib_dir", required=True,
+                        help="Directory containing the compatible lib.py")
     parser.add_argument("--cache_dir", required=True,
                         help="AUTORESEARCH_CACHE_DIR (parquet + tokenizer)")
     parser.add_argument("--out_dir", required=True)
+    parser.add_argument(
+        "--split_path",
+        default=None,
+        help="Path to data_split.json; defaults to <lib_dir>/data_split.json",
+    )
     parser.add_argument("--shards", required=True,
                         help="comma-separated shard ids to tokenize")
     parser.add_argument("--seq_len", type=int, default=2048)
@@ -43,18 +49,17 @@ def main():
 
     # Set env so OPHIS lib.py finds data
     os.environ["AUTORESEARCH_CACHE_DIR"] = args.cache_dir
-    sys.path.insert(0, args.ophis_dir)
+    sys.path.insert(0, args.lib_dir)
 
-    from lib import Tokenizer, TOKENIZER_DIR, make_dataloader, split_parquet_files
+    from lib import Tokenizer, TOKENIZER_DIR, make_dataloader
 
     tok = Tokenizer.from_directory(TOKENIZER_DIR)
     print(f"[prepare] vocab_size={tok.get_vocab_size()} BOS={tok.bos_token_id}")
 
     shard_ids = [int(x) for x in args.shards.split(",") if x.strip()]
-    # OPHIS uses data_split.json to map train/val/test -> shard ids.
-    # We tokenize per-shard by temporarily overriding data_split.json.
-    data_split_path = os.path.join(args.ophis_dir, "data_split.json")
-    import json
+    data_split_path = os.path.abspath(
+        args.split_path or os.path.join(args.lib_dir, "data_split.json")
+    )
     with open(data_split_path) as f:
         original_split = json.load(f)
 
