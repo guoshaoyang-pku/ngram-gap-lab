@@ -34,10 +34,12 @@ FALLBACK_BLOG_DIR = os.environ.get(
                  "blogs", "ngram-gap-mechanism-guide"),
 )
 
+# v2 new standard (table β₂=0.99 · table_lr_scale=2.0 · bf16+compile).
+# Colors follow the ngram-gap-plotting skill RUN_COLORS.
 RUNS = {
-    "v": {"label": "v (ResFormer, add to V)", "color": "#2196F3", "dir": "nglab1x_v10_v_fixed"},
-    "y": {"label": "y (post-attn residual)", "color": "#F44336", "dir": "nglab1x_v10_y_fixed"},
-    "input": {"label": "input (over-encoding)", "color": "#4CAF50", "dir": "nglab1x_v10_input_fixed"},
+    "v": {"label": "v (ResFormer, add to V)", "color": "#b67524", "dir": "nglab1x_v_v2_fixed"},
+    "y": {"label": "y (post-attn residual)", "color": "#c4493d", "dir": "nglab1x_y_v2_fixed"},
+    "input": {"label": "input (over-encoding)", "color": "#2d6f9f", "dir": "nglab1x_input_v2_fixed"},
 }
 
 
@@ -306,30 +308,30 @@ def gen_fig_loss_norm(data):
     ]
     traces = [
         {"x": x_loss, "y": train_loss, "mode": "lines", "name": "train loss",
-         "line": {"color": "#4CAF50", "width": 1.8, "dash": "dash"}, "yaxis": "y"},
+         "line": {"color": "#3c8d5a", "width": 1.8, "dash": "dash"}, "yaxis": "y"},
         {"x": x_loss, "y": raw_scatter(train_raw, train_bad), "mode": "markers",
          "name": "train loss (raw)", "showlegend": False,
-         "marker": {"color": "#4CAF50", "size": 3.5, "opacity": 0.35}, "yaxis": "y"},
+         "marker": {"color": "#3c8d5a", "size": 3.5, "opacity": 0.35}, "yaxis": "y"},
         {"x": x_loss, "y": val_loss, "mode": "lines", "name": "val loss",
-         "line": {"color": "#FF9800", "width": 2}, "yaxis": "y"},
+         "line": {"color": "#d97932", "width": 2}, "yaxis": "y"},
         {"x": x_loss, "y": raw_scatter(val_raw, val_bad), "mode": "markers",
          "name": "val loss (raw)", "showlegend": False,
-         "marker": {"color": "#FF9800", "size": 3.5, "opacity": 0.35}, "yaxis": "y"},
+         "marker": {"color": "#d97932", "size": 3.5, "opacity": 0.35}, "yaxis": "y"},
         {"x": x_loss, "y": gap, "mode": "lines", "name": "gap",
-         "line": {"color": "#9C27B0", "width": 2}, "yaxis": "y2"},
+         "line": {"color": "#353d79", "width": 2}, "yaxis": "y2"},
         {"x": x_loss, "y": raw_scatter(gap_raw, gap_bad), "mode": "markers",
          "name": "gap (raw)", "showlegend": False,
-         "marker": {"color": "#9C27B0", "size": 3.5, "opacity": 0.35}, "yaxis": "y2"},
+         "marker": {"color": "#353d79", "size": 3.5, "opacity": 0.35}, "yaxis": "y2"},
         {"x": x_norm, "y": bg_rms, "mode": "lines", "name": "bigram table RMS",
-         "line": {"color": "#2196F3", "width": 2}, "yaxis": "y3"},
+         "line": {"color": "#2d6f9f", "width": 2}, "yaxis": "y3"},
         {"x": x_norm, "y": raw_scatter(bg_raw, bg_bad), "mode": "markers",
          "name": "bigram table RMS (raw)", "showlegend": False,
-         "marker": {"color": "#2196F3", "size": 3.5, "opacity": 0.35}, "yaxis": "y3"},
+         "marker": {"color": "#2d6f9f", "size": 3.5, "opacity": 0.35}, "yaxis": "y3"},
         {"x": x_norm, "y": tg_rms, "mode": "lines", "name": "trigram table RMS",
-         "line": {"color": "#F44336", "width": 2}, "yaxis": "y3"},
+         "line": {"color": "#c4493d", "width": 2}, "yaxis": "y3"},
         {"x": x_norm, "y": raw_scatter(tg_raw, tg_bad), "mode": "markers",
          "name": "trigram table RMS (raw)", "showlegend": False,
-         "marker": {"color": "#F44336", "size": 3.5, "opacity": 0.35}, "yaxis": "y3"},
+         "marker": {"color": "#c4493d", "size": 3.5, "opacity": 0.35}, "yaxis": "y3"},
     ]
     body = '<div id="norm_chart" class="chart" style="height: 320px"></div>'
     script = f"""
