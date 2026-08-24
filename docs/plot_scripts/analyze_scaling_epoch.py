@@ -92,7 +92,8 @@ def match_run(run_id):
 def collect(runs_dir):
     """Return {run_id: {probe, summary, meta}} for all scaling epoch runs."""
     out = {}
-    for run_dir in sorted(glob.glob(os.path.join(runs_dir, "ep_*"))):
+    for run_dir in sorted(glob.glob(os.path.join(runs_dir, "ep_*")) +
+                          glob.glob(os.path.join(runs_dir, "pilot_ep_*"))):
         run_id = os.path.basename(run_dir)
         meta = match_run(run_id)
         if not meta.get("L") or not meta.get("module") or not meta.get("align"):
