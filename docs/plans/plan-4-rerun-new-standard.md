@@ -1,7 +1,8 @@
 # Plan 4 · 新标准全量重刷清单（供 review，不自动启动）
 
 > **新标准（2026-08-24 拍板）**：β₂=0.99（无动量）· 表学习率 ×2（表实际 0.008）。
-> **状态**：📋 **待用户 review**。确认后才由执行 agent 启动，本文档不自动触发任何实验。
+> **状态**：✅ **用户已批准（2026-08-24 review 通过）**，可交接给执行 agent 启动。
+> **执行入口**：本文件 §5；执行器 `code/cluster/run_rerun_v2.sh`；目标集群 360-1（8 卡空闲）。
 > **执行器**：`code/cluster/run_rerun_v2.sh`（所有参数显式，不依赖默认值）。
 > **与其他工作的关系**：`tasks/s1_scaling_three_axis` 是**独立的 scaling 测量实验线**
 > （冻结在旧默认 β₂=0.99 · ×1），与本重刷并行、互不干扰，见其自身文档。
@@ -153,16 +154,19 @@ backbone LR 0.004 · val 与 freq-bin 每 10 步 · 8L/6H/768D）：
    bash code/cluster/run_rerun_v2.sh 0 nglab1x_input_v2 1 2,3,4,5,6,7,8,9,10,6542 2000
    ```
    因果臂追加 `--intervention reset_table --intervention_epoch 2`；
-   probe 臂追加 `--fixed_train_probe 4 --probe_eval_interval 10`。
+   probe 臂追加 `--fixed_train_probe 4 --probe_eval_interval 10`；
+   多 seed 臂在**命令末尾**追加 `--seed 43`（argparse 同名参数取最后出现的，
+   会覆盖执行器内置的 `--seed 42`）。
 3. **跑中**：每 30 分钟检查存活（`ps` + `train.log tail`）；失败的记录原因，不盲目重跑。
 4. **跑完**：逐条核对 `summary.json`（`table_betas=[0,0.99]`、`table_lr_scale=2.0`），
    回填 `docs/experiment-log.md` 新 section「v2 波次」，并在 `experiment-lines.md` 标状态。
 5. **不做**：不改 `code/`，不动旧 `_fixed` 数据，不启动 `s1_scaling` 相关。
 
-## 6. 待用户确认的问题
+## 6. 开放问题的默认答案（交接时按此执行，除非用户另行指示）
 
-1. **A3 的 e6 步数**精确复现旧值（420/1685/2525…）——确认还是取整？（建议精确复现，保证同口径可比。）
-2. **表大小扫描**当前冻结在 ×1。新标准定为 ×2 后，是否要**另起一轮 ×2 的表大小扫描**？
-3. **A5 的 ρ 测量**要不要加 per-frequency-bin 版本？
-4. Group B #34 的长 no-ngram（8000 步）确认纳入？
-5. 5x/6x/8x 的 **e6 点**（旧数据也没有）要不要一并补？
+1. **A3 的 e6 步数**：**精确复现旧值**（420/1685/2525…），保证与旧数据同口径可比。
+2. **表大小扫描**：本轮**不另起** ×2 版本（Group B #35/36 保留为可选项，由用户后续单独决定）。
+3. **A5 的 ρ 测量**：**加** per-frequency-bin 版本（若 `--fixed_train_probe` 暂不支持，
+   先跑总 loss 版，把 per-bin 版本登记为后续任务，不阻塞本轮）。
+4. **长 no-ngram（8000 步）**：**纳入**（Group B #34），它是缩小数据量前的归因保险。
+5. **5x/6x/8x 的 e6 点**：**不补**（旧数据没有，非本轮范围；若结论需要可另立队列）。
