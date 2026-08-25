@@ -272,6 +272,8 @@ only the post-warmup shape from linear to cosine:
 | `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | done; passes gate |
 | `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | running on ophis-gpu GPU 2; epoch-alignment control |
 | `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | running on ophis-gpu GPU 4; epoch-alignment control |
+| `schedgrid_v2_cosine_w350_start10_floor05_s43_r1048576_both` | same as first row except `--seed 43` | running on ophis-gpu GPU 0; seed control |
+| `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | running on ophis-gpu GPU 1; seed control |
 
 | schedule | train @1000 | val @1000 | online gap @1000 | gate |
 |---|---:|---:|---:|---|
@@ -279,8 +281,9 @@ only the post-warmup shape from linear to cosine:
 
 The endpoint-matched cosine arm passes seed 42. The two alignment controls
 must finish before assigning that success to the schedule rather than its
-location near replay; only then run the unchanged 350-step arm for seeds 43/44
-before considering it an SSOT candidate.
+location near replay. The unchanged 350-step seed controls run concurrently
+only to avoid idle GPUs; all four controls must pass before it is considered
+an SSOT candidate.
 
 The 350-step peak is only 13 steps after the first fixed-replay boundary
 (`epoch_batches=337`). The 200- and 500-step controls deliberately move the
