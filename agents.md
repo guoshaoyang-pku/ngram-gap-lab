@@ -87,8 +87,10 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 |---|---|---|
 | 注入点 | **`input` / wte** | over-encoding 风格：`x = wte(idx) + Σ ngram_ve`，不走 attention |
 | n-gram 阶数 | bigram + trigram | unigram / fourgram **关闭** |
-| **table size** | **1M** | `vocab_size × 64 = 524,288` 行 × 2 个 hash embedding = **1,048,576**。这是默认值，**没有改变过** |
-| hash | 每个 n-gram 两组 decorrelated primes，各占一半 embedding dim | |
+| **表架构** | **clean 单表**（`nn.Embedding(R, n_embd)`） | 一个 context → 一行 → 一个完整向量，像 `wte` 一样直接；**单层**、无 2-hash 拼接、无 4 层求和。**重做原因与旧框架详见 `docs/notes/method/clean-table-rework.md`** |
+| **table size R** | **任意设定** | R 是自由参数，直接决定碰撞；不再强制 `vocab × mult`。默认待重扫后确定；旧默认 1M 属于历史框架 |
+| hash | 单一 hash（或 perfect-map 行号） | `--bigram_clean_table R` 控制；R = distinct+1 时零碰撞 |
+| 历史框架（已废弃） | ~~1M / 4 层求和 / 2-hash 拼接~~ | 旧 `vocab × mult = 524,288 × 2 = 1,048,576` 表 + `bigram_ve_layers={1,3,5,7}` 求和 + `bigram_K=2` 拼接。**仅作历史 run 溯源**，新 run 一律 clean 单表 |
 
 `v`（pre-attention value residual）与 `y`（post-attention residual）注入**只作为消融对照**存在，不是主线 setting。
 

@@ -3,11 +3,11 @@
 > **目的**：在唯一极简 setting 下，正式验证 epoch length、exact context
 > frequency、table size 三条 scaling。  
 > **交接对象**：`ngram-gap-lab` 中的 agents。  
-> **当前状态**：seed 42 正式 full grid 与 **seed 43/44 三 seed 复现（epoch /
-> table / frequency）均已完成**，261/261 个 run 通过 QC；H1–H4 猜想检验已
-> 回填（附录报告 §7）：ΔG 方向 seed-stable、trigram table 幂律无饱和、
-> 两因素 β 可辨识（cv 4–13%）、模块交互不可合并。仍缺 frequency 的
-> epoch-dependent fit 与最终 scaling 定律提升。
+> **当前状态**：seed 42 以及 seed 43/44 的 261 个 S1 run 属于旧的
+> `bf16 + torch.compile` 计算波次，已完成历史 QC 和探索性数学审计，但不
+> 满足最新的 bf16、不 compile 标准。H1–H4 结果已收紧为有限窗口观察：
+> ΔG 方向、频率 β 和模块交互各有不同的 seed 稳定性，不能写成无条件幂律或
+> 饱和结论。当前标准的 no-compile 三轴重跑尚未完成。
 > **前置提交**：`1f59ffc fix: decouple frequency diagnostics from fixed probes`
 
 ## 1. 先看哪里：极简报告与当前证据
@@ -27,7 +27,7 @@
 本地当前有 15 个结果目录：
 
 - 8 个历史 `pilot_*` / safety 目录，只作溯源；
-- 7 个当前标准 `basic_*` 锚点，seed 42；
+- 7 个历史 `basic_*` 锚点，seed 42；只作当前代码/数据路径 QC；
 - 后续正式结果必须进入带 `_fixed` 后缀的目录，不能混用历史目录。
 
 当前 basic 锚点的主要观察：
@@ -56,16 +56,17 @@
 - backbone optimizer：现有 AdamW `(0.8,0.95)`；
 - natural corpus，train / val shard 严格不重叠；
 - seed 42 先跑，之后 seed 43/44 复现；
-- bf16 autocast + `torch.compile`；
-- 主 gap：同一 fixed probe 上的 `fixed_val_loss - fixed_train_loss`；
+- bf16 autocast，默认不 `torch.compile`；
+- 主 gap：同一 step 的 online `val_loss - train_loss`，validation 使用 fixed batches；
+- fixed train probe 只作显式诊断，不作为主 gap；
 - 不得引入 current shell、Muon、RoPE、RMSNorm、fourgram 或额外架构变体。
 
 新代码已将评估 cadence 分开：
 
-- fixed probe：基础 QC 每 25 步；正式网格按正式 contract；
-- wide frequency bucket：每 100 步；
-- exact-frequency：每 100 步；
-- epoch 边界和最终 step 额外触发；
+- 完整曲线：validation、table norm、freq-bin 和 exact-frequency 每 10 步；
+- 只需曲线：各测量项可统一每 50 步；
+- 只需末端：使用 `--val_steps 1000`，frequency 严格跟随这些 validation 步点；
+- `val_steps` 模式不额外触发 epoch boundary 或未指定的最终 step；
 - exact-frequency 不得再绑定在 fixed-probe 的每次触发上。
 
 本次 cadence 修正已写入：
@@ -80,7 +81,7 @@
 - `table_betas = [0.0, 0.99]`；
 - `table_lr_scale`；
 - `compute_dtype = "bf16"`；
-- `torch_compile = true`；
+- `torch_compile = false`；
 - `fixed_train_probe_sha256`；
 - `epoch_batches`；
 - `exact_freq_eval_interval`；
@@ -183,7 +184,13 @@ G_l,E(f) = A_l f^(-beta_l)
 - 计算 `I = ΔG_both - ΔG_bigram - ΔG_trigram`；
 - interaction 显著时，增加交互项或明确停止单公式解释。
 
-### P3 · Table size：只向更小规模
+### P3 · Table size：只向更小规模（⚠️ 已被 clean 单表重做取代，见 §5 补丁）
+
+> **2026-08-25 更新**：本节基于旧的 4 层求和 + 2-hash 拼接架构，**已降级为
+> 历史框架**。用户拍板在 **clean 单表**架构（`nn.Embedding(R, n_embd)`，R 任意
+> 设定、单层、无 2-hash 拼接）下**重扫所有 table-size 实验**。新设计见
+> `docs/notes/method/clean-table-rework.md`；agents.md §1.2 已同步。
+> 本节保留作为旧框架的溯源记录。
 
 横轴固定为每个 n-gram、每层两个 hash 的总 logical addresses `2R`：
 
@@ -265,19 +272,19 @@ G_l,E(f) = A_l f^(-beta_l)
 - epoch full grid：32/32 完成；`epoch_batches` 为 42/84/168/337；
 - table full grid + 两轮加密取点：69/69 完成，覆盖
   `table_mult=64,56,48,40,36,32,28,24,20,18,16,14,12,10,9,8,7,6,5,4,3,2,1`；
-- frequency axis：8/8 完成，exact-frequency 每 100 步；
+- frequency axis：历史 8/8 完成，exact-frequency 的历史配置不代表当前 cadence；
 - `bb_safety_L1_nogram_5000` 完成，final fixed gap 为 +16.66 @5000，
   但该 run 是旧 cadence + fp32/no compile，只作量级参考；
-- 正式 109 个 `_fixed` run 的统一 QC 全部通过：无 NaN/坏行；dense run 为
-  10 步 validation/probe cadence，48 个 table sparse run 只在最终 step
-  1000 监测；bf16 + compile，probe hash 一致；
+- 历史 109 个 `_fixed` run 通过当时 contract 下的 QC：无 NaN/坏行；dense run
+  为 10 步 validation/probe cadence，48 个 table sparse run 只在最终 step
+  1000 监测；它们使用 bf16 + compile，不是当前标准证据；
 - 三轴图和摘要位于 `docs/appendices/s1_scaling_three_axis/figs/`，
   频率拟合和排除 manifest 位于 `figs/fit_manifest.json`；
-- **三 seed 复现完成（2026-08-25）**：seed 43/44 的 epoch（32×2）、table
-  加密（36×2）、frequency（8×2）共 152 个新 run 全部完成并通过 QC，三 seed
-  正式 run 合计 261 个；H1–H4 判定见附录报告 §7 与实验登记 §17.2；
-- **尚未完成**：frequency 的 epoch-dependent fit（epoch 3/6 截面）、跨 seed
-  profile-likelihood，以及把三轴结果提升为主报告 scaling 定律。
+- **历史三 seed 审计完成（2026-08-25）**：seed 43/44 的 epoch（32×2）、
+  table 加密（36×2）、frequency（8×2）共 152 个新 run 已完成并通过历史 QC；
+  三 seed 合计 261 个，但不能作为当前 no-compile 标准证据；
+- **尚未完成**：当前标准 no-compile 三轴重跑、跨 seed profile-likelihood，
+  以及把三轴结果提升为主报告 scaling 定律。
 
 ### table 加密取点（2026-08-24）
 
@@ -349,7 +356,6 @@ table 点（bigram/trigram/both 各 23 点）；图 `table_gap_vs_2R.png`
 7. 每个逻辑阶段单独 commit；
 8. 未经用户明确授权，不执行 `git push`。
 
-**当前结论边界**：seed 42 的图形和探索性频率拟合已完成，但至少 seed
-43/44、跨 seed uncertainty、frequency 的 epoch-dependent fit 和
-table saturation 仍未完成。因此不能把当前结果写成已确认的三轴 scaling
-定律；主报告 `docs/report/index.html` 仍不应更新。
+**当前结论边界**：历史三 seed 图形和探索性频率拟合已完成，但它们使用
+compile，不能替代当前 no-compile 重跑。因此不能把当前结果写成已确认的
+三轴 scaling 定律；主报告 `docs/report/index.html` 仍不应更新。

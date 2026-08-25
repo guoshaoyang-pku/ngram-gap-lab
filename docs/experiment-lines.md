@@ -84,24 +84,25 @@ run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有�
 
 | 轴 | 科学问题 | run_id 前缀 | launcher | 状态 |
 |---|---|---|---|---|
-| epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs[_s{43,44}]`（L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | ✅ 三 seed 完成（48/48，QC 通过） |
-| epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe[_s{43,44}]`（L1=252/L2=504/L3=1008/L4=2022 步） | `run_scaling_epoch_full.sh` | ✅ 三 seed 完成（48/48，QC 通过） |
-| table size | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（seed 42：23 sizes；seed 43/44：12 sizes × 3 module，L4） | `run_scaling_table_full.sh`（dense + sparse） | ✅ 三 seed 完成（141/141，QC 通过） |
-| frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `freq_{arm}_{fs/fe}[_s{43,44}]`（L4 + 1M × 4 arms） | `run_scaling_frequency_axis.sh` | ✅ 三 seed 完成（24/24，QC 通过；exact-freq 每 10 步） |
+| epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs[_s{43,44}]`（L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | 🟡 历史 compile 波次 48/48；当前 no-compile 待重跑 |
+| epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe[_s{43,44}]`（L1=252/L2=504/L3=1008/L4=2022 步） | `run_scaling_epoch_full.sh` | 🟡 历史 compile 波次 48/48；当前 no-compile 待重跑 |
+| table size | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（seed 42：23 sizes；seed 43/44：12 sizes × 3 module，L4） | `run_scaling_table_full.sh`（dense + sparse） | 🟡 历史 compile 波次 141/141；当前 no-compile 待重跑。⚠️ **2026-08-25：旧 4 层求和 + 2-hash 架构废弃，改为 clean 单表重扫**（见 `docs/notes/method/clean-table-rework.md`） |
+| frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `freq_{arm}_{fs/fe}[_s{43,44}]`（L4 + 1M × 4 arms） | `run_scaling_frequency_axis.sh` | 🟡 历史 compile 波次 24/24；当前 no-compile 待重跑 |
 | backbone safety | 长训 no-ngram backbone 是否产生 gap | `bb_safety_L1_nogram_5000` | 手工（旧 cadence 50 步 + fp32） | ✅ done（旧口径；final +16.66 @5000，仅量级参考） |
 
 **口径（用户 2026-08-24 拍板）**：L4 = 337 batches/epoch（完整 shard 1，
 24,264 chunks / 72）；L1/L2/L3 = 42/84/168 嵌套前缀。普通网格不跑
 exact-frequency（不传 `--freq_index`），只算在线 train/val + fixed probe；
-频率轴单独一小批 run（带 exact-freq 每 100 步）。no-ngram baseline 重跑
-当前标准（10 步 cadence + bf16/compile）。`bb_safety` 为旧 cadence，仅作
-量级参考。正式 run 共 **261 个 `_fixed`**（seed 42：109；seed 43/44：各 76），
-均通过 contract / NaN / probe-hash QC；其中 table 原始 21 个 run 为 dense
+频率轴单独一小批 run（带 exact-freq）。原有 261 个 `_fixed` run 属于
+`bf16 + torch.compile` 历史波次；最新标准是 **bf16 不 compile**，因此这些
+run 只保留为历史数学审计，不能标记为当前标准完成。当前 no-compile S1
+重跑待补。历史 261 个 run 均通过当时的 contract / NaN / probe-hash QC；
+其中 table 原始 21 个 run 为 dense
 每 10 步监测，48 个 seed-42 + 72 个 seed-43/44 加密 run 为 sparse 只监测
-最终 step。**三 seed 复现已完成，H1–H4 检验见附录报告 §7**：ΔG 三 seed
-全同号（方向 seed-stable）；trigram table 幂律无饱和（否证 48–64 饱和
-猜想）；两因素模型 β 可辨识（cv 4–13%）、A/c/γ 不可辨识；模块交互显著
-且 seed-sensitive，不允许合并单公式。
+最终 step。历史三 seed 的 H1–H4 探索性检验见附录报告 §7：ΔG 三 seed
+全同号（方向 seed-stable）；trigram 在有限窗口内上升但未解析饱和，不能写成
+无条件幂律；两因素模型只有有限区间的 β 相对可辨识，A/c/γ 不可辨识；模块
+交互显著且 seed-sensitive，不允许合并单公式。
 
 ## 独立包
 

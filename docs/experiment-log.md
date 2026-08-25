@@ -1348,7 +1348,12 @@ logits 72×2048×8192 ≈ 12 亿元素），不是 bf16 没生效。
 - [x] seed 43 主臂复现（与 seed 42 同一 data/probe hash，gap −0.0090）
 - [ ] seed 44 复现；LR 消融的多 seed 复现
 
-## 20. bigram 大表 + 免碰撞（perfect-map）极限臂（2026-08-25）
+## 20. bigram 大表 + 免碰撞（perfect-map）极限臂（2026-08-25）⚠️ **历史 4 层框架**
+
+> **2026-08-25 补充**：本节所有 run 均基于**旧 4 层求和 + 2-hash 拼接架构**。
+> 用户同日拍板改为 **clean 单表**重扫（`docs/notes/method/clean-table-rework.md`），
+> 本节结果（mult=128/256 离群、perfect 2.17 倍等）属于历史框架，引用时须标注
+> `[HISTORICAL 4-LAYER FRAMEWORK]`。
 
 ### 目的（superposition/localization 相图，郭绍阳提议）
 
