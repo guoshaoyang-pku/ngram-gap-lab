@@ -75,7 +75,9 @@ slot=0
 gpu_count="${#GPUS[@]}"
 for spec in "${SPECS[@]}"; do
   while [[ "$active" -ge "$gpu_count" ]]; do
-    wait -n
+    if ! wait -n; then
+      echo "[v5-table] a run failed; continuing remaining queue" >&2
+    fi
     active=$((active - 1))
   done
   IFS='|' read -r run_id branch rows <<< "$spec"
@@ -83,5 +85,10 @@ for spec in "${SPECS[@]}"; do
   active=$((active + 1))
   slot=$(( (slot + 1) % gpu_count ))
 done
-wait
+while [[ "$active" -gt 0 ]]; do
+  if ! wait -n; then
+    echo "[v5-table] a run failed; continuing remaining queue" >&2
+  fi
+  active=$((active - 1))
+done
 echo "[v5-table] complete"

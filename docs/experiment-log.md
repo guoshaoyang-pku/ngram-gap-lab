@@ -1641,9 +1641,9 @@ fixed val + current-batch frequency bins，`warmup_constant`（100 steps）。
 | `lrscan_input_lr0p004_wc` | 2026-08-25 | clean-table input · backbone LR 0.004 | ✅ done | +0.060@1000 | §21a |
 | `lrscan_input_lr0p0006_wc` | 2026-08-25 | clean-table input · backbone LR 0.0006 | ✅ done | +1.534@1000 | §21a |
 | `lrscan_input_lr0p0004_wc` | 2026-08-25 | clean-table input · backbone LR 0.0004 | ✅ done | +1.187@1000 | §21a |
-| `lrscan_y_lr0p0006_wc` | 2026-08-25 | clean-table y · backbone LR 0.0006 | 🔄 running | 待填 | §21a |
-| `lrscan_v_lr0p0006_wc` | 2026-08-25 | clean-table v · backbone LR 0.0006 | 🔄 running | 待填 | §21a |
-| `lrscan_nogram_lr0p0006_wc` | 2026-08-25 | no-gram 对照 · backbone LR 0.0006 | 🔄 running | 待填 | §21a |
+| `lrscan_y_lr0p0006_wc` | 2026-08-25 | clean-table y · backbone LR 0.0006 | ✅ done | +1.008@1000 | §21a |
+| `lrscan_v_lr0p0006_wc` | 2026-08-25 | clean-table v · backbone LR 0.0006 | ✅ done | +0.209@1000 | §21a |
+| `lrscan_nogram_lr0p0006_wc` | 2026-08-25 | no-gram 对照 · backbone LR 0.0006 | ✅ done | +0.025@1000 | §21a |
 
 **执行位置与命令**：360-1（GPU0/1/2），仓库
 `/data/home/guoshaoyang/ngram-gap-lab`，解释器 `python3`；命令唯一地由
@@ -1676,8 +1676,10 @@ SSOT 仍需完整注入点臂与多 seed 确认。
 **注入点快速对照（已登记）**：在同一 `0.0006` 基线补 `y`、`v` 与 no-gram
 负对照，各 1000 steps。相对 `lrscan_input_lr0p0006_wc`，每条只改 injection
 coordinate（no-gram 则关闭 bigram/trigram，作为既定负对照）；其余完整命令、数据、
-clean R、评估节奏与验收条件完全相同。若 input 的强 gap 也出现在 no-gram，则不得
-归因给 n-gram；若 y/v 与 input 呈系统性不同，才可继续安排 2000-step 完整注入点消融。
+clean R、评估节奏与验收条件完全相同。**回填（seed 42，step 1000）**：input
+`+1.534`、y `+1.008`、v `+0.209`、no-gram `+0.025`。因此 input 的强 gap
+不是低 LR 下纯 backbone 的共同现象；y 也有分叉但低于 input，v 更弱。该结果只作为
+1000-step 单 seed gate，完整 2000-step 四臂仍由 §25 的 `nglab1x_*_v5` 重刷确认。
 
 ---
 
