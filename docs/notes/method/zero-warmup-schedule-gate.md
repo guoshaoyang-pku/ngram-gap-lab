@@ -140,12 +140,12 @@ boundary. This floor is explicit as `--cosine_min_lr_mult 0.05`.
 
 | run_id stem | changed flags | status |
 |---|---|---|
-| `schedgrid_v1_hold_w200_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 200` | planned |
-| `schedgrid_v1_hold_w300_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 300` | planned |
-| `schedgrid_v1_cosine_w100_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 100 --cosine_min_lr_mult 0.05` | planned |
-| `schedgrid_v1_cosine_w200_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 200 --cosine_min_lr_mult 0.05` | planned |
-| `schedgrid_v1_cosine_w300_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 300 --cosine_min_lr_mult 0.05` | planned |
-| `schedgrid_v1_cosine_w400_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 400 --cosine_min_lr_mult 0.05` | planned |
+| `schedgrid_v1_hold_w200_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 200` | running on 360-1 GPU 0 |
+| `schedgrid_v1_hold_w300_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 300` | running on 360-1 GPU 1 |
+| `schedgrid_v1_cosine_w100_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 100 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 2 |
+| `schedgrid_v1_cosine_w200_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 200 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 3 |
+| `schedgrid_v1_cosine_w300_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 300 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 4 |
+| `schedgrid_v1_cosine_w400_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 400 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 5 |
 
 **Falsifiable gate.** A candidate passes only if its final online train loss is
 at most `4.3` and its final online gap is at least `+0.5` on this anchor; this
