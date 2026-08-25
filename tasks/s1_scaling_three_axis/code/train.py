@@ -95,7 +95,7 @@ class Config:
     val_steps: list = field(default_factory=list)  # exact steps to eval val (overrides interval if set)
     val_batches: int = 4
     table_norm_interval_steps: int = 10
-    warmup_steps: int = 100       # step 1..100: 0.1x -> 1.0x
+    warmup_steps: int = 100       # step 1..100: 0.25x -> 1.0x
     warmdown_ratio: float = 0.65  # historical warmdown parameter
     lr_schedule_epochs: int = 0    # >0: anchor LR schedule to epoch count (ignores max_steps)
     lr_schedule: str = "warmup_constant"  # new standard | constant/warmdown historical controls

@@ -27,7 +27,8 @@ differences from it in each run entry.
 | primary measurement | online training-batch loss and fixed validation-batch loss |
 
 Always record `--lr_schedule warmup_constant --warmup_steps 100` explicitly.
-All new experiments linearly warm from 0.1×LR at step 1 to 1×LR at step 100,
+All new experiments linearly warm from 0.25×LR (`0.001` at the standard base
+LR) at step 1 to 1×LR (`0.004`) at step 100,
 then hold LR fixed; this boundary does not move with epochs or total steps.
 They may not use warmdown. `warmdown` exists only to rerun a registered
 historical run. Zero-warmup `constant` is an optimizer diagnostic, not a
