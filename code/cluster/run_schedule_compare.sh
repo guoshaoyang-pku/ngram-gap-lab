@@ -2,8 +2,11 @@
 # Reproducibility gate for the LR-schedule confound discovered in v4.
 #
 # This runs one clean-table input anchor three times on ONE GPU. The only
-# differing flag is --lr_schedule / --warmup_steps. It does not replace a
-# registered main-line experiment or overwrite any prior run.
+# differing flag is --lr_schedule / --warmup_steps. Scalar validation is fixed
+# and sampled at four checkpoints; frequency diagnostics are intentionally off
+# because this is a convergence gate, not a frequency-decomposition result.
+# It does not replace a registered main-line experiment or overwrite any prior
+# run.
 #
 # Usage:
 #   bash code/cluster/run_schedule_compare.sh <gpu>
@@ -24,11 +27,10 @@ else
   PY="$(command -v python3)"
 fi
 DATA_DIR="${NGLAB_DATA_DIR:-$ROOT/data/tokenized}"
-FREQ_INDEX="${NGLAB_FREQ_INDEX:-$ROOT/data/freq_index.npz}"
 OUT_DIR="${NGLAB_OUT_DIR:-$ROOT/data/runs_scaling}"
 
-if [ ! -x "$PY" ] || [ ! -d "$DATA_DIR" ] || [ ! -f "$FREQ_INDEX" ]; then
-  echo "missing python, tokenized data, or frequency index" >&2
+if [ ! -x "$PY" ] || [ ! -d "$DATA_DIR" ]; then
+  echo "missing python interpreter or tokenized data" >&2
   exit 2
 fi
 
@@ -52,9 +54,8 @@ run_one() {  # <label> <schedule> <warmup_steps>
     --device_batch_size 72 --total_batch_size 147456 \
     --lr 0.004 --lr_schedule "$SCHEDULE" --warmup_steps "$WARMUP_STEPS" \
     --table_optimizer rmsprop --table_betas 0.0,0.99 --table_lr_scale 2.0 \
-    --val_interval 10 --val_batches 4 --freq_index "$FREQ_INDEX" \
-    --freq_eval_interval 10 --freq_eval_batches 4 --exact_freq_eval_interval 10 \
-    --table_norm_interval 10 --fixed_train_probe 0 \
+    --val_steps 100,250,500,1000 --val_batches 4 \
+    --table_norm_interval 100 --fixed_train_probe 0 \
     > "$RESULT_DIR/train.log" 2>&1
   test -s "$RESULT_DIR/summary.json"
   test -s "$RESULT_DIR/train_log.jsonl"
