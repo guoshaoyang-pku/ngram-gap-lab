@@ -29,7 +29,7 @@ esac
 for value in "$STEPS"; do
   case "$value" in
     ''|*[!0-9]*)
-      echo "R values and steps must be positive integers" >&2
+      echo "steps must be a positive integer" >&2
       exit 2
       ;;
   esac
