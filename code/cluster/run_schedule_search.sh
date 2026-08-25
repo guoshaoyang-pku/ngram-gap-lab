@@ -30,9 +30,9 @@ STEM="schedgrid_v1_${LABEL}_r1048576_both_s42"
 RESULT_DIR="$OUT_DIR/${STEM}_fixed"
 
 case "$SCHEDULE" in
-  warmup_constant|warmup_cosine) ;;
+  warmup_constant|warmup_cosine|warmdown) ;;
   *)
-    echo "schedule search accepts warmup_constant or warmup_cosine, got: $SCHEDULE" >&2
+    echo "schedule search accepts warmup_constant, warmup_cosine, or warmdown, got: $SCHEDULE" >&2
     exit 2
     ;;
 esac

@@ -146,6 +146,8 @@ boundary. This floor is explicit as `--cosine_min_lr_mult 0.05`.
 | `schedgrid_v1_cosine_w200_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 200 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 3 |
 | `schedgrid_v1_cosine_w300_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 300 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 4 |
 | `schedgrid_v1_cosine_w400_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 400 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 5 |
+| `schedgrid_v1_warmdown_current_r1048576_both_s42` | `--lr_schedule warmdown` | planned same-code reference on 360-1 GPU 6 |
+| `schedgrid_v1_cosine_w500_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 500 --cosine_min_lr_mult 0.05` | planned on 360-1 GPU 7 |
 
 **Falsifiable gate.** A candidate passes only if its final online train loss is
 at most `4.3` and its final online gap is at least `+0.5` on this anchor; this
