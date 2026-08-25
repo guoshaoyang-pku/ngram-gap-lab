@@ -74,6 +74,7 @@ class Config:
     table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     table_mult: int = 64              # n-gram table size = vocab_size * table_mult
     bigram_clean_table: int = 0       # clean single-table rows R (0=off); SSOT: clean-table-rework.md
+    trigram_clean_table: int = 0      # clean single-table rows R for trigram (0=off); same SSOT
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
@@ -372,23 +373,35 @@ class NanoGPT(nn.Module):
                     nn.Embedding(self.bigram_table_size, config.n_embd - half_dim),
                 ])
             self.bigram_hash_primes_per_layer[li] = _bp[j]
-        self.trigram_ve_layers = (
-            ({ngram_layers[0], ngram_layers[-2], ngram_layers[-1]}
-             if len(ngram_layers) >= 2 else {ngram_layers[-1]})
-            if config.enable_nanogpt_ngram_ve and config.enable_trigram_ve and ngram_layers
-            else set()
-        )
-        self.trigram_table_size = config.vocab_size * config.table_mult
+        if config.enable_nanogpt_ngram_ve and config.enable_trigram_ve and config.trigram_clean_table:
+            # clean 单表 trigram (SSOT): single layer, K=1 full-width, R freely set
+            self.trigram_ve_layers = {ngram_layers[0]}
+            self.trigram_table_size = config.trigram_clean_table
+            self.trigram_K = 1
+        else:
+            self.trigram_ve_layers = (
+                ({ngram_layers[0], ngram_layers[-2], ngram_layers[-1]}
+                 if len(ngram_layers) >= 2 else {ngram_layers[-1]})
+                if config.enable_nanogpt_ngram_ve and config.enable_trigram_ve and ngram_layers
+                else set()
+            )
+            self.trigram_table_size = config.vocab_size * config.table_mult
+            self.trigram_K = 2
         _tp = _BASE_TRIGRAM_PRIMES[:max(1, len(self.trigram_ve_layers))]
         while len(_tp) < len(self.trigram_ve_layers):
             _tp.append(_tp[len(_tp) % len(_BASE_TRIGRAM_PRIMES)])
         self.trigram_hash_primes_per_layer = {}
         self.trigram_ves = nn.ModuleDict()
         for j, li in enumerate(sorted(self.trigram_ve_layers)):
-            self.trigram_ves[str(li)] = nn.ModuleList([
-                nn.Embedding(self.trigram_table_size, half_dim),
-                nn.Embedding(self.trigram_table_size, config.n_embd - half_dim),
-            ])
+            if self.trigram_K == 1:
+                self.trigram_ves[str(li)] = nn.ModuleList([
+                    nn.Embedding(self.trigram_table_size, config.n_embd),
+                ])
+            else:
+                self.trigram_ves[str(li)] = nn.ModuleList([
+                    nn.Embedding(self.trigram_table_size, half_dim),
+                    nn.Embedding(self.trigram_table_size, config.n_embd - half_dim),
+                ])
             self.trigram_hash_primes_per_layer[li] = _tp[j]
 
     @torch.no_grad()
@@ -487,6 +500,16 @@ class NanoGPT(nn.Module):
         return [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
                 for p1, p2 in primes[:self.bigram_K]]
 
+    def _trigram_row_indices(self, li, prev2_idx, prev_idx, idx):
+        """Row indices into the trigram hash embedding(s) for layer li.
+        clean 单表 (K=1): first hash family only."""
+        lp = self.trigram_hash_primes_per_layer[li]
+        return [
+            ((prev2_idx * lp[3 * k]) ^ (prev_idx * lp[3 * k + 1]) ^ (idx * lp[3 * k + 2]))
+            % self.trigram_table_size
+            for k in range(self.trigram_K)
+        ]
+
     def _compute_input_ngram_residual(self, idx):
         """Over-encoding: sum all enabled layers' n-gram values, no gate."""
         _B, T = idx.size()
@@ -505,13 +528,9 @@ class NanoGPT(nn.Module):
                 residual = bgve if residual is None else residual + bgve
         if self.config.enable_trigram_ve:
             for li in sorted(self.trigram_ve_layers):
-                lp = self.trigram_hash_primes_per_layer[li]
-                ti = (
-                    ((prev2_idx * lp[0]) ^ (prev_idx * lp[1]) ^ (idx * lp[2])) % self.trigram_table_size,
-                    ((prev2_idx * lp[3]) ^ (prev_idx * lp[4]) ^ (idx * lp[5])) % self.trigram_table_size,
-                )
+                ti = self._trigram_row_indices(li, prev2_idx, prev_idx, idx)
                 lvs = self.trigram_ves[str(li)]
-                tgve = torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
+                tgve = torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1)
                 residual = tgve if residual is None else residual + tgve
         if residual is None:
             residual = torch.zeros(idx.size(0), T, self.config.n_embd,
@@ -550,13 +569,9 @@ class NanoGPT(nn.Module):
                     )
                 for li in sorted(self.trigram_ve_layers):
                     lvs = self.trigram_ves[str(li)]
-                    lp = self.trigram_hash_primes_per_layer[li]
-                    ti = (
-                        ((prev2_idx * lp[0]) ^ (prev_idx * lp[1]) ^ (idx * lp[2])) % self.trigram_table_size,
-                        ((prev2_idx * lp[3]) ^ (prev_idx * lp[4]) ^ (idx * lp[5])) % self.trigram_table_size,
-                    )
+                    ti = self._trigram_row_indices(li, prev2_idx, prev_idx, idx)
                     branch_residuals["trigram"].append(
-                        torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
+                        torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1)
                     )
                 for branch, residuals in branch_residuals.items():
                     if residuals:
@@ -579,11 +594,7 @@ class NanoGPT(nn.Module):
         trigram_indices = {}
         if self.config.enable_trigram_ve:
             for li in self.trigram_ve_layers:
-                lp = self.trigram_hash_primes_per_layer[li]
-                trigram_indices[li] = (
-                    ((prev2_idx * lp[0]) ^ (prev_idx * lp[1]) ^ (idx * lp[2])) % self.trigram_table_size,
-                    ((prev2_idx * lp[3]) ^ (prev_idx * lp[4]) ^ (idx * lp[5])) % self.trigram_table_size,
-                )
+                trigram_indices[li] = self._trigram_row_indices(li, prev2_idx, prev_idx, idx)
         for i, block in enumerate(self.transformer.h):
             ve = (self.value_embeds[str(i)](idx)
                   if self.config.enable_unigram_ve and str(i) in self.value_embeds else None)
@@ -596,7 +607,7 @@ class NanoGPT(nn.Module):
             if self.config.enable_trigram_ve and i in self.trigram_ve_layers:
                 ti = trigram_indices[i]
                 lvs = self.trigram_ves[str(i)]
-                tgve = torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
+                tgve = torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1)
             x = block(x, ve=ve, bigram_ve=bgve, trigram_ve=tgve)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
@@ -1207,6 +1218,9 @@ def main():
                         help="clean single-table rows R (0=off): one nn.Embedding(R, n_embd), "
                              "single layer, single hash, R freely set. SSOT: "
                              "docs/notes/method/clean-table-rework.md")
+    parser.add_argument("--trigram_clean_table", type=int, default=0,
+                        help="clean single-table rows R for the trigram branch (0=off); "
+                             "same clean-table SSOT as --bigram_clean_table")
     parser.add_argument("--bigram_perfect_map", default="",
                         help="path to npz with int32 packed-bigram->row map; enables "
                              "collision-free bigram table (first ngram layer only, "
@@ -1285,6 +1299,7 @@ def main():
         table_lr_scale=args.table_lr_scale,
         table_mult=args.table_mult,
         bigram_clean_table=args.bigram_clean_table,
+        trigram_clean_table=args.trigram_clean_table,
         bigram_perfect_map=args.bigram_perfect_map,
         bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
