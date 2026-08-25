@@ -33,11 +33,11 @@
 | 项 | 值 |
 |---|---|
 | backbone | vanilla nanoGPT（8L · 6H · 768D，vocab 8192，learned abs + LayerNorm + tied）|
-| n-gram 模块 | bigram + trigram，`input` / wte 注入 |
-| **table size** | **1M**（`vocab_size × 64 = 524,288` 行 × 2 hash embedding），默认值未改动 |
+| n-gram 模块 | bigram + trigram clean 单表，`input` / wte 注入 |
+| **table size** | 非 table-size 固定 **`R_bigram = R_trigram = 2^20 = 1,048,576`**；R 控制碰撞，table-size 线才可改它且它是唯一变量，不能回退到 legacy `table_mult` |
 | table 优化器 | **RMSProp 无动量**，betas `(0.0, 0.99)`；历史对照使用 β₂ = `0.999` |
-| backbone 优化器 | AdamW `(0.8, 0.95)`，lr 0.004，wd 0.1 |
-| 数据 / 评测 | fixed 顺序 epoch replay，seed 42，1000 或 2000 步，**val 每 10 步 + fixed batches** |
+| backbone 优化器 | AdamW `(0.8, 0.95)`，lr 0.004，wd 0.1，**constant LR** |
+| 数据 / 评测 | fixed 顺序 epoch replay，seed 42，**1000 默认** / 2000 延长；online train loss + fixed val loss，主曲线每 10 步评估 |
 
 ## 4. 当前实验队列
 
@@ -72,7 +72,7 @@
 
 ## 6. 已完成
 
-1. ✅ 干净 repo（`train.py` < 1000 行 + `ngram_freq.py`）
+1. ✅ 干净 repo（vanilla `train.py` + `ngram_freq.py`，无 current shell / Muon / RoPE / RMSNorm）
 2. ✅ v/y/input/nogram 四注入点消融（`experiment-log.md` §2 / §8）
 3. ✅ 频率索引 + per-bin loss 统计（§3）
 4. ✅ 注入点对比图 + table norm 图 + 频率 bin 分解图（`docs/figs/`）

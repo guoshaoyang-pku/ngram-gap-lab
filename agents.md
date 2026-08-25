@@ -32,7 +32,9 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 ### P4 · 口径一致性优先于结果好看
 
-- gap 定义只有一个：`val_loss − train_loss`，同一 step、同一 batch 口径。
+- gap 定义只有一个：`val_loss − train_loss`。主口径是**同一 logged step** 的
+  fixed validation loss 减去当前训练 batch 的 online train loss；二者不是同一
+  batch，也不能以 held-out/fixed train probe 偷换。
 - **权威数据只有 `data/runs_fixed/` 里带 `_fixed` 后缀的 run**。`data/runs/` 与不带后缀的副本
   受 freq-bin 诊断 bug 影响（诊断复用训练迭代器，每次 eval 白吃 5 个 batch + epoch 计数虚高），
   **一律作废**。同一次修复还带出 `table_betas[1]` 被 `ngram_beta2` 覆盖的 bug —— 旧 run 里
@@ -59,7 +61,8 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 - 结论必须附「哪个 run_id、哪个 step、几个 seed」。没有 run 支撑的话写成「假设」而不是「结论」。
 - 任何来自 current shell / Muon / RoPE 系的数字，引用时必须显式标注 `[DEPRECATED SETTING]`。
-- 作图脚本进 `docs/plot_scripts/`，图进 `docs/figs/`，两者一起 commit。绘图规范见全局 skill `ngram-gap-plotting` 与 `docs/plot_scripts/README.md`。
+- 作图脚本进 `docs/plot_scripts/`，图进 `docs/figs/`，两者一起 commit。绘图规范见
+  repo skill `ngram-gap-plotting`（`.agents/skills/`）与 `docs/plot_scripts/README.md`。
 
 ---
 
@@ -67,6 +70,26 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 
 > 这是本仓库所有实验的出发点。**任何实验的 setting 表都必须以此为基准，只用粗体标出差异项。**
 > 训练 1000 步即可看到 train/val forking；2000 步为标准延长口径。
+
+### 1.0 交接用的最小可执行契约
+
+协作者先按下表锁定主线；再且只再改当前实验要检验的一项。**「没有写出」不等于
+可以沿用 CLI 的历史默认值。**
+
+| 坐标 | 主线默认 |
+|---|---|
+| 注入 | `input` / wte |
+| backbone LR | `0.004` |
+| table optimizer | RMSProp，无动量，`--table_betas 0.0,0.99` |
+| table LR | `--table_lr_scale 2.0`，实际 LR `0.008` |
+| LR schedule | `--lr_schedule constant`；所有新实验固定 LR，禁止 warmdown |
+| 默认预算 | seed 42，1000 steps，bf16，不 `torch.compile` |
+| scalar 口径 | 当前训练 batch 的 online train loss；固定 validation batches 的 val loss；`gap = val − train` |
+
+非 table-size 实验固定 `R_bigram = R_trigram = 2^20 = 1,048,576`；table-size
+实验才显式写出替代的两个 R（或 perfect-map 条件），并且只能改 R。完整可运行
+setting 仍须写明 train/val shards、frequency index 和 eval 节奏。R 控制碰撞，
+但**旧 `table_mult=64` / “1M table”绝不是 clean-table 的隐式来源。**
 
 ### 1.1 模型
 
@@ -88,7 +111,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | 注入点 | **`input` / wte** | over-encoding 风格：`x = wte(idx) + Σ ngram_ve`，不走 attention |
 | n-gram 阶数 | bigram + trigram | unigram / fourgram **关闭** |
 | **表架构** | **clean 单表**（`nn.Embedding(R, n_embd)`） | 一个 context → 一行 → 一个完整向量，像 `wte` 一样直接；**单层**、无 2-hash 拼接、无 4 层求和。**重做原因与旧框架详见 `docs/notes/method/clean-table-rework.md`** |
-| **table size R** | **任意设定** | R 是自由参数，直接决定碰撞；不再强制 `vocab × mult`。默认待重扫后确定；旧默认 1M 属于历史框架 |
+| **table size R** | **非 table-size：bigram = trigram = `2^20 = 1,048,576`** | R 直接决定碰撞。仅 table-size 实验可改 R，且 R 是唯一变量；不再强制 `vocab × mult` |
 | hash | 单一 hash（或 perfect-map 行号） | `--bigram_clean_table R` 控制；R = distinct+1 时零碰撞 |
 | 历史框架（已废弃） | ~~1M / 4 层求和 / 2-hash 拼接~~ | 旧 `vocab × mult = 524,288 × 2 = 1,048,576` 表 + `bigram_ve_layers={1,3,5,7}` 求和 + `bigram_K=2` 拼接。**仅作历史 run 溯源**，新 run 一律 clean 单表 |
 
@@ -103,7 +126,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | 历史 β₂=0.999 | 仅保留历史身份 | 早期 run 用 `(0.0, 0.999)`；那批 run 的 β₂ 对比因 B2 bug 无有效证据（见 `docs/experiment-log.md` §9d） |
 | backbone | AdamW，betas `(0.8, 0.95)`，weight_decay 0.1 | |
 | lr | 0.004 | table_lr_scale = **2.0（用户 2026-08-24 拍板，新标准）**；表实际学习率 = 0.008 |
-| lr schedule | warmdown_ratio 0.65 | step-anchored；`--lr_schedule_epochs N` 可切 epoch-anchored |
+| lr schedule | **constant（固定 LR）** | 所有新实验必须显式传 `--lr_schedule constant`；warmdown 仅限重跑已有历史 run，`--lr_schedule_epochs N` 也只在注册为独立历史/对照变量时使用 |
 
 ### 1.4 数据与训练
 
@@ -118,6 +141,10 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | steps | 1000（标准）/ 2000（延长） |
 | compute dtype | **bf16（`torch.autocast`），不 `torch.compile`**（默认标准；见 §16/§17）|
 | 评估节奏 | **三层默认（用户 2026-08-24 拍板）**：① 主实验 `freq=10`（freq-bin + val 每 10 步，完整曲线）；② 只需看曲线的实验 `freq=50`；③ 只要末端结果（gap/数值）用 `--val_steps 1000`（只做末端 val+freq，训练全程不打断）。freq 必须跟随 val_steps 对齐（§17 实测 freq eval 每次 ~13s，是 wall-time 主要瓶颈）|
+
+**时间点说明**：当前实现记录的 online train loss 来自该优化 step 的当前 batch、
+参数更新前；fixed val loss 随后在同一 logged step 的更新后模型上计算。这是既有
+主口径，改动它属于测量语义改变，必须新起 run_id，不能与现有曲线混画。
 
 ### 1.5 参考数值（seed 42，2000 步，标准 1x）
 
@@ -146,9 +173,9 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | fixed train probe（诊断） | 只有显式传 `--fixed_train_probe N` 才启用：独立 dataset 实例抓取固定 train batches，全程复用；SHA256 记账于 `summary.json`。**不消费训练流、不推进 epoch 计数器**（防 B1 复发）。输出 `fixed_train_loss.jsonl`；它在顺序 replay 下会混入 exposure / 训练进度，**不得作为 gap 主结论或 epoch-1 gap 证据** |
 | `--train_probe_mode` | `first` / `uniform` 仅控制诊断 probe 的采样位置；`uniform` 不是无偏的在线 train loss 替代物，仍只用于诊断与口径对比 |
 | exact-frequency | `exact_freq_loss.jsonl`：按 exact f 存 train/val 的 token count、distinct contexts、loss sum/sum²、mean loss；`shared` 字段给 context-matched gap。索引 = `GlobalFrequencyIndex.build_from_chunks`，与模型 hash 逐位置一致 |
-| table occupancy | `code/table_occupancy.py`：每 branch/layer/hash 的 physical rows R、逻辑地址 2R、distinct contexts K、occupancy、collision rate、singleton fraction、freq-weighted load。hash 复用 `train.py` primes（单一来源） |
+| table occupancy | `code/table_occupancy.py`：clean 单表按每 branch 的 physical/logical rows `R`、distinct contexts K、occupancy、collision rate、singleton fraction、freq-weighted load 记账；历史 2-hash 表才有逻辑地址 `2R`。hash 复用 `train.py` primes（单一来源） |
 | β₂ | 所有 scaling run 显式 `--table_betas 0.0,0.99`（train.py 默认值已同步为 0.99） |
-| 分析脚本 | `docs/plot_scripts/analyze_scaling_epoch.py` / `_frequency.py` / `_table.py`；launcher `code/cluster/run_scaling_epoch.sh` / `run_scaling_table.sh` |
+| 分析脚本 | `docs/plot_scripts/analyze_scaling_epoch.py` / `_frequency.py` / `_table.py`；`code/cluster/run_scaling_epoch.sh` / `run_scaling_table.sh` 是 **legacy table 溯源 launcher**，新 clean-table scaling 必须在专属 launcher 中显式传 `--*_clean_table R` |
 | 结果目录 | `data/runs_scaling/`（新 namespace，不与历史 `runs_fixed/` 混用） |
 
 ---
@@ -187,9 +214,10 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 ```
 ngram-gap-lab/
 ├── agents.md                    # 本文件：工作原则 + 极简 setting SSOT + 坐标
+├── .agents/skills/               # ★ 随仓库交接的 Codex setting / registration / plotting workflows
 ├── README.md                    # 对外说明
 ├── code/                        # 主线 nanoGPT 训练与分析
-│   ├── train.py                 # vanilla nanoGPT + n-gram table + 3 注入点（<1000 行）
+│   ├── train.py                 # vanilla nanoGPT + n-gram table + 3 注入点
 │   ├── ngram_freq.py            # per-frequency-bin loss 统计
 │   ├── gap_experiment.py        # ★ replay/epoch/lr 纯函数（主线与 ngram5 共用）
 │   ├── prepare_data.py          # 数据准备
@@ -395,12 +423,18 @@ SSH 配置位于 `~/.ssh/config.d/`（主配置 `Include ~/.ssh/config.d/*.conf`
 ## 8. 常用命令
 
 ```bash
-# ophis-gpu：跑注入点消融（v/y/input/nogram，串行 4 个 run）
+# [HISTORICAL LEGACY TABLE] ophis-gpu：跑旧注入点消融（v/y/input/nogram，串行 4 个 run）
 cd /data3/guoshaoyang/ngram-gap-lab && bash code/cluster/run_injpos.sh 0 2000
 
-# 本地 CPU 冒烟
+# 新主线：clean 单表 input 基线（bigram / trigram 均为 R=2^20，固定 LR）
+cd /data3/guoshaoyang/ngram-gap-lab && \
+  bash code/cluster/run_baseline.sh 0 <run_id>
+
+# 本地 CPU 冒烟（非主线 setting，只检验代码路径；不可作为实验结果）
 python code/train.py --run_id smoke --injection_position input --steps 10 \
-  --data_dir /path/to/tokenized --device_batch_size 4 --total_batch_size 8192
+  --data_dir /path/to/tokenized --device_batch_size 4 --total_batch_size 8192 \
+  --n_layer 1 --n_head 1 --n_embd 16 --sequence_len 32 --dtype fp32 \
+  --bigram_clean_table 64 --trigram_clean_table 64
 
 # 构建频率索引
 .venv/bin/python code/ngram_freq.py --data_dir <tokenized> \
@@ -415,5 +449,8 @@ bash docs/sync_to_blog.sh
 
 ## 9. 相关 skill
 
+- repo-level skills 位于 `.agents/skills/`，随仓库交接；可在 Codex 中用 `$` 显式调用，也会按 description 自动匹配。个人全局安装可以软链接到这些目录，但**不以绝对的个人路径作为仓库唯一来源**。
+- `ngram-gap-settings`：新 setting、ablation 或 launcher 审计；锁定极简契约、table R、测量口径与单变量差异。
+- `ngram-gap-experiment-registration`：新 run 注册、跨机 handover、结果回填与 evidence packet。
 - `ngram-gap-plotting`：本项目图表规范（injection-point loss/gap 曲线、loss-gap-table-RMS 对齐、频率 bin 双轴图、log-x / log-log、Plotly 图例控制、blog 非滚动嵌入）。新增或修改图前先读它和 `docs/plot_scripts/README.md`。
 - `blog-deploy`：把 `docs/` 产物发布到 GitHub Pages 并验证 HTTP 200。
