@@ -107,6 +107,12 @@ launch_slot() {  # launch_slot <fn args...>  (gpu appended last)
   eval "$1" "$GPU" &
 }
 
+# 分工：CTBL4_ONLY=ab -> bigram（wave A+B，含 perfect；360-2）
+#         CTBL4_ONLY=c  -> trigram（wave C；360-1）
+# 缺省 = 全部跑（单机全跑）。
+CTBL4_ONLY="${CTBL4_ONLY:-all}"
+
+if [ "$CTBL4_ONLY" = "all" ] || [ "$CTBL4_ONLY" = "ab" ]; then
 # 先发最快的 bigram（sparse 1000 步 ~5-8 分钟/run）腾卡
 echo "=== [ctbl4] wave A: bigram 前半 + perfect at $(date) ==="
 ACTIVE=0 SLOT=0
@@ -140,7 +146,9 @@ launch_slot "run_bi 3266781"
 launch_slot "run_bi 4208429"
 launch_slot "run_bi 5421506"
 wait
+fi
 
+if [ "$CTBL4_ONLY" = "all" ] || [ "$CTBL4_ONLY" = "c" ]; then
 echo "=== [ctbl4] wave C: trigram 14 点 at $(date) ==="
 ACTIVE=0 SLOT=0
 launch_slot "run_tri 65536"
@@ -158,5 +166,6 @@ launch_slot "run_tri 3976525"
 launch_slot "run_tri 5775596"
 launch_slot "run_tri 8388608"
 wait
+fi
 
 echo "=== [ctbl4] clean v4 grid done at $(date) ==="
