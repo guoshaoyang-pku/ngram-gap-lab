@@ -182,5 +182,5 @@ implementation.
 
 | run_id stem | changed flag | status |
 |---|---|---|
-| `schedgrid_v1_cosine_w300_floor10_r1048576_both_s42` | `--cosine_min_lr_mult 0.10` | planned on ophis-gpu GPU 0 |
-| `schedgrid_v1_cosine_w300_floor20_r1048576_both_s42` | `--cosine_min_lr_mult 0.20` | planned on ophis-gpu GPU 3 |
+| `schedgrid_v1_cosine_w300_floor10_r1048576_both_s42` | `--cosine_min_lr_mult 0.10` | running on ophis-gpu GPU 0 |
+| `schedgrid_v1_cosine_w300_floor20_r1048576_both_s42` | `--cosine_min_lr_mult 0.20` | running on ophis-gpu GPU 3 |
