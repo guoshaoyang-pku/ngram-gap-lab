@@ -584,8 +584,12 @@ class NanoGPT(nn.Module):
                 targets.view(-1), ignore_index=-1, reduction="none"
             ).view_as(targets)
             loss = token_losses[targets.ne(-1)].mean()
-            if return_token_losses or return_injection_stats:
-                return token_losses if return_token_losses else loss, injection_stats
+            if return_token_losses and return_injection_stats:
+                return loss, token_losses, injection_stats
+            if return_token_losses:
+                return loss, token_losses
+            if return_injection_stats:
+                return loss, injection_stats
             return loss
         if return_token_losses:
             raise ValueError("return_token_losses requires targets")
@@ -1018,6 +1022,23 @@ def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe, dtype: str = "fp32")
     return float(np.mean(losses)) if losses else float("nan")
 
 
+def accumulate_freq_bins(freq_index, inp, tgt, per_token_loss, vocab_size) -> dict:
+    """Accumulate per-frequency-bin stats from ONE already-forwarded batch.
+
+    Reuses the per-token loss of the current training batch (pre-update, the
+    same quantity as the online train loss), so freq-bin train-side stats are
+    a pure online measurement with zero extra compute.
+    """
+    from ngram_freq import FreqBinLossAccumulator
+    accs = {
+        "bigram": FreqBinLossAccumulator(freq_index, vocab_size, "bigram"),
+        "trigram": FreqBinLossAccumulator(freq_index, vocab_size, "trigram"),
+    }
+    for branch in accs:
+        accs[branch].update(inp, per_token_loss)
+    return {branch: acc.summary() for branch, acc in accs.items()}
+
+
 def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
                        vocab_size: int) -> dict:
     """Run per-frequency-bin loss accumulation on n_batches from loader.
@@ -1185,7 +1206,7 @@ def main():
                         help="path to freq_index.npz; if set, enables freq-bin eval")
     parser.add_argument("--freq_eval_interval", type=int, default=10)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
-    parser.add_argument("--exact_freq_eval_interval", type=int, default=100,
+    parser.add_argument("--exact_freq_eval_interval", type=int, default=10,
                         help="steps between exact-frequency evaluations; epoch "
                              "boundaries and the final step are also evaluated")
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
@@ -1206,7 +1227,7 @@ def main():
     parser.add_argument("--probe_eval_interval", type=int, default=10,
                         help="steps between fixed-train/val probe evals (also fired "
                              "at every epoch boundary)")
-    parser.add_argument("--dtype", default="fp32", choices=["fp32", "bf16", "fp8"],
+    parser.add_argument("--dtype", default="bf16", choices=["fp32", "bf16", "fp8"],
                         help="compute dtype for the forward pass (autocast; "
                              "weights/optimizer stay fp32): fp32 | bf16 | fp8")
     parser.add_argument("--compile", action="store_true",
@@ -1392,11 +1413,12 @@ def main():
     t0 = time.time()
     intervention_fired = False
     amp_ctx = _autocast_ctx(args.dtype)
+    cur_inp = cur_tgt = cur_ptl = None
     for step in range(cfg.max_steps):
         # gradient accumulation
         optimizer.zero_grad()
         accum_loss = 0.0
-        for _ in range(grad_accum):
+        for micro in range(grad_accum):
             try:
                 inp, tgt = next(train_iter)
             except StopIteration:
@@ -1406,7 +1428,12 @@ def main():
                 model.apply_intervention(train_ds._epoch)
                 intervention_fired = True
             with amp_ctx:
-                loss = model(inp, targets=tgt) / grad_accum
+                if freq_bin_log is not None and micro == grad_accum - 1:
+                    loss, ptl = model(inp, targets=tgt, return_token_losses=True)
+                    cur_inp, cur_tgt, cur_ptl = inp, tgt, ptl.detach()
+                    loss = loss / grad_accum
+                else:
+                    loss = model(inp, targets=tgt) / grad_accum
             loss.backward()
             accum_loss += loss.item()
         train_loss = accum_loss
@@ -1509,9 +1536,11 @@ def main():
             }) + "\n")
             fixed_train_freq_log.flush()
         exact_freq_due = (
-            (step + 1) % args.exact_freq_eval_interval == 0
-            or epoch_boundary
-            or step == cfg.max_steps - 1
+            ((cfg.val_steps and (step + 1) in cfg.val_steps)
+             or (not cfg.val_steps
+                 and (step + 1) % args.exact_freq_eval_interval == 0)
+             or (not cfg.val_steps and epoch_boundary)
+             or step == cfg.max_steps - 1)
         )
         if exact_freq_log is not None and exact_freq_due:
             # exact-frequency marginal on the fixed diagnostic train batches and
@@ -1545,10 +1574,11 @@ def main():
              or epoch_boundary
              or step == cfg.max_steps - 1)
         ):
-            # train freq-bin (independent diagnostic iterator: fresh train
-            # batches, never touches the training stream)
-            train_freq = evaluate_freq_bins(model, freq_train_iter, freq_index_obj,
-                                            args.freq_eval_batches, cfg.vocab_size)
+            # train freq-bin: reuse the CURRENT training batch's per-token
+            # loss (pre-update, identical to the online train_loss) — no extra
+            # forward, no diagnostic iterator, no training-stream consumption.
+            train_freq = accumulate_freq_bins(freq_index_obj, cur_inp, cur_tgt,
+                                              cur_ptl, cfg.vocab_size)
             # val freq-bin (same fixed val data every eval)
             val_freq = evaluate_freq_bins(model, fixed_freq_val_batches, freq_index_obj,
                                           args.freq_eval_batches, cfg.vocab_size)
