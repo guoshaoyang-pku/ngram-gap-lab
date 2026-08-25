@@ -11,14 +11,12 @@ if [[ "${#GPUS[@]}" -eq 0 ]]; then
   exit 2
 fi
 
-BIGRAM=(16000 22000 30000 41000 56000 76000 104000 142000 194000 265000 362000 494000 675000 922000 1259000 1719000 2347000 3206000 4380000 5980000)
-TRIGRAM=(65536 86000 113000 149000 196000 258000 339000 446000 587000 772000 1016000 1336000 1757000 2310000 3039000 4000000 5260000 7000000)
+ROWS=(16000 22000 30000 41000 56000 76000 104000 142000 194000 265000 362000 494000 675000 922000 1259000 1719000 2000000 2347000)
 
 run_one() {
   local gpu="$1"
   local run_id="$2"
-  local branch="$3"
-  local rows="$4"
+  local rows="$3"
   local result_dir="$ROOT/data/runs_scaling/${run_id}_fixed"
   if [[ -f "$result_dir/summary.json" ]]; then
     echo "[v5-table] skip complete $run_id"
@@ -29,13 +27,7 @@ run_one() {
     return 2
   }
   mkdir -p "$result_dir"
-  local branch_args=()
-  if [[ "$branch" == "bigram" ]]; then
-    branch_args=(--enable_bigram 1 --enable_trigram 0 --bigram_clean_table "$rows")
-  else
-    branch_args=(--enable_bigram 0 --enable_trigram 1 --trigram_clean_table "$rows")
-  fi
-  echo "[v5-table] $run_id gpu=$gpu R=$rows branch=$branch"
+  echo "[v5-table] $run_id gpu=$gpu R_bigram=R_trigram=$rows"
   CUDA_VISIBLE_DEVICES="$gpu" "$PY" -u "$ROOT/code/train.py" \
     --run_id "${run_id}_fixed" \
     --out_dir "$ROOT/data/runs_scaling" \
@@ -47,7 +39,10 @@ run_one() {
     --dtype bf16 \
     --injection_position input \
     --enable_unigram 0 \
-    "${branch_args[@]}" \
+    --enable_bigram 1 \
+    --enable_trigram 1 \
+    --bigram_clean_table "$rows" \
+    --trigram_clean_table "$rows" \
     --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
     --device_batch_size 72 --total_batch_size 147456 \
     --lr 0.0006 \
@@ -63,11 +58,8 @@ run_one() {
 }
 
 SPECS=()
-for rows in "${BIGRAM[@]}"; do
-  SPECS+=("ctbl_v5_${rows}_bigram|bigram|$rows")
-done
-for rows in "${TRIGRAM[@]}"; do
-  SPECS+=("ctbl_v5_${rows}_trigram|trigram|$rows")
+for rows in "${ROWS[@]}"; do
+  SPECS+=("ctbl_v5_both_${rows}|$rows")
 done
 
 active=0
@@ -80,8 +72,8 @@ for spec in "${SPECS[@]}"; do
     fi
     active=$((active - 1))
   done
-  IFS='|' read -r run_id branch rows <<< "$spec"
-  run_one "${GPUS[$slot]}" "$run_id" "$branch" "$rows" &
+  IFS='|' read -r run_id rows <<< "$spec"
+  run_one "${GPUS[$slot]}" "$run_id" "$rows" &
   active=$((active + 1))
   slot=$(( (slot + 1) % gpu_count ))
 done

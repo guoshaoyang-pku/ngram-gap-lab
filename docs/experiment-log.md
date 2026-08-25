@@ -1757,13 +1757,14 @@ partial 目录则拒绝覆盖。
 | causal | `nglab1x_{reset,mask,freeze}_*_v5` | 5 | 1000；唯一变量为登记的 intervention | 🟡 queued |
 | fixed probe | `nglab{1,2}x_input_rho_v5` | 2 | 2000；唯一新增诊断为 fixed probe | 🟡 queued |
 | backbone safety | `nglab1x_nogram_long_v5` | 1 | 8000；无 n-gram 的长训练保险对照 | 🟡 queued |
-| table size | `ctbl_v5_{R}_{bigram,trigram}` | 38 | 1000 末端；每条在其单 branch module control 内唯一改变 clean R | 🟡 queued |
+| table size | `ctbl_v5_both_{R}` | 18 | 1000 末端；唯一变量为 bigram/trigram 同步的 clean R | 🟡 queued |
 
-**table-size 采样**：bigram 从 `16K` 至 `5.98M` 取 20 个近 log-uniform R；
-trigram 从 `64K` 至 `7M` 取 18 个近 log-uniform R。二者分开是预注册的 module
-control：bigram-only 与 trigram-only 各自固定模块开关，只在该系列内改变 physical
-rows R；它们不得与 both-branch 主线的数值直接并为一个全局参数量结论。trigram 上限
-为 7M，避免 8M 的 H200 状态峰值 OOM。
+**table-size 采样**：bigram / trigram 始终同时开启、并取相同 physical rows
+`R=16K, 22K, 30K, 41K, 56K, 76K, 104K, 142K, 194K, 265K, 362K, 494K, 675K,
+922K, 1.259M, 1.719M, 2.0M, 2.347M`。这是 18 个近 log-uniform 点；每一条仅改变
+两个分支共同的 R，保持主线双 n-gram 结构。`2.347M` 是在 H200 上为 RMSProp state
+及完整 batch 留出的保守上限；先前误启动的 single-branch 目录是无效诊断，不纳入
+任何数据源或图表。
 
 ---
 
