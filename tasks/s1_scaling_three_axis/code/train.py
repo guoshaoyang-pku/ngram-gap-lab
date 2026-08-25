@@ -95,7 +95,8 @@ class Config:
     val_steps: list = field(default_factory=list)  # exact steps to eval val (overrides interval if set)
     val_batches: int = 4
     table_norm_interval_steps: int = 10
-    warmup_steps: int = 100       # step 1..100: 0.25x -> 1.0x
+    warmup_steps: int = 100       # step 1..100: warmup_start_lr_mult -> 1.0x
+    warmup_start_lr_mult: float = 0.25
     cosine_min_lr_mult: float = 0.05  # terminal multiplier for warmup_cosine
     warmdown_ratio: float = 0.65  # historical warmdown parameter
     lr_schedule_epochs: int = 0    # >0: anchor LR schedule to epoch count (ignores max_steps)
@@ -848,13 +849,12 @@ def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
                       schedule: str = "warmup_constant",
                       warmup_steps: int = 100, step: int = 1,
                       max_steps: int = 1000,
+                      warmup_start_lr_mult: float = 0.25,
                       cosine_min_lr_mult: float = 0.05) -> float:
     """LR multiplier by schedule.
 
-    - "warmup_constant": the v4 standard schedule. Linearly warm from 0.25x
-      (1e-3 at base LR 4e-3) to 1.0x over warmup_steps optimizer updates,
-      then hold the base LR fixed (no decay). User 2026-08-25: warmup 100
-      steps, 1e-3 -> 4e-3, no warmdown.
+    - "warmup_constant": linearly warm from warmup_start_lr_mult to 1.0x
+      over warmup_steps optimizer updates, then hold the base LR fixed.
     - "warmup_cosine": the same step-anchored linear warmup, then cosine
       decay to cosine_min_lr_mult at max_steps. It is independent of epoch
       boundaries and is a schedule-search candidate, not the baseline.
@@ -869,7 +869,7 @@ def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
             warmup_mult = 1.0
         else:
             warmup_progress = min(1.0, max(0, step - 1) / (warmup_steps - 1))
-            warmup_mult = 0.25 + 0.75 * warmup_progress
+            warmup_mult = warmup_start_lr_mult + (1.0 - warmup_start_lr_mult) * warmup_progress
         if step <= warmup_steps or schedule == "warmup_constant":
             return warmup_mult
         decay_progress = min(
@@ -1299,6 +1299,9 @@ def main():
                         help="optimizer updates for warmup_constant/warmup_cosine (default 100; "
                              "LR rises linearly from 0.25x (1e-3) at step 1 to 1.0x (4e-3) "
                              "at this step)")
+    parser.add_argument("--warmup_start_lr_mult", type=float, default=0.25,
+                        help="initial LR multiplier for warmup_constant/warmup_cosine "
+                             "(default 0.25)")
     parser.add_argument("--cosine_min_lr_mult", type=float, default=0.05,
                         help="terminal LR multiplier for warmup_cosine (default 0.05)")
     parser.add_argument("--lr_schedule", default="warmup_constant",
@@ -1331,6 +1334,8 @@ def main():
     args = parser.parse_args()
     if args.warmup_steps < 1:
         parser.error("--warmup_steps must be >= 1")
+    if not 0.0 <= args.warmup_start_lr_mult <= 1.0:
+        parser.error("--warmup_start_lr_mult must be in [0, 1]")
     if not 0.0 <= args.cosine_min_lr_mult <= 1.0:
         parser.error("--cosine_min_lr_mult must be in [0, 1]")
 
@@ -1353,6 +1358,7 @@ def main():
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
         warmup_steps=args.warmup_steps,
+        warmup_start_lr_mult=args.warmup_start_lr_mult,
         cosine_min_lr_mult=args.cosine_min_lr_mult,
         lr_schedule_epochs=args.lr_schedule_epochs,
         lr_schedule=args.lr_schedule,
@@ -1553,6 +1559,7 @@ def main():
             warmup_steps=cfg.warmup_steps,
             step=step + 1,
             max_steps=cfg.max_steps,
+            warmup_start_lr_mult=cfg.warmup_start_lr_mult,
             cosine_min_lr_mult=cfg.cosine_min_lr_mult,
         )
         optimizer.step(lr_mult=lr_mult)
