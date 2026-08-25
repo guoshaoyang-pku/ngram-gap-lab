@@ -45,6 +45,25 @@ Artifacts are under `data/runs_scaling/<run_id>_fixed/` on 360-1. The
 launcher is `code/cluster/run_schedule_compare.sh`; code is from scheduler
 commit `b04077b` and launcher commit `e6be4dd`.
 
+## Current-standard validation (running)
+
+The current SSOT subsequently changed the warmup start from `0.1×` to
+`0.25×` (`0.001`) in commit `c79ffd2`. The matched three-arm gate above still
+establishes the zero-warmup failure, but it is not exact evidence for that
+new start value. The following two one-seed, same-host anchors are registered
+on `ophis-gpu`, with the contract above unchanged and `code/train.py` MD5
+`88e3dacae052c7add4ed6484ba373a6a`:
+
+| run_id | schedule | status |
+|---|---|---|
+| `schedcheck_v5_warmup100_1e3_r1048576_both_s42_ophisretry1` | `warmup_constant`, step 1–100 `0.001 → 0.004`, then fixed | running on GPU 0 |
+| `schedcheck_v5_warmdown_r1048576_both_s42_ophis` | historical warmdown baseline | planned on GPU 3 |
+
+The corresponding token shards `1`, `2..10`, and `6542` have identical MD5
+checksums on 360-1 and ophis-gpu. The validation therefore isolates schedule
+within one software environment; it does not overwrite the completed 360-1
+gate or relabel its artifacts.
+
 ## Results
 
 | run_id | train @1000 | val @1000 | online gap @1000 |
