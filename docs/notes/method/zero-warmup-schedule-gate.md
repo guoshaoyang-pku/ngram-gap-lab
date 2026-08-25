@@ -305,4 +305,4 @@ checked before launch; the data contract remains the same.
 
 | run_id stem | host | changed coordinate | status |
 |---|---|---|---|
-| `schedgrid_v2_cosine_w350_start10_floor05_s42_3601` | 360-1 GPU 0 | software stack only | running |
+| `schedgrid_v2_cosine_w350_start10_floor05_s42_3601` | 360-1 GPU 1 | software stack only | running |
