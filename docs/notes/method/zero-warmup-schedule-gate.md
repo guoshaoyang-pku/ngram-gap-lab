@@ -232,7 +232,7 @@ simple explanation that the original failure was merely an insufficiently
 long warmup. A 300-step warmup plus a gentle, explicit cosine tail can enter
 the desired regime, but does so in a seed-sensitive way.
 
-## Phase 6: warmdown seed control (planned)
+## Phase 6: warmdown seed control (complete)
 
 Phase 5 cannot by itself distinguish a cosine-specific problem from a seed
 stability problem shared by the historical schedule. These two controls keep
@@ -242,10 +242,36 @@ diagnostic controls, **not** an adoption of warmdown as the new setting.
 
 | run_id stem | changed flag | status |
 |---|---|---|
-| `schedgrid_v1_warmdown_s43_r1048576_both` | `--seed 43 --lr_schedule warmdown` | running on ophis-gpu GPU 0 |
-| `schedgrid_v1_warmdown_s44_r1048576_both` | `--seed 44 --lr_schedule warmdown` | running on ophis-gpu GPU 3 |
+| `schedgrid_v1_warmdown_s43_r1048576_both` | `--seed 43 --lr_schedule warmdown` | done; passes gate |
+| `schedgrid_v1_warmdown_s44_r1048576_both` | `--seed 44 --lr_schedule warmdown` | done; passes gate |
 
-Interpretation is pre-registered: if warmdown passes both seeds while the
-cosine candidate fails, the issue is schedule shape rather than insufficient
-warmup. If warmdown also has comparable failures, no single-seed schedule
-result may be promoted and the next search must target multi-seed stability.
+| seed | train @1000 | val @1000 | online gap @1000 | gate |
+|---:|---:|---:|---:|---|
+| 42 | 3.6387 | 4.3031 | +0.6644 | pass |
+| 43 | 3.3682 | 4.3729 | +1.0047 | pass |
+| 44 | 3.7112 | 4.3607 | +0.6496 | pass |
+
+The controls reject the shared-instability explanation: warmdown passes all
+three seeds under the same current-code contract that rejected the cosine
+candidate. Its effective trajectory is therefore material. With
+`lr_schedule_epochs=0` (the registered default), historical warmdown is
+already **step-anchored**: it rises from 0.1× to 1× over steps 1–350 and then
+falls linearly to 0.05× at step 1000. The oddity is not an epoch boundary; it
+is that the 350-step warmup and 650-step linear tail are coupled through one
+`warmdown_ratio`.
+
+## Phase 7: decouple the proven warmup from the tail (planned)
+
+To test whether the historical *linear tail* is required, add an explicit
+`warmup_start_lr_mult` argument to the step-anchored `warmup_cosine` schedule.
+The first arm keeps the proven endpoints and 350-step warmup exactly, changing
+only the post-warmup shape from linear to cosine:
+
+| run_id stem | changed flags | status |
+|---|---|---|
+| `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | planned |
+
+If it passes seed 42, run the unchanged arm for seeds 43/44 before considering
+it an SSOT candidate. If it fails seed 42, retain warmdown provisionally and
+test a still simpler explicit linear schedule in a separate registered phase;
+do not broaden model or optimizer variables.
