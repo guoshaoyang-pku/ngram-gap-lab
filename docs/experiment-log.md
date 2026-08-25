@@ -1126,7 +1126,7 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
    只算在线 train/val loss + online gap。fixed train probe 仅作为显式诊断；
    频率轴单独跑一小批
    run（L4 + 1M table × 4 module 臂，带 exact-freq 每 100 步）。
-3. **no-ngram baseline 重跑当前标准**（10 步 cadence + bf16/compile，每个 L
+3. **no-ngram baseline 重跑当前标准**（10 步 cadence + bf16 不 compile，每个 L
    一个）。`bb_safety_L1_nogram_5000`（50 步 + fp32）只能作长训 backbone gap
    量级参考，不能作为正式 grid 的 no-ngram baseline。
 4. 正式网格 cadence：原始 epoch/table 网格和 frequency 轴的 val/norm
@@ -1384,3 +1384,36 @@ map 构建: `code/tools/make_bigram_perfect_map.py`。
 
 - [ ] 4 臂 final gap + l1 对曲线（forking：epoch 边界 337/674 跳变幅度）
 - [ ] 并入 `analyze_scaling_table.py` 相图（K/N 0.005 → ∞）
+
+## 21. v3 波次：freq-bin train 侧改为当前 batch（online，零额外 forward）（2026-08-25）
+
+### 目的
+
+v2 波次 freq-bin 的 train 侧是「每次评估从独立诊断迭代器新取 4 个 train batch」
+的窗口（agents.md 新口径 §1.6 之前的历史做法）。用户 2026-08-25 拍板：
+**前 4 个 batch 是错误做法**，train 侧应直接看当前训练 batch 的 per-token loss
+（与 online train_loss 同一 batch、同一 forward），且省掉 4 batch 的重复 forward。
+
+### 口径变更（P2 登记：影响口径，新起 run_id）
+
+- `code/train.py`：训练循环最后一个 micro-batch 的 forward 改为
+  `return_token_losses=True`，缓存 `(inp, ptl)`；freq-bin eval 的 train 侧用
+  `accumulate_freq_bins(...)` 直接复用该 per-token loss，不再 `next(freq_train_iter)`。
+- 因此 v3 的 `freq_bin_loss.jsonl.train` 与 `train_log.jsonl.train_loss` 完全同 batch
+  同 forward（train_loss = 该 batch 非 pad 均值；per-bin 加权均值应等于它，可用作校验）。
+- val 侧、exact_freq、fixed probe 全部不变（仍为 fixed / 诊断口径）。
+- launcher 复用 `run_rerun_v2.sh`（bf16、不 compile、β₂=0.99、×2），run_id 后缀 `_v3`。
+- `exact_freq_loss.jsonl` 的 train 参考仍取 4 个固定 batch（它是 exact-f 的固定参考，
+  属诊断口径，不进主图）；如用户后续要求也改当前 batch，另起 run_id。
+
+### 登记（planned → running）
+
+| run_id | 内容 | steps | 机器 |
+|---|---|---|---|
+| `nglab_smoke_v3` | 冒烟 100 步（回填时跳过） | 100 | 360-2 GPU0 |
+| `nglab1x_input_v3` … 全量 15 run（injpos 4 + dose 11） | 主线重刷 | 2000 | 三机队列 |
+
+### 校验（smoke 必过）
+
+- [ ] `freq_bin_loss.jsonl` 每 eval 的 train token_count = 147456（单 batch）
+- [ ] per-bin 加权均值 ≈ 同 step `train_log.train_loss`（相对差 < 1e-3）
