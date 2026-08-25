@@ -1718,11 +1718,50 @@ online gap 与频率统计；关键曲线臂每 10 step 记录完整轨迹。最
 | `optv5_rms_b098_s2p0_curve` | β₂ **0.98** | 1000，freq=10 曲线 | 🔄 running | β₂ 曲线 |
 | `optv5_rms_b099_s1p0_curve` | scale **1.0** | 1000，freq=10 曲线 | 🔄 running | LR 曲线 |
 | `optv5_rms_b099_s3p0_curve` | scale **3.0** | 1000，freq=10 曲线 | 🔄 running | LR 曲线 |
+| `optv5_rms_b099_s2p0_s43_2000` | seed **43** | 2000，freq=10 曲线 | 🔄 running | 多 seed gate |
+| `optv5_rms_b099_s2p0_s44_2000` | seed **44** | 2000，freq=10 曲线 | 🔄 running | 多 seed gate |
+| `optv5_rms_b0995_s2p0_s43_2000` | β₂ **0.995**、seed 43 | 2000，freq=10 曲线 | 🔄 running | 高 β₂ gate |
+| `optv5_rms_b0995_s2p0_s44_2000` | β₂ **0.995**、seed 44 | 2000，freq=10 曲线 | 🔄 running | 高 β₂ gate |
 
 **运行后唯一可接受的选择规则**：不以本批 single-seed 的最大 gap 决定主线；
 若 `scale=2, β₂=0.99` 位于健康的局部平坦区，保留它作为 v5 默认。只有它被本批
 证伪（数值不稳或被相邻点严格支配）时，才在同一 clean-table setting 下选择相邻
 健康点并以新的 run_id 登记主线。
+
+---
+
+## §25 · V5 主线全量重刷队列（2026-08-25）
+
+**已锁定 setting**：optimizer gate 的第一批 endpoint 结果确认，RMSProp
+`(0.0,0.99)`、table scale `2.0` 是保守主线中心点。scale `3/4` 虽给出更大
+single-seed gap，却同时把 final validation loss 从 scale 2 的 `4.433` 提升到
+`4.669/4.805`；无动量 SGD final gap 仅 `0.051`，AdamW `(0,.99)` 为 `1.503`，
+均不构成替代 RMSProp 的理由。β₂ `0.98/.99/.995/.999` 的 1000-step gap 为
+`1.444/1.534/1.607/1.629`，局部变化远小于 scale 扫描。v5 因此固定
+`lr=6e-4`、RMSProp `(0,.99)`、scale `2`、clean `R_bigram=R_trigram=2^20`、
+100-step `warmup_constant`、bf16、无 compile。
+
+所有 run 均显式使用 current-batch online train loss 与 fixed validation；完整曲线
+为 val/freq=10，长计算表只取末端的 run 使用 `--val_steps <final step>`。run 由
+`code/cluster/run_v5_clean.sh` 单独创建目录，批处理只通过
+`code/cluster/run_v5_main_manifest.sh` 调度；存在 `summary.json` 自动跳过，存在
+partial 目录则拒绝覆盖。
+
+| 家族 | run_id 模式 | 数量 | 步数 / 变量 | 状态 |
+|---|---|---:|---|---|
+| 注入点 | `nglab1x_{input,y,v,nogram}_v5` | 4 | 2000；唯一变量为注入坐标 | 🟡 queued |
+| dose fixed-step | `nglab{0_25x..8x}_input_v5` | 11 | 2000；唯一变量为训练 shard 剂量 | 🟡 queued |
+| epoch-aligned | `nglab{0_25x..4x}_e5_v5` | 9 | 5 epoch，420–6700；唯一变量为剂量、epoch 数恒定 | 🟡 queued |
+| causal | `nglab1x_{reset,mask,freeze}_*_v5` | 5 | 1000；唯一变量为登记的 intervention | 🟡 queued |
+| fixed probe | `nglab{1,2}x_input_rho_v5` | 2 | 2000；唯一新增诊断为 fixed probe | 🟡 queued |
+| backbone safety | `nglab1x_nogram_long_v5` | 1 | 8000；无 n-gram 的长训练保险对照 | 🟡 queued |
+| table size | `ctbl_v5_{R}_{bigram,trigram}` | 38 | 1000 末端；每条在其单 branch module control 内唯一改变 clean R | 🟡 queued |
+
+**table-size 采样**：bigram 从 `16K` 至 `5.98M` 取 20 个近 log-uniform R；
+trigram 从 `64K` 至 `7M` 取 18 个近 log-uniform R。二者分开是预注册的 module
+control：bigram-only 与 trigram-only 各自固定模块开关，只在该系列内改变 physical
+rows R；它们不得与 both-branch 主线的数值直接并为一个全局参数量结论。trigram 上限
+为 7M，避免 8M 的 H200 状态峰值 OOM。
 
 ---
 
