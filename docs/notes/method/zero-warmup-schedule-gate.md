@@ -260,7 +260,7 @@ falls linearly to 0.05× at step 1000. The oddity is not an epoch boundary; it
 is that the 350-step warmup and 650-step linear tail are coupled through one
 `warmdown_ratio`.
 
-## Phase 7: decouple the proven warmup from the tail (planned)
+## Phase 7: decouple the proven warmup from the tail (in progress)
 
 To test whether the historical *linear tail* is required, add an explicit
 `warmup_start_lr_mult` argument to the step-anchored `warmup_cosine` schedule.
@@ -269,14 +269,18 @@ only the post-warmup shape from linear to cosine:
 
 | run_id stem | changed flags | status |
 |---|---|---|
-| `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | running on ophis-gpu GPU 1 |
-| `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | planned; epoch-alignment control |
-| `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | planned; epoch-alignment control |
+| `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | done; passes gate |
+| `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | running on ophis-gpu GPU 2; epoch-alignment control |
+| `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | running on ophis-gpu GPU 4; epoch-alignment control |
 
-If it passes seed 42, run the unchanged arm for seeds 43/44 before considering
-it an SSOT candidate. If it fails seed 42, retain warmdown provisionally and
-test a still simpler explicit linear schedule in a separate registered phase;
-do not broaden model or optimizer variables.
+| schedule | train @1000 | val @1000 | online gap @1000 | gate |
+|---|---:|---:|---:|---|
+| cosine, warmup 350, start 0.10, floor 0.05 | 3.7047 | 4.3610 | +0.6563 | pass |
+
+The endpoint-matched cosine arm passes seed 42. The two alignment controls
+must finish before assigning that success to the schedule rather than its
+location near replay; only then run the unchanged 350-step arm for seeds 43/44
+before considering it an SSOT candidate.
 
 The 350-step peak is only 13 steps after the first fixed-replay boundary
 (`epoch_batches=337`). The 200- and 500-step controls deliberately move the
