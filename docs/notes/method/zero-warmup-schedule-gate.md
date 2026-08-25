@@ -217,5 +217,5 @@ pending cross-stack seed-42 replication is treated as decisive.
 
 | run_id stem | changed flag | status |
 |---|---|---|
-| `schedgrid_v1_cosine_w300_floor40_s43_r1048576_both` | `--seed 43` | planned on ophis-gpu GPU 0 |
-| `schedgrid_v1_cosine_w300_floor40_s44_r1048576_both` | `--seed 44` | planned on ophis-gpu GPU 3 |
+| `schedgrid_v1_cosine_w300_floor40_s43_r1048576_both` | `--seed 43` | running on ophis-gpu GPU 0 |
+| `schedgrid_v1_cosine_w300_floor40_s44_r1048576_both` | `--seed 44` | running on ophis-gpu GPU 3 |
