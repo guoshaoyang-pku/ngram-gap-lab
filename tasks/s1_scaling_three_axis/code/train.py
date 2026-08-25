@@ -96,6 +96,7 @@ class Config:
     val_batches: int = 4
     table_norm_interval_steps: int = 10
     warmup_steps: int = 100       # step 1..100: 0.25x -> 1.0x
+    cosine_min_lr_mult: float = 0.05  # terminal multiplier for warmup_cosine
     warmdown_ratio: float = 0.65  # historical warmdown parameter
     lr_schedule_epochs: int = 0    # >0: anchor LR schedule to epoch count (ignores max_steps)
     lr_schedule: str = "warmup_constant"  # new standard | constant/warmdown historical controls
@@ -845,24 +846,39 @@ class MixedOptimizer:
 
 def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
                       schedule: str = "warmup_constant",
-                      warmup_steps: int = 100, step: int = 1) -> float:
+                      warmup_steps: int = 100, step: int = 1,
+                      max_steps: int = 1000,
+                      cosine_min_lr_mult: float = 0.05) -> float:
     """LR multiplier by schedule.
 
     - "warmup_constant": the v4 standard schedule. Linearly warm from 0.25x
       (1e-3 at base LR 4e-3) to 1.0x over warmup_steps optimizer updates,
       then hold the base LR fixed (no decay). User 2026-08-25: warmup 100
       steps, 1e-3 -> 4e-3, no warmdown.
+    - "warmup_cosine": the same step-anchored linear warmup, then cosine
+      decay to cosine_min_lr_mult at max_steps. It is independent of epoch
+      boundaries and is a schedule-search candidate, not the baseline.
     - "constant": zero-warmup fixed LR; retained as a diagnostic control.
     - "warmdown": historical Karpathy-style linear warmup (0->1 over first
       1-warmdown), then linear decay to 0.05.
     """
     if schedule == "constant":
         return 1.0
-    if schedule == "warmup_constant":
+    if schedule in {"warmup_constant", "warmup_cosine"}:
         if warmup_steps <= 1:
-            return 1.0
-        warmup_progress = min(1.0, max(0, step - 1) / (warmup_steps - 1))
-        return 0.25 + 0.75 * warmup_progress
+            warmup_mult = 1.0
+        else:
+            warmup_progress = min(1.0, max(0, step - 1) / (warmup_steps - 1))
+            warmup_mult = 0.25 + 0.75 * warmup_progress
+        if step <= warmup_steps or schedule == "warmup_constant":
+            return warmup_mult
+        decay_progress = min(
+            1.0,
+            max(0.0, (step - warmup_steps) / max(1, max_steps - warmup_steps)),
+        )
+        return cosine_min_lr_mult + 0.5 * (1.0 - cosine_min_lr_mult) * (
+            1.0 + math.cos(math.pi * decay_progress)
+        )
     if schedule != "warmdown":
         raise ValueError(f"unknown lr schedule: {schedule}")
     if progress < 1.0 - warmdown_ratio:
@@ -1280,13 +1296,16 @@ def main():
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
     parser.add_argument("--warmup_steps", type=int, default=100,
-                        help="optimizer updates for warmup_constant (default 100; "
+                        help="optimizer updates for warmup_constant/warmup_cosine (default 100; "
                              "LR rises linearly from 0.25x (1e-3) at step 1 to 1.0x (4e-3) "
-                             "at this step, then held fixed — v4 standard)")
+                             "at this step)")
+    parser.add_argument("--cosine_min_lr_mult", type=float, default=0.05,
+                        help="terminal LR multiplier for warmup_cosine (default 0.05)")
     parser.add_argument("--lr_schedule", default="warmup_constant",
-                        choices=["warmup_constant", "constant", "warmdown"],
-                        help="LR schedule: warmup_constant (new standard, default) | "
-                             "constant (zero-warmup diagnostic) | warmdown (historical reruns only)")
+                        choices=["warmup_constant", "warmup_cosine", "constant", "warmdown"],
+                        help="LR schedule: warmup_constant (current default) | warmup_cosine "
+                             "(schedule-search candidate) | constant (zero-warmup diagnostic) | "
+                             "warmdown (historical control)")
     parser.add_argument("--epoch_batches", type=int, default=0,
                         help=">0: fix one epoch to exactly this many device batches "
                              "(nested-prefix epoch length); 0 = full shard length")
@@ -1312,6 +1331,8 @@ def main():
     args = parser.parse_args()
     if args.warmup_steps < 1:
         parser.error("--warmup_steps must be >= 1")
+    if not 0.0 <= args.cosine_min_lr_mult <= 1.0:
+        parser.error("--cosine_min_lr_mult must be in [0, 1]")
 
     cfg = Config(
         vocab_size=args.vocab_size,
@@ -1332,6 +1353,7 @@ def main():
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
         warmup_steps=args.warmup_steps,
+        cosine_min_lr_mult=args.cosine_min_lr_mult,
         lr_schedule_epochs=args.lr_schedule_epochs,
         lr_schedule=args.lr_schedule,
         nanogpt_adam_lr=args.lr,
@@ -1530,6 +1552,8 @@ def main():
             schedule=cfg.lr_schedule,
             warmup_steps=cfg.warmup_steps,
             step=step + 1,
+            max_steps=cfg.max_steps,
+            cosine_min_lr_mult=cfg.cosine_min_lr_mult,
         )
         optimizer.step(lr_mult=lr_mult)
 
