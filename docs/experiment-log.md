@@ -1553,3 +1553,30 @@ v2 波次 freq-bin 的 train 侧是「每次评估从独立诊断迭代器新取
 - [ ] clean 版 trigram / both module（SSOT §3.2 要求三 module）
 - [ ] clean 版 row-level（--save_final_model + probe，复用 §20 管线）
 - [ ] jamming 区更密取点（R 1M-3M 间插 6-8 点）刻画 1.5M≈2M 平台结构
+
+---
+
+## §21 · V4 波次（uniform LR 基线 · 2026-08-25）
+
+**背景**：v2/v3 全程含 warmdown（`get_lr_multiplier`，前 35% 步线性升、后 65% 步线性降）。
+对可解释性实验，lr 的时间结构会与「n-gram 记忆 vs 泛化」动力学混淆，违反 P1 极简原则。
+**用户 2026-08-25 拍板**：改为 **uniform LR（constant schedule）**，作为 v4 新基线。
+生产 cosine 流行是为 maximize performance，不是为 mechanism isolation——所以选 uniform 而非 cosine。
+
+**代码改动**（commit `0da5ad0`）：
+- `code/train.py`：新增 `--lr_schedule warmdown|constant`（默认 warmdown 保持兼容）；
+  `constant` 时 `get_lr_multiplier` 恒返 1.0。
+- `code/cluster/run_rerun_v4.sh`：新 v4 launcher，显式传 `--lr_schedule constant`。
+
+**口径影响**：lr schedule 全程变化 → 影响所有已有 run 的 gap 曲线形状。
+按 P2 必须新起 run_id，故开 **v4 波次**（后缀 `_v4_fixed`）。v2/v3 降级为「含 warmdown 的历史口径」。
+
+**当前队列**（360-2，GPU3-6 并行，2000 步，seed 42）：
+- `nglab1x_input_v4` / `nglab1x_y_v4` / `nglab1x_v_v4` / `nglab1x_nogram_v4`
+
+| run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
+|---|---|---|---|---|---|
+| `nglab1x_input_v4` | 2026-08-25 | 注入点消融 · input · uniform LR | 🔄 running | 待填 | §21 |
+| `nglab1x_y_v4` | 2026-08-25 | 注入点消融 · y · uniform LR | 🔄 running | 待填 | §21 |
+| `nglab1x_v_v4` | 2026-08-25 | 注入点消融 · v · uniform LR | 🔄 running | 待填 | §21 |
+| `nglab1x_nogram_v4` | 2026-08-25 | 注入点消融 · nogram 对照 · uniform LR | 🔄 running | 待填 | §21 |
