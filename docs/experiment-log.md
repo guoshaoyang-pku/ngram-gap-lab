@@ -1111,12 +1111,12 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
 
 | run_id 前缀 | 轴 | setting | 状态 |
 |---|---|---|---|
-| `basic_*` | 基础 QC 锚点（7 run，seed 42） | 25 步 cadence + bf16（历史 run 含 compile） | ✅ done（basic QC） |
+| `basic_*` | 基础 QC 锚点（7 run，seed 42） | 25 步 cadence + bf16（历史 run 含 compile） | 🟡 历史 QC；不属于当前标准证据 |
 | `bb_safety_L1_nogram_5000` | backbone safety（L1 no-ngram 5000 步） | **旧 cadence**（50 步 + fp32 无 compile） | ✅ done（360-2 GPU7，**final fixed gap +16.66 @5000**） |
-| `ep_{L}_{arm}_fs` | epoch · fixed-step | L1-L4 × 4 arms × 1000 步，step-anchored LR，10 步 cadence，历史 bf16+compile | ✅ done（16/16，seed 42；QC 通过） |
-| `ep_{L}_{arm}_fe` | epoch · fixed-epoch | 6 完整 epoch（L1=252/L2=504/L3=1008/L4=2022 步），epoch-anchored LR | ✅ done（16/16，seed 42；QC 通过） |
-| `tbl_{TM}_{arm}` | table · L4 | 23 measured sizes；原始 21 个 dense run 每 10 步，另 48 个 sparse 加密 run 只在最终步监测；1000 步 | ✅ done（69/69，seed 42；QC 通过） |
-| `freq_{arm}_{fs/fe}` | frequency 轴专用 | L4 + 1M table × 4 arms，exact-freq 每 100 步 | ✅ done（8/8，seed 42；QC 通过） |
+| `ep_{L}_{arm}_fs` | epoch · fixed-step | L1-L4 × 4 arms × 1000 步，step-anchored LR，10 步 cadence，历史 bf16+compile | 🟡 历史 16/16；当前 no-compile 待重跑 |
+| `ep_{L}_{arm}_fe` | epoch · fixed-epoch | 6 完整 epoch（L1=252/L2=504/L3=1008/L4=2022 步），epoch-anchored LR，历史 bf16+compile | 🟡 历史 16/16；当前 no-compile 待重跑 |
+| `tbl_{TM}_{arm}` | table · L4 | 23 measured sizes；原始 21 个 dense run 每 10 步，另 48 个 sparse 加密 run 只在最终步监测；1000 步，历史 bf16+compile | 🟡 历史 69/69；当前 no-compile 待重跑 |
+| `freq_{arm}_{fs/fe}` | frequency 轴专用 | L4 + 1M table × 4 arms，exact-freq 跟随 validation 步点 | 🟡 历史 8/8；当前 no-compile 待重跑 |
 
 ### 关键口径决策（用户 2026-08-24 拍板）
 
@@ -1125,13 +1125,14 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
 2. **普通网格不计算 exact-frequency / freq-bin 诊断**（不传 `--freq_index`），
    只算在线 train/val loss + online gap。fixed train probe 仅作为显式诊断；
    频率轴单独跑一小批
-   run（L4 + 1M table × 4 module 臂，带 exact-freq 每 100 步）。
+   run（L4 + 1M table × 4 module 臂，exact-freq 跟随 validation 步点）。
 3. **no-ngram baseline 重跑当前标准**（10 步 cadence + bf16 不 compile，每个 L
    一个）。`bb_safety_L1_nogram_5000`（50 步 + fp32）只能作长训 backbone gap
    量级参考，不能作为正式 grid 的 no-ngram baseline。
-4. 正式网格 cadence：原始 epoch/table 网格和 frequency 轴的 val/norm
-   每 10 步，exact-freq 每 100 步（仅频率轴 run）；table 加密取点使用
-   sparse 模式，只在最终 step 1000 监测。
+4. 当前标准完整曲线的 validation/table norm/frequency 每 10 步；只需曲线
+   可用每 50 步；只需末端结果使用 `--val_steps 1000`，frequency 观测严格
+   跟随这些 validation 步点；table 加密取点使用 sparse 模式，只在最终 step
+   1000 监测。
 
 ### seed 42 正式网格回填（2026-08-24）
 
@@ -1151,7 +1152,7 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
 
 ### 17.2 三 seed 复现与 H1–H4 检验（2026-08-25 回填）
 
-按用户"持续执行直到完成所有数学猜想"指令，完成 seed 43/44 三 seed 复现：
+历史 compile 波次已完成 seed 43/44 三 seed 复现；这些结果仅作探索性数学审计：
 
 | 批次 | run_id 后缀 | run 数 | launcher | 状态 |
 |---|---|---:|---|---|
@@ -1159,11 +1160,14 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
 | table 加密 | `_s43` / `_s44` | 36×2（12 mult × 3 module） | `run_scaling_table_full.sh`（sparse 仅最终步） | ✅ done |
 | frequency fs/fe | `_s43` / `_s44` | 8×2 | `run_scaling_frequency_axis.sh`（exact-freq 每 10 步） | ✅ done |
 
-- 三 seed 正式 run 合计 **261 个 `_fixed`**（s42:109，s43/s44 各 76），全部通过 QC；
+- 历史波次合计 **261 个 `_fixed`**（s42:109，s43/s44 各 76），通过当时
+  contract / NaN / probe-hash QC，但不满足当前 no-compile 标准；
 - 修复了 `train.py` 中 exact-freq 与 `--fixed_train_probe 0` 的解耦问题
   （有 `freq_index` 时始终建 `exact_freq_log`，train 侧用独立诊断迭代器抓
-  4 个固定 batch，不消费训练流），重跑后 frequency 轴全部生成
-  `exact_freq_loss.jsonl`（每 10 步，208 行/run）；
+  4 个固定 batch，不消费训练流），历史 frequency 轴生成了
+  `exact_freq_loss.jsonl`；其中 seed 42 及部分复现 run 的 exact-frequency
+  cadence 为 100 步，部分后续复现 run 为 10 步，不能把它们统一写成当前
+  10 步标准；
 - 代码已 md5 核对同步到 360-2（train.py `5beca0cd…`）；集群单测 14/14 通过。
 
 **H1–H4 判定**（全部 online gap 主口径，详见附录报告 §7）：
@@ -1172,7 +1176,7 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
 |---|---|
 | H1 两因素频率律 | β seed-stable（四组 cv 4–13%）；A/c/γ identifiability-limited（cv 33–141%），不报告绝对值 |
 | H2 epoch 对齐律 | ΔG 方向 seed-stable（24/24 同号为正）；幅度 fixed-step seed-sensitive（L1_both cv>50%）、fixed-epoch 稳（L4_trigram 5.90/5.72/5.56，cv≈2%） |
-| H3 table saturation | **否证**：trigram 幂律单调上升无饱和（mult 8–64 斜率 ~0.8，cv 2–17%）；s42 单 seed 的 56→64 回落不推广。加密 40–64 饱和区间批次取消 |
+| H3 table saturation | 有限窗口内总体上升；未解析稳定饱和平台，也不能写成全区间幂律；扩展 table 轴需在 no-compile 标准下重跑 |
 | H4 模块交互 | I 显著非零且 seed-sensitive（fs 下变号，fe L4 强负；table mult≥48 剧烈变号），**不允许 bigram+trigram 合并单公式**，both 仅作对照 |
 
 产物：`figs/epoch_final_gap.csv`（96 行）、`epoch_deltaG_fs_multiseed.png`、
@@ -1192,7 +1196,7 @@ frequency f、table size（1M 逻辑地址只向下）。计划：
   0 而 val 16.7）—— 1000 步时 gap ≈ 0 不代表 5000 步仍为 0。这与
   `bb_safety` 的早先快照趋势一致（4000 步 +13.24）。
 - **口径警告**：该 run 为旧 cadence（50 步）+ fp32 无 compile，仅作量级参考。
-  正式 full grid 的 no-ngram baseline 使用 10 步 cadence + bf16/compile；
+  正式 full grid 的 no-ngram baseline 使用 10 步 cadence + bf16、不 compile；
   S1 主 gap 统一读取 online train/val，fixed probe 只作诊断。
 - **影响**：no-ngram 对照必须在每个 L、每个对齐下重跑，不能假设 backbone
   gap 恒为零；`ΔG = G_module − G_no-ngram` 的修正口径因此仍然必要。
@@ -1420,6 +1424,29 @@ map 构建: `code/tools/make_bigram_perfect_map.py`。
 ### 后续（待拍板）
 - [ ] mult=128/256 的 seed 43/44（仲裁 128 离群：临界涨落 vs hash 伪影）
 - [ ] 可选：mult=128 换一组 primes 重跑（直接检验 hash mod 2^20 结构假说）
+- [ ] 可选：4 层 perfect（bf16 表存储，~87GB）验证 4× 单层折算 ≈ 2.26
+
+### 追加：非 2 幂加密取点（dense-fill，2026-08-25 下午）
+
+用户要求脱离 2/4/8/16 采样，验证 gap vs log K 的连续性。补 9 点
+（bigram-only，sparse 末端，同 §20 口径）：
+
+| mult | 44 | 52 | 60 | 80 | 96 | 112 | 160 | 192 | 224 |
+|---|---|---|---|---|---|---|---|---|---|
+| gap | 0.414 | 0.624 | **1.122** | 0.494 | 0.581 | **1.181** | 0.586 | 0.602 | 0.998 |
+
+**发现 5（修正发现 2）**：mult=128 不是孤点——加密后 **K/N ≈ 0.15–1.2 整个区间
+都是锯齿**，峰谷交替（…0.41→1.12→0.49→1.18→0.58→0.60→1.00→1.20），振幅 ±0.3–0.4
+与趋势本身同量级。关键证据：mult=60 的峰（1.122）与 mult=112（1.181）的 R 都不是
+2 的幂（491520 / 917504）→ **峰不绑定 2 的幂 mod 结构，hash mod 2^k 伪影解释减弱，
+jamming 临界涨落解释增强**（但仍需 seed 43/44 排除「每 mult 一个 hash 实例」的
+实例噪声）。包络仍随 log K 上升（0.09 → 0.6–1.2），log K 解释趋势、不解释涨落。
+
+产物：`figs/fig_gap_vs_KN.png`（34 点折线版）；
+launcher `tasks/s1_scaling_three_axis/launchers/run_bigram_dense_fill.sh`。
+
+### 后续（待拍板）
+- [ ] jamming 区若干点的 seed 43/44（仲裁锯齿：临界涨落 vs 单 hash 实例噪声）
 - [ ] 可选：4 层 perfect（bf16 表存储，~87GB）验证 4× 单层折算 ≈ 2.26
 
 ## 21. v3 波次：freq-bin train 侧改为当前 batch（online，零额外 forward）（2026-08-25）
