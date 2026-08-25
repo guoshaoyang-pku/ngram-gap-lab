@@ -1548,11 +1548,42 @@ v2 波次 freq-bin 的 train 侧是「每次评估从独立诊断迭代器新取
 产物：`figs/fig_clean_gap_vs_KN.png`、`figs/fig_clean_forking.png`；
 `tasks/s1_scaling_three_axis/analysis/plot_clean_figures.py`。
 
+### §22b · wave-2 加密网格 + trigram 首扫（2026-08-25）
+
+用户拍板：table size 自由加密（小 R 区重点）、双对数视图、forking 只画
+小表/大表/零碰撞三条。launcher `run_clean_table_dense2.sh`（25 run，360-2
+GPU 1-7，wave 调度）。bigram 累计 29 点（新增 16K/32K/96K/160K/192K/320K/
+448K/640K/896K/1.25M/1.75M/2.25M/3.5M/5M/6M + 64K/4M 的 freq=50 `_curve`
+补跑），trigram 首扫 6 点（R=64K…8M，K/N 0.0034–0.44；trigram N=18,989,467，
+无零碰撞锚点——R=N 需 19M 行放不下单卡）。
+
+**发现**：
+1. **大 R 区（K/N>1）涨落回归**：5M 回落到 0.407（低于 4M 的 0.466），
+   **6M 跳到 0.751，超过 perfect 锚点 0.561**。"零碰撞是所有 hash 表的
+   上界"在 K/N>1.5 区不再成立（该论断在 K/N≤1.19 区全部成立）。
+   单 seed 无法区分 hash 实例噪声与真实过饱和行为——**待 seed 43/44 仲裁**。
+2. **低 R 饱和**：16K/32K 均 ~0.08，与 64K 0.097 接近——小表端 gap 由
+   backbone 自身过拟合地板主导，表贡献趋零。
+3. **trigram 远陡于 bigram**：同 K/N 下 gap 3–5 倍；log-log 低 K 段斜率
+   tri ≈ 0.67 vs bi ≈ 0.33。min(N,K) 模型预言低 K 斜率 1，两者均不满足
+   （bigram 0.33–0.49、trigram 0.67），频率加权 × 采样律修正仍必要。
+4. **双对数视图**（`fig_clean_gap_vs_KN_loglog.png`）：bigram 主体近似
+   幂律但大 R 断点清晰；trigram 全段更接近直线幂律。
+5. **forking 三曲线**（64K / 4M / perfect）：64K gap 轨迹平（<0.1）但
+   瞬时跳变幅度与其他曲线相当（@337 −0.107）；4M 与 perfect 前 2 epoch
+   重合，epoch 3 perfect 拉开——零碰撞优势主要在 replay 后期的积累阶段。
+
+产物：`figs/fig_clean_gap_vs_KN.png`（semilog 29+6 点）、
+`figs/fig_clean_gap_vs_KN_loglog.png`、`figs/fig_clean_forking.png`；
+launcher `run_clean_table_dense2.sh`。
+
 ### 后续（待拍板）
-- [ ] clean 网格 seed 43/44（确认光滑性与 perfect 倍率的跨 seed 稳健性）
-- [ ] clean 版 trigram / both module（SSOT §3.2 要求三 module）
+- [ ] clean 网格 seed 43/44（**仲裁 6M>perfect 是否 hash 实例噪声**；同时
+  确认光滑性与 perfect 倍率的跨 seed 稳健性）
+- [ ] clean 版 trigram 加密 + both module（SSOT §3.2 要求三 module）
 - [ ] clean 版 row-level（--save_final_model + probe，复用 §20 管线）
 - [ ] jamming 区更密取点（R 1M-3M 间插 6-8 点）刻画 1.5M≈2M 平台结构
+- [ ] trigram clean occupancy 模式（table_occupancy.py 尚不支持）
 
 ---
 
