@@ -207,7 +207,7 @@ contract and set only the terminal cosine multiplier to 0.30 or 0.40.
 | 0.30 | 4.0675 | 4.5907 | +0.5231 |
 | 0.40 | 4.0531 | 4.6150 | +0.5619 |
 
-## Phase 5: provisional-winner seed check (planned)
+## Phase 5: provisional-winner seed check (complete — rejected)
 
 The provisional candidate is `warmup_cosine`, 300-step `0.001 → 0.004`
 warmup, cosine terminal multiplier `0.40`, with all remaining Phase-2
@@ -217,5 +217,35 @@ pending cross-stack seed-42 replication is treated as decisive.
 
 | run_id stem | changed flag | status |
 |---|---|---|
-| `schedgrid_v1_cosine_w300_floor40_s43_r1048576_both` | `--seed 43` | running on ophis-gpu GPU 0 |
-| `schedgrid_v1_cosine_w300_floor40_s44_r1048576_both` | `--seed 44` | running on ophis-gpu GPU 3 |
+| `schedgrid_v1_cosine_w300_floor40_s43_r1048576_both` | `--seed 43` | done; fails gate |
+| `schedgrid_v1_cosine_w300_floor40_s44_r1048576_both` | `--seed 44` | done; fails gate |
+
+| seed | train @1000 | val @1000 | online gap @1000 | gate |
+|---:|---:|---:|---:|---|
+| 42 | 4.0531 | 4.6150 | +0.5619 | pass |
+| 43 | 5.5047 | 5.6743 | +0.1697 | fail |
+| 44 | 4.5827 | 4.8922 | +0.3095 | fail |
+
+The apparent seed-42 winner is not a stable setting: only one of three seeds
+passes. It is therefore rejected as an SSOT candidate. This rules out the
+simple explanation that the original failure was merely an insufficiently
+long warmup. A 300-step warmup plus a gentle, explicit cosine tail can enter
+the desired regime, but does so in a seed-sensitive way.
+
+## Phase 6: warmdown seed control (planned)
+
+Phase 5 cannot by itself distinguish a cosine-specific problem from a seed
+stability problem shared by the historical schedule. These two controls keep
+the complete Phase-2 contract (including current code, data, 1000-step budget,
+and scalar checkpoints) and change only `--lr_schedule warmdown`. They are
+diagnostic controls, **not** an adoption of warmdown as the new setting.
+
+| run_id stem | changed flag | status |
+|---|---|---|
+| `schedgrid_v1_warmdown_s43_r1048576_both` | `--seed 43 --lr_schedule warmdown` | planned |
+| `schedgrid_v1_warmdown_s44_r1048576_both` | `--seed 44 --lr_schedule warmdown` | planned |
+
+Interpretation is pre-registered: if warmdown passes both seeds while the
+cosine candidate fails, the issue is schedule shape rather than insufficient
+warmup. If warmdown also has comparable failures, no single-seed schedule
+result may be promoted and the next search must target multi-seed stability.
