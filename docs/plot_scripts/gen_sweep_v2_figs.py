@@ -60,8 +60,8 @@ INJ = [
     {"key": "nogram", "dir": "nglab1x_nogram_v2_fixed", "color": "#236b70"},
 ]
 
-STD_FOOT = ("v2 new standard: table β=(0.0, 0.99) · table_lr_scale=2.0 · bf16+compile · "
-            "*_v2_fixed runs, seed 42")
+STD_FOOT = ("v2 wave (table β=(0.0,0.99) · table_lr ×2 · bf16) · seed 42 · "
+            "train loss = ONLINE (current training batch, same step as fixed val)")
 
 
 def load_jsonl(path):
@@ -143,8 +143,9 @@ def main():
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.4), facecolor=PAPER)
     for ax, key, ylabel, title in zip(
             axes, ["train", "val", "gap"],
-            ["train loss", "val loss", "gap = val − train"],
-            ["Train loss (log–log)", "Val loss (log–log)", "Gap (log–log)"]):
+            ["train loss (online)", "val loss (fixed)", "gap = val − train"],
+            ["Train loss, online (log–log)", "Val loss, fixed (log–log)",
+             "Gap (log–log)"]):
         style_axis(ax)
         for k in keys:
             s = series[k]
@@ -190,8 +191,8 @@ def main():
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5.4), facecolor=PAPER, sharex=True)
     dose_vals = [series[k]["mult"] for k in keys]
-    specs = [("train", "train loss", "#2d6f9f", "Train loss vs dose (log–log)"),
-             ("val", "val loss", "#c4493d", "Val loss vs dose (log–log)"),
+    specs = [("train", "train loss (online)", "#2d6f9f", "Train loss vs dose (log–log, online)"),
+             ("val", "val loss (fixed)", "#c4493d", "Val loss vs dose (log–log, fixed)"),
              ("gap", "gap = val − train", ANCHOR, "Gap vs dose (log–log)")]
     for ax, (m, ylabel, color, title) in zip(axes, specs):
         style_axis(ax)

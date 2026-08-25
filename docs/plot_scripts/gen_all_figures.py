@@ -514,9 +514,10 @@ def gen_static_loss_figures(data):
         ax.plot(x, smooth(cleaned), color=RUN_COLORS[key], linewidth=2.2,
                 marker="o", markersize=2.8, label=info["label"])
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
-    ax.set_title("Train / validation gap", loc="left", fontsize=15, fontweight="bold")
+    ax.set_title("Train / validation gap (train = online batch loss)", loc="left",
+                 fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
-    ax.set_ylabel("val loss − train loss")
+    ax.set_ylabel("val (fixed) − train (online)")
     ax.legend(frameon=False, ncol=3, loc="upper left", fontsize=9)
     fig.tight_layout()
     save_svg(fig, "fig_gap.svg")
@@ -542,7 +543,8 @@ def gen_static_loss_figures(data):
         ax.plot(x, smooth(val_clean), color=color, linewidth=2.1,
                 label=f"{key} val")
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
-    ax.set_title("Train / validation loss", loc="left", fontsize=15, fontweight="bold")
+    ax.set_title("Train / validation loss (train dashed = online batch loss)", loc="left",
+                 fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
     ax.set_ylabel("cross-entropy loss")
     ax.legend(frameon=False, ncol=3, loc="upper right", fontsize=8.5)
@@ -607,8 +609,8 @@ def gen_static_norm_figures(data):
     ax2.tick_params(colors=ANCHOR, labelsize=9)
     ax2.spines["right"].set_color(ANCHOR)
     add_epoch_lines(ax, epoch_boundary_pairs(d["train_log"]))
-    ax.set_title("Input run: loss and gap alignment", loc="left",
-                 fontsize=15, fontweight="bold")
+    ax.set_title("Input run: loss and gap alignment (train = online batch loss)",
+                 loc="left", fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
     handles, labels = ax.get_legend_handles_labels()
     handles2, labels2 = ax2.get_legend_handles_labels()
@@ -675,7 +677,7 @@ def gen_static_combined_norm_figure(data):
                 ax3.tick_params(colors=color, labelsize=8)
                 ax3.spines["right"].set_color(color)
     add_epoch_lines(ax, epoch_boundary_pairs(train_pts))
-    ax.set_title("Input run: loss, gap, and n-gram table RMS",
+    ax.set_title("Input run: loss, gap, and n-gram table RMS (train = online)",
                  loc="left", fontsize=15, fontweight="bold")
     handles, labels = ax.get_legend_handles_labels()
     handles2, labels2 = ax2.get_legend_handles_labels()
@@ -889,13 +891,14 @@ def gen_static_frequency_figures(data):
         ax.bar(positions + width / 2, val_frac, width, color="#c4493d",
                alpha=0.82, label="val fraction")
         ax.set_ylabel("token fraction")
-        ax.set_title(f"{branch.capitalize()} frequency decomposition · step {last['step']}",
-                     loc="left", fontsize=15, fontweight="bold")
+        ax.set_title(f"{branch.capitalize()} frequency decomposition · step {last['step']}"
+                     " (train loss = online window)",
+                     loc="left", fontsize=14, fontweight="bold")
         ax2 = ax.twinx()
         ax2.plot(positions, train_loss, color="#2d6f9f", linewidth=1.5,
-                 linestyle="--", label="train mean loss")
+                 linestyle="--", label="train mean loss (online)")
         ax2.plot(positions, val_loss, color="#c4493d", linewidth=2.1,
-                 label="val mean loss")
+                 label="val mean loss (fixed)")
         ax2.plot(positions, gap, "o-", color=ANCHOR, linewidth=1.9,
                  markersize=4, label="final gap")
         ax2.axhline(0, color=LINE, linewidth=1)
