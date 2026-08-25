@@ -199,5 +199,5 @@ contract and set only the terminal cosine multiplier to 0.30 or 0.40.
 
 | run_id stem | changed flag | status |
 |---|---|---|
-| `schedgrid_v1_cosine_w300_floor30_r1048576_both_s42` | `--cosine_min_lr_mult 0.30` | planned on ophis-gpu GPU 0 |
-| `schedgrid_v1_cosine_w300_floor40_r1048576_both_s42` | `--cosine_min_lr_mult 0.40` | planned on ophis-gpu GPU 3 |
+| `schedgrid_v1_cosine_w300_floor30_r1048576_both_s42` | `--cosine_min_lr_mult 0.30` | running on ophis-gpu GPU 0 |
+| `schedgrid_v1_cosine_w300_floor40_r1048576_both_s42` | `--cosine_min_lr_mult 0.40` | running on ophis-gpu GPU 3 |
