@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # clean 单表 v4 加密网格（2026-08-25 用户拍板：重刷全部 v4 实验 + 两者加密取点）。
 #
-# v4 口径 = uniform LR（--lr_schedule constant）+ β₂=0.99 + 表 LR ×2 + bf16 不 compile
-# （与 run_rerun_v4.sh 基线一致）。旧 ctbl_* 网格跑在 warmdown（lr_m 0.05@end），
-# 本网格全部按 v4 重刷，run_id namespace `ctbl_v4_*`，旧 run 不覆盖。
+# v4 口径 = warmup_constant LR（warmup 100 步 1e-3→4e-3，无 decay，用户 2026-08-25
+# 拍板）+ β₂=0.99 + 表 LR ×2 + bf16 不 compile（与 run_rerun_v4.sh 基线一致）。
 #
 # 网格：
 #   bigram  24 点对数均匀（16K -> 6.5M，K/N 0.0045->1.53）+ perfect 零碰撞锚点
@@ -51,7 +50,8 @@ run_one() {  # run_one <gpu> <run_id> <extra args...>
       --table_optimizer rmsprop \
       --table_betas 0.0,0.99 \
       --table_lr_scale 2.0 \
-      --lr_schedule constant \
+      --lr_schedule warmup_constant \
+      --warmup_steps 100 \
       --dtype bf16 \
       "$@" \
       > "$RESULT_DIR/train.log" 2>&1
@@ -76,23 +76,23 @@ occ_clean() {  # occ_clean <run_dir> <branch_flag> <R>
 
 run_bi() {  # <R> <gpu>
   local R="$1" GPU="$2"
-  if [ -f "$OUT_DIR/ctbl_v4_${R}_bigram_fixed/summary.json" ]; then
+  if [ -f "$OUT_DIR/ctbl_v4w_${R}_bigram_fixed/summary.json" ]; then
     echo "[ctbl4] SKIP run_bi $R (summary.json present)"
     return 0
   fi
-  run_one "$GPU" "ctbl_v4_${R}_bigram" \
+  run_one "$GPU" "ctbl_v4w_${R}_bigram" \
     --enable_unigram 0 --enable_bigram 1 --enable_trigram 0 \
     --bigram_clean_table "$R" --val_steps 1000 --exact_freq_eval_interval 1000
-  occ_clean "$OUT_DIR/ctbl_v4_${R}_bigram_fixed" --bigram_clean_table "$R"
+  occ_clean "$OUT_DIR/ctbl_v4w_${R}_bigram_fixed" --bigram_clean_table "$R"
 }
 
 run_bi_perfect() {  # <gpu>
   local GPU="$1"
-  if [ -f "$OUT_DIR/ctbl_v4_perfect_bigram_fixed/summary.json" ]; then
+  if [ -f "$OUT_DIR/ctbl_v4w_perfect_bigram_fixed/summary.json" ]; then
     echo "[ctbl4] SKIP run_bi_perfect (summary.json present)"
     return 0
   fi
-  run_one "$GPU" "ctbl_v4_perfect_bigram" \
+  run_one "$GPU" "ctbl_v4w_perfect_bigram" \
     --enable_unigram 0 --enable_bigram 1 --enable_trigram 0 \
     --bigram_perfect_map "$ROOT/data/bigram_perfect_map_s1.npz" \
     --val_steps 1000 --exact_freq_eval_interval 1000
@@ -100,11 +100,11 @@ run_bi_perfect() {  # <gpu>
 
 run_tri() {  # <R> <gpu>
   local R="$1" GPU="$2"
-  if [ -f "$OUT_DIR/ctbl_v4_${R}_trigram_fixed/summary.json" ]; then
+  if [ -f "$OUT_DIR/ctbl_v4w_${R}_trigram_fixed/summary.json" ]; then
     echo "[ctbl4] SKIP run_tri $R (summary.json present)"
     return 0
   fi
-  run_one "$GPU" "ctbl_v4_${R}_trigram" \
+  run_one "$GPU" "ctbl_v4w_${R}_trigram" \
     --enable_unigram 0 --enable_bigram 0 --enable_trigram 1 \
     --trigram_clean_table "$R" --val_steps 1000 --exact_freq_eval_interval 1000
 }

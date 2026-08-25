@@ -13,7 +13,11 @@ Removed (proven unnecessary for gap):
   current shell, Muon, RoPE, RMSNorm, untied embedding, split QKV,
   x0 residual, layer pool, head gate, softcap, full theory-obs system.
 
-Default config = baseline_input standard setting (see docs/plan.md §3.1a).
+The optimizer/evaluation defaults follow the standard contract, but a new
+main-line run must explicitly select clean-table capacity with
+--bigram_clean_table / --trigram_clean_table (or a perfect-map condition).
+The legacy --table_mult path is retained only to read or rerun historical
+experiments; it is not a new-baseline default.
 
 Outputs JSONL logs under data/runs_fixed/<run_id>/:
   - train_log.jsonl   : one line per step {step, train_loss, val_loss, epoch, ...}
@@ -21,8 +25,9 @@ Outputs JSONL logs under data/runs_fixed/<run_id>/:
   - table_norm.jsonl  : periodic table param RMS (every TABLE_NORM_INTERVAL steps)
 
 Usage:
-  python train.py --run_id myrun --injection_position input --steps 1000
-  (or via env vars matching the old launcher conventions; see cluster/run_injpos.sh)
+  python train.py --run_id myrun --injection_position input --steps 1000 \
+      --bigram_clean_table <R_bigram> --trigram_clean_table <R_trigram>
+  (for the main-line command, see cluster/run_baseline.sh)
 """
 
 from __future__ import annotations
@@ -72,7 +77,7 @@ class Config:
     table_optimizer: str = "rmsprop"  # rmsprop | adamw | sgd
     table_lr_scale: float = 2.0       # multiplier on the n-gram table LR
     table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
-    table_mult: int = 64              # n-gram table size = vocab_size * table_mult
+    table_mult: int = 64              # legacy multi-layer/two-hash path only
     bigram_clean_table: int = 0       # clean single-table rows R (0=off); SSOT: clean-table-rework.md
     trigram_clean_table: int = 0      # clean single-table rows R for trigram (0=off); same SSOT
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
@@ -843,8 +848,10 @@ def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
                       warmup_steps: int = 100, step: int = 1) -> float:
     """LR multiplier by schedule.
 
-    - "warmup_constant": the new-standard schedule. Linearly warm from 0.1x
-      to 1.0x over warmup_steps optimizer updates, then hold the base LR fixed.
+    - "warmup_constant": the v4 standard schedule. Linearly warm from 0.25x
+      (1e-3 at base LR 4e-3) to 1.0x over warmup_steps optimizer updates,
+      then hold the base LR fixed (no decay). User 2026-08-25: warmup 100
+      steps, 1e-3 -> 4e-3, no warmdown.
     - "constant": zero-warmup fixed LR; retained as a diagnostic control.
     - "warmdown": historical Karpathy-style linear warmup (0->1 over first
       1-warmdown), then linear decay to 0.05.
@@ -855,7 +862,7 @@ def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
         if warmup_steps <= 1:
             return 1.0
         warmup_progress = min(1.0, max(0, step - 1) / (warmup_steps - 1))
-        return 0.1 + 0.9 * warmup_progress
+        return 0.25 + 0.75 * warmup_progress
     if schedule != "warmdown":
         raise ValueError(f"unknown lr schedule: {schedule}")
     if progress < 1.0 - warmdown_ratio:
@@ -1233,14 +1240,15 @@ def main():
     parser.add_argument("--table_betas", default=None,
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,
-                        help="n-gram table size = vocab_size * table_mult (default 64)")
+                        help="[legacy only] multi-layer/two-hash table multiplier (default 64)")
     parser.add_argument("--bigram_clean_table", type=int, default=0,
                         help="clean single-table rows R (0=off): one nn.Embedding(R, n_embd), "
-                             "single layer, single hash, R freely set. SSOT: "
+                             "single layer, single hash, R freely set; required for a new main-line "
+                             "bigram run. SSOT: "
                              "docs/notes/method/clean-table-rework.md")
     parser.add_argument("--trigram_clean_table", type=int, default=0,
-                        help="clean single-table rows R for the trigram branch (0=off); "
-                             "same clean-table SSOT as --bigram_clean_table")
+                        help="clean single-table rows R for the trigram branch (0=off); required "
+                             "for a new main-line trigram run; same SSOT as --bigram_clean_table")
     parser.add_argument("--bigram_perfect_map", default="",
                         help="path to npz with int32 packed-bigram->row map; enables "
                              "collision-free bigram table (first ngram layer only, "
@@ -1273,7 +1281,8 @@ def main():
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
     parser.add_argument("--warmup_steps", type=int, default=100,
                         help="optimizer updates for warmup_constant (default 100; "
-                             "LR rises linearly from 0.1x at step 1 to 1.0x at this step)")
+                             "LR rises linearly from 0.25x (1e-3) at step 1 to 1.0x (4e-3) "
+                             "at this step, then held fixed — v4 standard)")
     parser.add_argument("--lr_schedule", default="warmup_constant",
                         choices=["warmup_constant", "constant", "warmdown"],
                         help="LR schedule: warmup_constant (new standard, default) | "

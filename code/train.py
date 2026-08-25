@@ -848,8 +848,10 @@ def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
                       warmup_steps: int = 100, step: int = 1) -> float:
     """LR multiplier by schedule.
 
-    - "warmup_constant": the new-standard schedule. Linearly warm from 0.1x
-      to 1.0x over warmup_steps optimizer updates, then hold the base LR fixed.
+    - "warmup_constant": the v4 standard schedule. Linearly warm from 0.25x
+      (1e-3 at base LR 4e-3) to 1.0x over warmup_steps optimizer updates,
+      then hold the base LR fixed (no decay). User 2026-08-25: warmup 100
+      steps, 1e-3 -> 4e-3, no warmdown.
     - "constant": zero-warmup fixed LR; retained as a diagnostic control.
     - "warmdown": historical Karpathy-style linear warmup (0->1 over first
       1-warmdown), then linear decay to 0.05.
@@ -860,7 +862,7 @@ def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
         if warmup_steps <= 1:
             return 1.0
         warmup_progress = min(1.0, max(0, step - 1) / (warmup_steps - 1))
-        return 0.1 + 0.9 * warmup_progress
+        return 0.25 + 0.75 * warmup_progress
     if schedule != "warmdown":
         raise ValueError(f"unknown lr schedule: {schedule}")
     if progress < 1.0 - warmdown_ratio:
@@ -1279,7 +1281,8 @@ def main():
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
     parser.add_argument("--warmup_steps", type=int, default=100,
                         help="optimizer updates for warmup_constant (default 100; "
-                             "LR rises linearly from 0.1x at step 1 to 1.0x at this step)")
+                             "LR rises linearly from 0.25x (1e-3) at step 1 to 1.0x (4e-3) "
+                             "at this step, then held fixed — v4 standard)")
     parser.add_argument("--lr_schedule", default="warmup_constant",
                         choices=["warmup_constant", "constant", "warmdown"],
                         help="LR schedule: warmup_constant (new standard, default) | "

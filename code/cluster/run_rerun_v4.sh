@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Rerun V4 单 run 执行器 —— uniform LR（v4 基线）：β₂=0.99（无动量）· 表学习率 ×2 · bf16（不 compile）
-// 用户 2026-08-25 拍板：uniform LR（v4 基线）；所有参数显式传递，不依赖默认值。
+# 用户 2026-08-25 拍板：uniform LR（v4 基线）；所有参数显式传递，不依赖默认值。
 #
 # Usage: ./run_rerun_v4.sh <gpu_id> <run_id> <train_shards> <val_shards> <steps> <extra...>
 #   extra 可追加: --injection_position v/y/input（默认 input）
@@ -73,7 +73,8 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --table_optimizer rmsprop \
   --table_betas 0.0,0.99 \
   --table_lr_scale 2.0 \
-  --lr_schedule constant \
+  --lr_schedule warmup_constant \
+  --warmup_steps 100 \
   --table_mult 64 \
   --dtype bf16 \
   --freq_index "$FREQ_INDEX" \
