@@ -58,6 +58,7 @@ log 图只使用 train 和 validation 都有 token 且 gap 为正的 bucket。
 | `build_injpos_data_json.py` | 为博客首页 summary cards 和 norm table 生成轻量 JSON |
 | `gen_epoch_scale_figs.py` | 0.5x/1x/2x epoch length 的 train/val/gap 对比 |
 | `gen_all_figures_v10.py` | v10/fixed-val 实验的独立版本，使用环境变量指定图目录 |
+| `gen_s1_relationship_figs.py` | S1 三轴关系图：table size / collision / epoch exposure / exact frequency；生成静态多 seed 图、epoch 截面图与可切换 log/linear 轴的 Plotly HTML |
 
 ## 生成流程
 

@@ -1,10 +1,4 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S1 三轴 scaling 当前结果</title>
-<style>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>S1 三轴 scaling 当前结果</title><style>
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55;max-width:1180px;margin:0 auto;padding:28px;color:#202124}
 h1{font-size:2em;border-bottom:2px solid #222;padding-bottom:.3em}
 h2{margin-top:2em;border-bottom:1px solid #ddd;padding-bottom:.25em}
@@ -19,19 +13,15 @@ figure{margin:2.2em 0;padding:1em;background:#fafafa;border:1px solid #eee}
 img{display:block;max-width:100%;height:auto;margin:auto}
 figcaption{text-align:center;color:#555;margin-top:.6em;font-size:.95em}
 code{background:#f3f3f3;padding:.08em .25em;border-radius:3px}
-</style>
-</head>
-<body>
-<p><a href="../../report/index.html">返回主报告</a></p>
-<h1>附录 · S1 三轴 scaling 验证</h1>
+</style></head><body><p><a href="../../report/index.html">返回主报告</a></p><h1>附录 · S1 三轴 scaling 验证</h1>
 <blockquote>
 <p><strong>实验线</strong>：T-scaling（极简 setting 下的 epoch length / exact frequency /
 table size）</p>
 <p><strong>状态</strong>：🟢 seed 42 正式 full grid 与 <strong>seed 43/44 三 seed 复现（epoch /
 table / frequency 三轴）均已完成</strong>；多 seed 分析与 H1–H4 猜想检验已回填
-（见 §7）。带跨 seed 变异度的结论可写成 seed-stable / seed-sensitive /
-identifiability-limited；仍缺 frequency 的 epoch-dependent fit 与
-加密点密集曲线。</p>
+（见 §6）。带跨 seed 变异度的结论可写成 seed-stable / seed-sensitive /
+identifiability-limited；epoch-dependent frequency 截面已补出，仍保留
+profile-likelihood 与最终主报告 scaling claim 作为后续边界。</p>
 <p><strong>数据源</strong>：<code>data/runs_scaling/</code>。正式结果只使用
 <code>data/runs_scaling/&lt;run_id&gt;_fixed/</code>；历史 <code>pilot_*</code>、<code>basic_*</code> 和 safety
 目录不混入正式三轴汇总。</p>
@@ -613,7 +603,7 @@ token/context 纳入门槛的频率也被逐项记录。trigram branch 的
 当前覆盖下可辨识性不足。因此这些数字只能作为形状的 exploratory summary，
 不能作为稳定的 <code>A, β, c, γ</code> 估计，也不能替代计划中的 epoch 截面、
 profile-likelihood 和 seed 43/44。</p>
-<h2>7. 多 seed 复现与数学猜想检验（2026-08-25，H1–H4）</h2>
+<h2>6. 多 seed 复现与数学猜想检验（2026-08-25，H1–H4）</h2>
 <p>以下全部基于 <strong>online gap 主口径</strong>（<code>val_loss − train_loss</code>，<code>train_log.jsonl</code>），
 三 seed（42/43/44）汇总。跨 seed 变异度用 cv = std/mean 表示；
 结论强度按 plan-5 约定标注为 <code>seed-stable</code> / <code>seed-sensitive</code> /
@@ -790,7 +780,7 @@ profile-likelihood 和 seed 43/44。</p>
 （seed-sensitive 点）；总体随 mult 上升但无干净幂律。</p>
 <p><strong>both</strong>（不可定量）：mult≥16 后 cv 普遍 24–45%（如 mult=32：0.698/1.595/0.748；
 mult=48：2.244/0.860/1.028）。<strong>双表干涉导致 both 在大表区不可定量</strong>，
-不能合并进单一幂律公式（见 §7.4）。</p>
+不能合并进单一幂律公式（见 §6.4）。</p>
 <p>图：<code>figs/table_gap_vs_2R.png</code>（双对数）/ <code>figs/table_gap_vs_collision.png</code>
 / 交互版 <code>.html</code>；汇总 <code>figs/table_summary.csv</code>（141 行，三 seed）。</p>
 <h3>7.3 H1：两因素频率律 —— β 可辨识，A/c/γ 不可辨识</h3>
@@ -877,29 +867,129 @@ mult≥48 时 I 跨 seed 剧烈变号（mult=48：+0.92/−0.27/−0.90）——
 <tr>
 <td>H1 两因素频率律</td>
 <td><strong>β seed-stable（cv 4–13%）；A/c/γ identifiability-limited</strong></td>
-<td>§7.3，三 seed 12 个拟合</td>
+<td>§6.3，三 seed 12 个拟合</td>
 </tr>
 <tr>
 <td>H2 epoch 对齐律</td>
 <td><strong>方向 seed-stable（24/24 同号）；幅度 fixed-step seed-sensitive、fixed-epoch 稳</strong></td>
-<td>§7.1</td>
+<td>§6.1</td>
 </tr>
 <tr>
 <td>H3 table saturation</td>
 <td><strong>否证：trigram 幂律上升无饱和（≤1M）；both 大表区不可定量</strong></td>
-<td>§7.2</td>
+<td>§6.2</td>
 </tr>
 <tr>
 <td>H4 模块交互</td>
 <td><strong>显著且 seed-sensitive，不允许合并单公式</strong></td>
-<td>§7.4</td>
+<td>§6.4</td>
 </tr>
 </tbody>
 </table>
 <p>以上全部为 observational 证据；epoch/table 的方向性结论已满足
 "三 seed 同号才写方向稳定"的登记标准，但不升级为因果 claim
 （<code>not yet causal</code>）。</p>
-<h2>6. 生成命令与后续边界</h2>
+<h2>7. 关系图谱与绘图口径</h2>
+<p>本附录新增的关系图不把几条曲线简单叠在一起，而是按同一条证据链组织：</p>
+<pre><code class="language-text">table size (2R) ──┐
+collision state ──┼──&gt; table-induced online gap
+exposure (L) ────┤
+frequency (f) ───┘
+</code></pre>
+<p>图中的每个箭头都对应一个可测关系，不代表已经证明因果机制。变量和图的
+对应关系如下：</p>
+<table>
+<thead>
+<tr>
+<th>关系</th>
+<th>图</th>
+<th>坐标与可见内容</th>
+<th>读图目的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>2R → gap</code></td>
+<td><code>figs/rel_gap_vs_2R_multiseed.png</code></td>
+<td>横纵轴均为 log；颜色区分 module，marker 区分 seed；虚线为每组的 log-log guide</td>
+<td>看 table 容量增加是否伴随 gap 上升、是否出现饱和</td>
+</tr>
+<tr>
+<td><code>1−collision → gap</code></td>
+<td><code>figs/rel_gap_vs_physical.png</code></td>
+<td>横纵轴均为 log；collision 来自 bigram layer-0 hash-0 的 occupancy 统计</td>
+<td>把逻辑地址关系投影到实际 hash 碰撞状态</td>
+</tr>
+<tr>
+<td><code>L → ΔG</code></td>
+<td><code>figs/rel_deltaG_vs_epoch.png</code></td>
+<td>左 fixed-step，右 fixed-epoch；<code>ΔG = G(module)−G(nogram)</code>；线性 y 轴保留零线</td>
+<td>区分计算步数对齐和 replay/epoch 对齐</td>
+</tr>
+<tr>
+<td><code>f → gap(f)</code></td>
+<td><code>figs/rel_gap_vs_frequency_bigram.png</code>、<code>figs/rel_gap_vs_frequency_trigram.png</code></td>
+<td>横纵轴均为 log；fs/fe 并列；带 error bar 与 two-factor guide</td>
+<td>看 exact frequency 的衰减形状及其对齐依赖</td>
+</tr>
+<tr>
+<td><code>E × f → gap(f)</code></td>
+<td><code>figs/rel_gap_vs_frequency_epoch_bigram.png</code>、<code>figs/rel_gap_vs_frequency_epoch_trigram.png</code></td>
+<td>fixed-epoch 的 epoch 1/3/6 三截面；每个截面含三 seed、bin 内 SEM、拟合 guide</td>
+<td>检查频率关系随 exposure 是否改变</td>
+</tr>
+<tr>
+<td>四轴总览</td>
+<td><code>figs/rel_relationship_map.png</code></td>
+<td><code>(a)</code> table，<code>(b)</code> collision，<code>(c)</code> fixed-epoch exposure，<code>(d)</code> trigram frequency</td>
+<td>作为报告的关系地图，不替代逐图检查</td>
+</tr>
+</tbody>
+</table>
+<h3>7.1 Exact-frequency 分 bin 与误差棒</h3>
+<p>频率图不是把旧的粗 bin 再切细，而是直接读取
+<code>exact_freq_loss.jsonl</code> 的 exact context frequency。对每个 branch/module/seed/
+alignment，处理步骤为：</p>
+<ol>
+<li>丢弃 <code>f=0</code>（novel）；它没有 train token loss，不能定义 gap；</li>
+<li>要求 train 与 validation 都有至少 1024 tokens、至少 32 个 distinct contexts；</li>
+<li>计算 token-marginal gap：<code>gap(f) = mean_val_loss(f) − mean_train_loss(f)</code>；</li>
+<li>仅在 log 图中保留 <code>gap(f)&gt;0</code> 的点；</li>
+<li>对 eligible per-f 点按 <code>log(f)</code> 排序，等数量切成最多 8 个 bin；</li>
+<li>x 坐标是该 bin 内 <code>exp(mean(log f))</code> 的 geometric midpoint；</li>
+<li>y 坐标是 bin 内 gap 的算术平均；误差棒是 bin 内 gap 的
+   <code>SEM = std(gap(f))/sqrt(n_bin)</code>，表示<strong>bin 内异质性诊断</strong>，不是独立
+   seed 的置信区间。</li>
+</ol>
+<p>因此，带 error bar 的图适合判断频率关系是否被少数 noisy frequency
+支配；它不能被解释成每个频率点的重复实验置信区间。<code>*_final_raw.png</code>
+保留所有 eligible per-f 点、含 SEM 的拥挤 debug 图，便于检查分 bin 是否
+掩盖了结构。所有频率图都明确标注 fs（1000 steps）或 fe（6 epochs，
+2022 steps），不混用两个截面。<code>rel_gap_vs_frequency_epoch_{branch}.png</code> 进一步
+使用 fe 的 epoch 1（约 337 steps）、epoch 3（约 1012 steps）和 epoch 6
+（2022 steps）三个 exact-freq 截面；对应的 54 条成功拟合记录（branch ×
+module × seed × snapshot；少数低频截面因正 gap/样本门槛不足被排除）写入
+<code>figs/frequency_snapshot_fit.csv</code>。</p>
+<h3>7.2 Table-size 图的 log 轴与 occupancy 限制</h3>
+<p><code>rel_gap_vs_2R_multiseed.png</code> 是主 table 图：横轴是每个 n-gram、每层的
+logical addresses <code>2R = 16384 × table_mult</code>，纵轴是最终 online gap。
+双对数坐标只显示正 gap；负值或零值不被隐式替换。每个 module 有三种
+marker（circle/square/triangle = seed 42/43/44），颜色固定为
+bigram/trigram/both。</p>
+<p>collision 图使用 <code>1−collision_rate</code> 而不是 collision rate 本身，因为
+collision rate 接近 1，直接画会压缩所有点。occupancy 没有作为独立主图：
+在 mult 1–8 时 occupancy 已接近 1，继续使用 log occupancy 会制造几乎
+垂直的伪关系；它仍保存在 <code>table_summary.csv</code> 中用于审计。该选择是为了
+避免把一个已饱和的诊断量误写成解释变量。</p>
+<h3>7.3 交互可见性</h3>
+<p>静态 PNG 保留完整三 seed 与三个 module，方便审稿/归档；同一目录中的
+Plotly HTML（<code>rel_gap_vs_2R_multiseed.html</code>、<code>rel_gap_vs_frequency_multiseed.html</code>）
+仍可通过图例隐藏曲线，并用按钮独立切换 x/y 轴为 log 或 linear。原有
+<code>table_gap_vs_2R.html</code>、<code>table_gap_vs_collision.html</code> 继续保留。关系图脚本在
+§8 的统一重建命令中调用。它只读取 <code>data/runs_scaling/*_fixed/</code>，不会修改
+训练产物。重新生成后，先
+检查 PNG，再执行 <code>git diff --check</code>；原始 per-f debug 图不作为主报告结论。</p>
+<h2>8. 生成命令与后续边界</h2>
 <p>从仓库根目录重建当前三轴结果：</p>
 <pre><code class="language-bash">.venv/bin/python tasks/s1_scaling_three_axis/analysis/analyze_scaling_epoch.py \
   data/runs_scaling
@@ -907,25 +997,58 @@ mult≥48 时 I 跨 seed 剧烈变号（mult=48：+0.92/−0.27/−0.90）——
   data/runs_scaling
 .venv/bin/python tasks/s1_scaling_three_axis/analysis/analyze_scaling_frequency.py \
   data/runs_scaling
+.venv/bin/python docs/plot_scripts/gen_s1_relationship_figs.py
 </code></pre>
 <p>当前交付完成的是：seed 42 正式 full grid、<strong>seed 43/44 三 seed 复现
 （epoch 96 / table 72 / frequency 16 个新 run）</strong>、table 加密最终取点、
 row-level recovery pilot、固定 probe / exact-f / occupancy 测量、产物 QC、
-三轴图、多 seed 汇总与 H1–H4 猜想检验（§7）、本附录回填。
-尚未完成的是 frequency 的 epoch-dependent fit（epoch 3 / epoch 6 截面）、
-跨 seed profile-likelihood，以及将三轴结果提升为主报告的最终 scaling claim；
+三轴图、多 seed 汇总与 H1–H4 猜想检验（§6）、本附录回填。
+仍保留跨 seed profile-likelihood，以及将三轴结果提升为主报告的最终 scaling claim；
 在这些完成前，不更新 <code>docs/report/index.html</code> 的主线结论。</p>
-
-<h2>图</h2>
-<figure><img src="figs/epoch_deltaG_fs_multiseed.png" alt="Epoch deltaG multiseed"><figcaption>Epoch length：fixed-step ΔG 三 seed（逐 seed 点 + 均值）</figcaption></figure>
-<figure><img src="figs/epoch_gap_by_alignment.png" alt="Epoch gap by alignment"><figcaption>Epoch length：fixed-step / fixed-epoch 全部 epoch run</figcaption></figure>
-<figure><img src="figs/table_gap_vs_2R.png" alt="Table gap versus logical addresses"><figcaption>Table size：三种 module 在线 final gap vs logical addresses（双对数，三 seed）</figcaption></figure>
-<figure><img src="figs/table_gap_vs_collision.png" alt="Table gap versus collision complement"><figcaption>Table size：在线 final gap vs 1−collision rate（双对数）</figcaption></figure>
-<figure><img src="figs/freq_gap_bigram_final.png" alt="Bigram frequency gap"><figcaption>Exact frequency：bigram branch final token-marginal gap(f)，分 bin ± 误差棒</figcaption></figure>
-<figure><img src="figs/freq_gap_trigram_final.png" alt="Trigram frequency gap"><figcaption>Exact frequency：trigram branch final token-marginal gap(f)，分 bin ± 误差棒</figcaption></figure>
-<figure><img src="figs/freq_gap_bigram_final_raw.png" alt="Raw bigram frequency gap"><figcaption>Exact frequency：bigram branch 全部 per-f 点与 SEM（debug 原始图）</figcaption></figure>
-<figure><img src="figs/freq_gap_trigram_final_raw.png" alt="Raw trigram frequency gap"><figcaption>Exact frequency：trigram branch 全部 per-f 点与 SEM（debug 原始图）</figcaption></figure>
-<figure><img src="figs/backbone_safety_L1_nogram_long.png" alt="Backbone safety"><figcaption>Backbone safety：L1 no-ngram 长训量级参考</figcaption></figure>
-
-</body>
-</html>
+<h2>9. 关系图产物索引</h2>
+<p>以下产物由 <code>docs/plot_scripts/gen_s1_relationship_figs.py</code> 生成，均只读取
+<code>data/runs_scaling/*_fixed/</code>：</p>
+<table>
+<thead>
+<tr>
+<th>产物</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>figs/rel_relationship_map.png</code></td>
+<td>四轴总览：table、collision、exposure、frequency</td>
+</tr>
+<tr>
+<td><code>figs/rel_gap_vs_2R_multiseed.png</code> / <code>.html</code></td>
+<td>logical addresses → gap；静态双对数 + 可切换轴的交互版</td>
+</tr>
+<tr>
+<td><code>figs/rel_gap_vs_physical.png</code></td>
+<td>module-matched collision complement → gap</td>
+</tr>
+<tr>
+<td><code>figs/rel_deltaG_vs_epoch.png</code></td>
+<td>fixed-step / fixed-epoch 的 exposure → ΔG</td>
+</tr>
+<tr>
+<td><code>figs/rel_gap_vs_frequency_{bigram,trigram}.png</code></td>
+<td>final fs/fe frequency → gap，带 bin 内 SEM</td>
+</tr>
+<tr>
+<td><code>figs/rel_gap_vs_frequency_epoch_{bigram,trigram}.png</code></td>
+<td>fe 的 epoch 1/3/6 frequency → gap</td>
+</tr>
+<tr>
+<td><code>figs/rel_gap_vs_frequency_multiseed.html</code></td>
+<td>可隐藏 branch/module/seed、可切换 log/linear 轴</td>
+</tr>
+<tr>
+<td><code>figs/frequency_snapshot_fit.csv</code></td>
+<td>54 条 epoch 1/3/6 成功拟合记录</td>
+</tr>
+</tbody>
+</table>
+<p><code>figs/epoch3000_deltaG_both_minus_nogram.png</code> 是已有的独立 3000-step 诊断图，
+不属于本轮三 seed canonical 关系图集，保留作 provenance。</p><h2>图集：关系展示</h2><p>静态图遵循 warm paper 调色板；颜色表示 module，marker 表示 seed。静态图中的 log 轴只显示正 gap；可隐藏曲线、切换坐标轴的版本见交互图。</p><figure><img src="figs/rel_relationship_map.png" alt="S1 three-axis relationship map"><figcaption>总览：table size、collision complement、exposure 与 exact frequency 对 online gap 的关系。</figcaption></figure><figure><img src="figs/rel_gap_vs_2R_multiseed.png" alt="Table logical addresses versus online gap"><figcaption>Table size → gap：logical addresses 2R 与最终 online gap，双对数；虚线为逐组 log-log guide。</figcaption></figure><p><a href="figs/rel_gap_vs_2R_multiseed.html">打开交互版 table 图（可隐藏 module/seed、切换 x/y 对数轴）</a></p><figure><img src="figs/rel_gap_vs_physical.png" alt="Collision complement versus online gap"><figcaption>Physical hash state → gap：使用对应 module 的 layer-0/hash-0 collision complement。</figcaption></figure><figure><img src="figs/rel_deltaG_vs_epoch.png" alt="Epoch length versus delta gap"><figcaption>Exposure → ΔG：fixed-step 与 fixed-epoch 并列，ΔG 相对同 L no-ngram。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_bigram.png" alt="Bigram exact frequency versus gap"><figcaption>Bigram branch：exact frequency → token-marginal gap，带 bin 内 SEM 误差棒。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_trigram.png" alt="Trigram exact frequency versus gap"><figcaption>Trigram branch：exact frequency → token-marginal gap，带 bin 内 SEM 误差棒。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_epoch_bigram.png" alt="Bigram frequency across epochs"><figcaption>Bigram branch：epoch 1/3/6 的 frequency-gap 关系。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_epoch_trigram.png" alt="Trigram frequency across epochs"><figcaption>Trigram branch：epoch 1/3/6 的 frequency-gap 关系。</figcaption></figure><p><a href="figs/rel_gap_vs_frequency_multiseed.html">打开交互版 frequency 图（可隐藏 branch/module/seed、切换 x/y 对数轴）</a></p><p><strong>Debug 原图：</strong><a href="figs/freq_gap_bigram_final_raw.png">bigram raw per-f</a> · <a href="figs/freq_gap_trigram_final_raw.png">trigram raw per-f</a>。这些图保留所有 eligible per-f 点和 SEM，故较拥挤，不作为主结论图。</p></body></html>

@@ -5,9 +5,9 @@
 >
 > **状态**：🟢 seed 42 正式 full grid 与 **seed 43/44 三 seed 复现（epoch /
 > table / frequency 三轴）均已完成**；多 seed 分析与 H1–H4 猜想检验已回填
-> （见 §7）。带跨 seed 变异度的结论可写成 seed-stable / seed-sensitive /
-> identifiability-limited；仍缺 frequency 的 epoch-dependent fit 与
-> 加密点密集曲线。
+> （见 §6）。带跨 seed 变异度的结论可写成 seed-stable / seed-sensitive /
+> identifiability-limited；epoch-dependent frequency 截面已补出，仍保留
+> profile-likelihood 与最终主报告 scaling claim 作为后续边界。
 >
 > **数据源**：`data/runs_scaling/`。正式结果只使用
 > `data/runs_scaling/<run_id>_fixed/`；历史 `pilot_*`、`basic_*` 和 safety
@@ -261,7 +261,7 @@ token/context 纳入门槛的频率也被逐项记录。trigram branch 的
 不能作为稳定的 `A, β, c, γ` 估计，也不能替代计划中的 epoch 截面、
 profile-likelihood 和 seed 43/44。
 
-## 7. 多 seed 复现与数学猜想检验（2026-08-25，H1–H4）
+## 6. 多 seed 复现与数学猜想检验（2026-08-25，H1–H4）
 
 以下全部基于 **online gap 主口径**（`val_loss − train_loss`，`train_log.jsonl`），
 三 seed（42/43/44）汇总。跨 seed 变异度用 cv = std/mean 表示；
@@ -331,7 +331,7 @@ table 轴三 seed（12 个公共 mult × 3 module，online final gap @1000）：
 
 **both**（不可定量）：mult≥16 后 cv 普遍 24–45%（如 mult=32：0.698/1.595/0.748；
 mult=48：2.244/0.860/1.028）。**双表干涉导致 both 在大表区不可定量**，
-不能合并进单一幂律公式（见 §7.4）。
+不能合并进单一幂律公式（见 §6.4）。
 
 图：`figs/table_gap_vs_2R.png`（双对数）/ `figs/table_gap_vs_collision.png`
 / 交互版 `.html`；汇总 `figs/table_summary.csv`（141 行，三 seed）。
@@ -381,16 +381,89 @@ mult≥48 时 I 跨 seed 剧烈变号（mult=48：+0.92/−0.27/−0.90）——
 
 | 猜想 | 判定 | 依据 |
 |---|---|---|
-| H1 两因素频率律 | **β seed-stable（cv 4–13%）；A/c/γ identifiability-limited** | §7.3，三 seed 12 个拟合 |
-| H2 epoch 对齐律 | **方向 seed-stable（24/24 同号）；幅度 fixed-step seed-sensitive、fixed-epoch 稳** | §7.1 |
-| H3 table saturation | **否证：trigram 幂律上升无饱和（≤1M）；both 大表区不可定量** | §7.2 |
-| H4 模块交互 | **显著且 seed-sensitive，不允许合并单公式** | §7.4 |
+| H1 两因素频率律 | **β seed-stable（cv 4–13%）；A/c/γ identifiability-limited** | §6.3，三 seed 12 个拟合 |
+| H2 epoch 对齐律 | **方向 seed-stable（24/24 同号）；幅度 fixed-step seed-sensitive、fixed-epoch 稳** | §6.1 |
+| H3 table saturation | **否证：trigram 幂律上升无饱和（≤1M）；both 大表区不可定量** | §6.2 |
+| H4 模块交互 | **显著且 seed-sensitive，不允许合并单公式** | §6.4 |
 
 以上全部为 observational 证据；epoch/table 的方向性结论已满足
 "三 seed 同号才写方向稳定"的登记标准，但不升级为因果 claim
 （`not yet causal`）。
 
-## 6. 生成命令与后续边界
+## 7. 关系图谱与绘图口径
+
+本附录新增的关系图不把几条曲线简单叠在一起，而是按同一条证据链组织：
+
+```text
+table size (2R) ──┐
+collision state ──┼──> table-induced online gap
+exposure (L) ────┤
+frequency (f) ───┘
+```
+
+图中的每个箭头都对应一个可测关系，不代表已经证明因果机制。变量和图的
+对应关系如下：
+
+| 关系 | 图 | 坐标与可见内容 | 读图目的 |
+|---|---|---|---|
+| `2R → gap` | `figs/rel_gap_vs_2R_multiseed.png` | 横纵轴均为 log；颜色区分 module，marker 区分 seed；虚线为每组的 log-log guide | 看 table 容量增加是否伴随 gap 上升、是否出现饱和 |
+| `1−collision → gap` | `figs/rel_gap_vs_physical.png` | 横纵轴均为 log；collision 来自 bigram layer-0 hash-0 的 occupancy 统计 | 把逻辑地址关系投影到实际 hash 碰撞状态 |
+| `L → ΔG` | `figs/rel_deltaG_vs_epoch.png` | 左 fixed-step，右 fixed-epoch；`ΔG = G(module)−G(nogram)`；线性 y 轴保留零线 | 区分计算步数对齐和 replay/epoch 对齐 |
+| `f → gap(f)` | `figs/rel_gap_vs_frequency_bigram.png`、`figs/rel_gap_vs_frequency_trigram.png` | 横纵轴均为 log；fs/fe 并列；带 error bar 与 two-factor guide | 看 exact frequency 的衰减形状及其对齐依赖 |
+| `E × f → gap(f)` | `figs/rel_gap_vs_frequency_epoch_bigram.png`、`figs/rel_gap_vs_frequency_epoch_trigram.png` | fixed-epoch 的 epoch 1/3/6 三截面；每个截面含三 seed、bin 内 SEM、拟合 guide | 检查频率关系随 exposure 是否改变 |
+| 四轴总览 | `figs/rel_relationship_map.png` | `(a)` table，`(b)` collision，`(c)` fixed-epoch exposure，`(d)` trigram frequency | 作为报告的关系地图，不替代逐图检查 |
+
+### 7.1 Exact-frequency 分 bin 与误差棒
+
+频率图不是把旧的粗 bin 再切细，而是直接读取
+`exact_freq_loss.jsonl` 的 exact context frequency。对每个 branch/module/seed/
+alignment，处理步骤为：
+
+1. 丢弃 `f=0`（novel）；它没有 train token loss，不能定义 gap；
+2. 要求 train 与 validation 都有至少 1024 tokens、至少 32 个 distinct contexts；
+3. 计算 token-marginal gap：`gap(f) = mean_val_loss(f) − mean_train_loss(f)`；
+4. 仅在 log 图中保留 `gap(f)>0` 的点；
+5. 对 eligible per-f 点按 `log(f)` 排序，等数量切成最多 8 个 bin；
+6. x 坐标是该 bin 内 `exp(mean(log f))` 的 geometric midpoint；
+7. y 坐标是 bin 内 gap 的算术平均；误差棒是 bin 内 gap 的
+   `SEM = std(gap(f))/sqrt(n_bin)`，表示**bin 内异质性诊断**，不是独立
+   seed 的置信区间。
+
+因此，带 error bar 的图适合判断频率关系是否被少数 noisy frequency
+支配；它不能被解释成每个频率点的重复实验置信区间。`*_final_raw.png`
+保留所有 eligible per-f 点、含 SEM 的拥挤 debug 图，便于检查分 bin 是否
+掩盖了结构。所有频率图都明确标注 fs（1000 steps）或 fe（6 epochs，
+2022 steps），不混用两个截面。`rel_gap_vs_frequency_epoch_{branch}.png` 进一步
+使用 fe 的 epoch 1（约 337 steps）、epoch 3（约 1012 steps）和 epoch 6
+（2022 steps）三个 exact-freq 截面；对应的 54 条成功拟合记录（branch ×
+module × seed × snapshot；少数低频截面因正 gap/样本门槛不足被排除）写入
+`figs/frequency_snapshot_fit.csv`。
+
+### 7.2 Table-size 图的 log 轴与 occupancy 限制
+
+`rel_gap_vs_2R_multiseed.png` 是主 table 图：横轴是每个 n-gram、每层的
+logical addresses `2R = 16384 × table_mult`，纵轴是最终 online gap。
+双对数坐标只显示正 gap；负值或零值不被隐式替换。每个 module 有三种
+marker（circle/square/triangle = seed 42/43/44），颜色固定为
+bigram/trigram/both。
+
+collision 图使用 `1−collision_rate` 而不是 collision rate 本身，因为
+collision rate 接近 1，直接画会压缩所有点。occupancy 没有作为独立主图：
+在 mult 1–8 时 occupancy 已接近 1，继续使用 log occupancy 会制造几乎
+垂直的伪关系；它仍保存在 `table_summary.csv` 中用于审计。该选择是为了
+避免把一个已饱和的诊断量误写成解释变量。
+
+### 7.3 交互可见性
+
+静态 PNG 保留完整三 seed 与三个 module，方便审稿/归档；同一目录中的
+Plotly HTML（`rel_gap_vs_2R_multiseed.html`、`rel_gap_vs_frequency_multiseed.html`）
+仍可通过图例隐藏曲线，并用按钮独立切换 x/y 轴为 log 或 linear。原有
+`table_gap_vs_2R.html`、`table_gap_vs_collision.html` 继续保留。关系图脚本在
+§8 的统一重建命令中调用。它只读取 `data/runs_scaling/*_fixed/`，不会修改
+训练产物。重新生成后，先
+检查 PNG，再执行 `git diff --check`；原始 per-f debug 图不作为主报告结论。
+
+## 8. 生成命令与后续边界
 
 从仓库根目录重建当前三轴结果：
 
@@ -401,12 +474,31 @@ mult≥48 时 I 跨 seed 剧烈变号（mult=48：+0.92/−0.27/−0.90）——
   data/runs_scaling
 .venv/bin/python tasks/s1_scaling_three_axis/analysis/analyze_scaling_frequency.py \
   data/runs_scaling
+.venv/bin/python docs/plot_scripts/gen_s1_relationship_figs.py
 ```
 
 当前交付完成的是：seed 42 正式 full grid、**seed 43/44 三 seed 复现
 （epoch 96 / table 72 / frequency 16 个新 run）**、table 加密最终取点、
 row-level recovery pilot、固定 probe / exact-f / occupancy 测量、产物 QC、
-三轴图、多 seed 汇总与 H1–H4 猜想检验（§7）、本附录回填。
-尚未完成的是 frequency 的 epoch-dependent fit（epoch 3 / epoch 6 截面）、
-跨 seed profile-likelihood，以及将三轴结果提升为主报告的最终 scaling claim；
+三轴图、多 seed 汇总与 H1–H4 猜想检验（§6）、本附录回填。
+仍保留跨 seed profile-likelihood，以及将三轴结果提升为主报告的最终 scaling claim；
 在这些完成前，不更新 `docs/report/index.html` 的主线结论。
+
+## 9. 关系图产物索引
+
+以下产物由 `docs/plot_scripts/gen_s1_relationship_figs.py` 生成，均只读取
+`data/runs_scaling/*_fixed/`：
+
+| 产物 | 内容 |
+|---|---|
+| `figs/rel_relationship_map.png` | 四轴总览：table、collision、exposure、frequency |
+| `figs/rel_gap_vs_2R_multiseed.png` / `.html` | logical addresses → gap；静态双对数 + 可切换轴的交互版 |
+| `figs/rel_gap_vs_physical.png` | module-matched collision complement → gap |
+| `figs/rel_deltaG_vs_epoch.png` | fixed-step / fixed-epoch 的 exposure → ΔG |
+| `figs/rel_gap_vs_frequency_{bigram,trigram}.png` | final fs/fe frequency → gap，带 bin 内 SEM |
+| `figs/rel_gap_vs_frequency_epoch_{bigram,trigram}.png` | fe 的 epoch 1/3/6 frequency → gap |
+| `figs/rel_gap_vs_frequency_multiseed.html` | 可隐藏 branch/module/seed、可切换 log/linear 轴 |
+| `figs/frequency_snapshot_fit.csv` | 54 条 epoch 1/3/6 成功拟合记录 |
+
+`figs/epoch3000_deltaG_both_minus_nogram.png` 是已有的独立 3000-step 诊断图，
+不属于本轮三 seed canonical 关系图集，保留作 provenance。
