@@ -92,6 +92,7 @@ class Config:
     table_norm_interval_steps: int = 10
     warmdown_ratio: float = 0.65  # last 65% of steps decays LR
     lr_schedule_epochs: int = 0    # >0: anchor LR schedule to epoch count (ignores max_steps)
+    lr_schedule: str = "warmdown"  # warmdown (default, Karpathy-style) | constant (uniform LR, v4 baseline)
     # data (paths)
     data_dir: str = ""          # directory with train.bin / val.bin
     train_shards: list = field(default_factory=list)  # list of shard indices for train
@@ -836,8 +837,18 @@ class MixedOptimizer:
         }
 
 
-def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65) -> float:
-    """Linear warmup (0->1 over first 1-warmdown), then linear decay to 0.05."""
+def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
+                      schedule: str = "warmdown") -> float:
+    """LR multiplier by schedule.
+
+    - "constant": uniform LR (multiplier always 1.0). v4 baseline for the
+      interpretability experiments — no LR time structure that could confound
+      the gap curves.
+    - "warmdown": Karpathy-style linear warmup (0->1 over first 1-warmdown),
+      then linear decay to 0.05.
+    """
+    if schedule == "constant":
+        return 1.0
     if progress < 1.0 - warmdown_ratio:
         # warmup phase: linear from 0.1 to 1.0
         w = progress / max(1e-6, 1.0 - warmdown_ratio)
@@ -1251,6 +1262,10 @@ def main():
                              "otherwise follows the specified validation steps")
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
+    parser.add_argument("--lr_schedule", default="warmdown",
+                        choices=["warmdown", "constant"],
+                        help="LR schedule: warmdown (Karpathy-style, default) | "
+                             "constant (uniform LR, v4 baseline)")
     parser.add_argument("--epoch_batches", type=int, default=0,
                         help=">0: fix one epoch to exactly this many device batches "
                              "(nested-prefix epoch length); 0 = full shard length")
@@ -1294,6 +1309,7 @@ def main():
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
         lr_schedule_epochs=args.lr_schedule_epochs,
+        lr_schedule=args.lr_schedule,
         nanogpt_adam_lr=args.lr,
         table_optimizer=args.table_optimizer,
         table_lr_scale=args.table_lr_scale,
@@ -1484,7 +1500,7 @@ def main():
             progress = min(1.0, (train_ds._epoch + train_ds.epoch_progress()) / cfg.lr_schedule_epochs)
         else:
             progress = (step + 1) / cfg.max_steps
-        lr_mult = get_lr_multiplier(progress, cfg.warmdown_ratio)
+        lr_mult = get_lr_multiplier(progress, cfg.warmdown_ratio, cfg.lr_schedule)
         optimizer.step(lr_mult=lr_mult)
 
         # per-step table-update diagnostics (replay-shock fingerprint)
