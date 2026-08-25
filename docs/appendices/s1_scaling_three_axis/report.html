@@ -17,14 +17,16 @@ code{background:#f3f3f3;padding:.08em .25em;border-radius:3px}
 <blockquote>
 <p><strong>实验线</strong>：T-scaling（极简 setting 下的 epoch length / exact frequency /
 table size）</p>
-<p><strong>状态</strong>：🟢 seed 42 正式 full grid 与 <strong>seed 43/44 三 seed 复现（epoch /
-table / frequency 三轴）均已完成</strong>；多 seed 分析与 H1–H4 猜想检验已回填
-（见 §6）。带跨 seed 变异度的结论可写成 seed-stable / seed-sensitive /
-identifiability-limited；epoch-dependent frequency 截面已补出，仍保留
-profile-likelihood 与最终主报告 scaling claim 作为后续边界。</p>
-<p><strong>数据源</strong>：<code>data/runs_scaling/</code>。正式结果只使用
+<p><strong>状态</strong>：⚠️ seed 42 及 seed 43/44 的 261 个 S1 run 已完成，但它们属于
+<strong>旧计算契约 <code>bf16 + torch.compile</code></strong> 的历史波次。最新 <code>agents.md</code> 已将标准
+修正为 <strong>bf16 autocast、默认不 compile</strong>；因此本报告保留这 261 个 run
+用于数学审计和 provenance，但不把它们当作当前标准下已验证的三轴结论。
+多 seed 分析与 H1–H4 猜想检验仅作为旧波次的探索性结果；无 compile
+标准下的 S1 重跑尚未完成。</p>
+<p><strong>数据源</strong>：<code>data/runs_scaling/</code>。本报告的历史结果只读取
 <code>data/runs_scaling/&lt;run_id&gt;_fixed/</code>；历史 <code>pilot_*</code>、<code>basic_*</code> 和 safety
-目录不混入正式三轴汇总。</p>
+目录不混入三轴汇总。目录名带 <code>_fixed</code> 只说明产物命名契约，不等于已经
+满足最新的 no-compile 计算契约。</p>
 <p><strong>代码</strong>：<code>tasks/s1_scaling_three_axis/</code>。</p>
 </blockquote>
 <h2>0. 研究问题与 claim boundary</h2>
@@ -40,11 +42,13 @@ position、LayerNorm、tied embedding、input/wte n-gram 注入、自然语料�
 </ol>
 <p>本报告中的历史 gap 数值来自同一 fixed train probe 和 fixed validation probe 上的
 <code>fixed_val_loss − fixed_train_loss</code>；这些结果保留用于历史追溯，但该口径现已标记为
-exposure-contaminated 诊断，不再作为主结论。新的标准 gap 使用
-<code>train_log.jsonl</code> 的在线训练 batch：<code>val_loss − train_loss</code>。frequency 轴只做自然语料下的
-<strong>observational consistency</strong> 检验，不是 <code>f</code> 的因果证明。所有数值均为
-seed 42、对应 run 的最终 step；没有多 seed 时，不宣称误差条、指数或单调
-关系已经稳定。</p>
+exposure-contaminated 诊断，不再作为主结论。三 seed 汇总部分改用旧波次产物中
+<code>train_log.jsonl</code> 的在线训练 batch：<code>val_loss − train_loss</code>，但其 compute contract
+仍是 <code>bf16 + torch.compile</code>。最新标准 gap 仍定义为在线训练 batch 与 fixed validation
+的 <code>val_loss − train_loss</code>，并要求 bf16 不 compile。frequency 轴只做自然语料下的
+<strong>observational consistency</strong> 检验，不是 <code>f</code> 的因果证明。除非特别注明，数值均为
+对应 run 的最终 step；没有当前标准重跑时，不把旧波次结果升级为新标准下稳定
+的指数或定律。</p>
 <h2>1. 冻结 setting</h2>
 <table>
 <thead>
@@ -83,8 +87,12 @@ seed 42、对应 run 的最终 step；没有多 seed 时，不宣称误差条、
 <td>shard 1 fixed 顺序 replay；train / val shard 完全不重叠</td>
 </tr>
 <tr>
-<td>compute</td>
-<td>bf16 autocast + <code>torch.compile</code>（S1 正式波次的实际 run contract）</td>
+<td>历史计算</td>
+<td>S1 261-run 波次为 bf16 autocast + <code>torch.compile</code>，仅作历史审计</td>
+</tr>
+<tr>
+<td>当前计算标准</td>
+<td>bf16 autocast，默认不 <code>torch.compile</code>；当前标准 S1 scaling 结果尚未重跑</td>
 </tr>
 <tr>
 <td>历史测量</td>
@@ -96,7 +104,7 @@ seed 42、对应 run 的最终 step；没有多 seed 时，不宣称误差条、
 </tr>
 <tr>
 <td>cadence</td>
-<td>epoch 与原始 table 网格 online validation 每 10 步；table 加密取点仅在最终步监测；frequency 轴 exact-frequency 每 100 步；fixed probe 仅在诊断 run 中记录</td>
+<td>当前默认主实验为每 10 步；只需曲线可用每 50 步；只需末端可用 <code>--val_steps 1000</code>；frequency eval 必须跟随所选测量步点</td>
 </tr>
 <tr>
 <td>结果命名</td>
@@ -104,11 +112,13 @@ seed 42、对应 run 的最终 step；没有多 seed 时，不宣称误差条、
 </tr>
 </tbody>
 </table>
-<p>普通 epoch/table 网格不计算 exact-frequency，也不传 <code>--freq_index</code>，只保留
-在线 train/val 与 online gap 指标；fixed-probe 仅作诊断；frequency 轴单独使用
-<code>freq_{arm}_{fs,fe}_fixed</code> 八个 run，并开启 exact-frequency 观测。</p>
-<h2>2. 数据完整性与 QC</h2>
-<p>正式结果共 <strong>seed 42：109 个 run + seed 43/44：各 76 个 run = 261 个正式 run</strong>：</p>
+<p>历史普通 epoch/table 网格不计算 exact-frequency，也不传 <code>--freq_index</code>，只保留
+在线 train/val 与 online gap 指标；fixed-probe 仅作诊断；历史 frequency 轴单独使用
+<code>freq_{arm}_{fs,fe}_fixed</code> 八个 run，并开启 exact-frequency 观测。按最新标准
+重跑时，频率观测应按实验目的选择完整曲线或末端 <code>val_steps</code>，不能沿用旧波次
+的 compile 假设。</p>
+<h2>2. 数据完整性与 QC（历史 S1 波次）</h2>
+<p>历史 S1 波次共 <strong>seed 42：109 个 run + seed 43/44：各 76 个 run = 261 个 run</strong>：</p>
 <table>
 <thead>
 <tr>
@@ -150,11 +160,12 @@ seed 42、对应 run 的最终 step；没有多 seed 时，不宣称误差条、
 </tr>
 </tbody>
 </table>
-<p>261 个正式 run 均通过统一 QC：</p>
+<p>这 261 个历史 run 均通过当时计算契约下的统一 QC：</p>
 <ul>
 <li><code>summary.json</code> 存在且 run id、步数、epoch batches 与命名一致；</li>
-<li>261 个正式 run 使用 <code>compute_dtype=bf16</code>、<code>torch_compile=true</code>、RMSProp <code>(0.0,0.99)</code>、
-  <code>table_lr_scale=2.0</code>；</li>
+<li>261 个 run 使用 <code>compute_dtype=bf16</code>、<code>torch_compile=true</code>、RMSProp <code>(0.0,0.99)</code>、
+  <code>table_lr_scale=2.0</code>。其中 <code>torch_compile=true</code> 是旧波次事实，不符合最新
+  <code>agents.md</code> 的默认标准；</li>
 <li>原始 epoch 网格、21 个 table dense run 及 frequency 轴的 validation/table norm
   cadence 为 10 步；48 个 seed-42 与全部 72 个 seed-43/44 table sparse run 的
   val/table norm 只在最终 step 1000 触发；</li>
@@ -162,8 +173,10 @@ seed 42、对应 run 的最终 step；没有多 seed 时，不宣称误差条、
   <code>38d1254a827759d6</code>；</li>
 <li>JSON/JSONL 产物无 NaN、无坏行；table 网格均有
   <code>table_occupancy.json</code>；</li>
-<li>正式网格无缺失 run，无异常 loss。</li>
+<li>历史网格无缺失 run，无异常 loss；这不等价于当前 no-compile 标准已通过 QC。</li>
 </ul>
+<p>当前标准下的 S1 epoch/table/frequency 重跑尚未产生可纳入本报告的结果，因此
+后文所有三 seed 数字都应读作“旧计算契约下的探索性数学审计”。</p>
 <p>独立的 <code>bb_safety_L1_nogram_5000</code> 不是这 109 个正式 run 的一部分：它使用
 旧 cadence（50 步）和 fp32、无 compile，只作为长训 backbone gap 的量级
 参考。它在 step 5000 的 fixed train / val / gap 为
@@ -518,6 +531,56 @@ hits 为横轴时同样没有可辨识的趋势。也就是说，当前 pilot �
 解释变量”；它还不能排除 context identity、训练历史或 module interaction
 的作用。图 <code>figs/rowlevel_gap_vs_table_size.png</code> 同时展示 row-level
 分布、load 分箱曲线，以及与正式 fixed gap 的对照。</p>
+<h3>4.2 clean 单表重扫（2026-08-25，新 SSOT 框架）</h3>
+<p><strong>框架说明。</strong>本节之前的 table 轴全部基于旧架构（4 层独立表求和 ×
+每层 2-hash 半维拼接 × <code>vocab × mult</code> 锁定），已降级为
+<strong>[HISTORICAL 4-LAYER FRAMEWORK]</strong>。2026-08-25 用户拍板的新 SSOT
+（<code>docs/notes/method/clean-table-rework.md</code>）改为 <strong>clean 单表</strong>：
+单个 <code>nn.Embedding(R, 768)</code>、单层、单 hash、<strong>R 任意设定</strong>
+（<code>--bigram_clean_table R</code>，run_id namespace <code>ctbl_*</code>）。
+零碰撞锚点复用 packed-context→row 静态映射（<code>--bigram_perfect_map</code>，
+R = distinct+1 = 3,538,294；val OOV token 率 4.30%）。</p>
+<p><strong>结果</strong>（seed 42，1000 步，online final gap；N = 3,538,293 distinct
+bigram contexts）：</p>
+<table border="1" cellspacing="0" cellpadding="4">
+<tr><th>R</th><th>K/N</th><th>gap</th><th>R</th><th>K/N</th><th>gap</th></tr>
+<tr><td>64K</td><td>0.019</td><td>+0.097</td><td>1.5M</td><td>0.444</td><td>+0.306</td></tr>
+<tr><td>128K</td><td>0.037</td><td>+0.146</td><td>2M</td><td>0.593</td><td>+0.305</td></tr>
+<tr><td>256K</td><td>0.074</td><td>+0.159</td><td>2.5M</td><td>0.741</td><td>+0.370</td></tr>
+<tr><td>384K</td><td>0.111</td><td>+0.190</td><td>3M</td><td>0.889</td><td>+0.393</td></tr>
+<tr><td>512K</td><td>0.148</td><td>+0.218</td><td>4M</td><td>1.185</td><td>+0.466</td></tr>
+<tr><td>768K</td><td>0.222</td><td>+0.281</td><td><strong>perfect</strong></td><td><strong>1.0 零碰撞</strong></td><td><strong>+0.561</strong></td></tr>
+<tr><td>1M</td><td>0.296</td><td>+0.265</td><td></td><td></td><td></td></tr>
+</table>
+<figure><img src="figs/fig_clean_gap_vs_KN.png" alt="clean single-table gap vs R"><figcaption>clean 单表
+bigram 的 gap vs K/N（蓝线，12 个 hash 点 + 红星零碰撞锚点）；灰色细线为旧 4 层框架
+34 点对照。clean 曲线光滑近似单调，旧框架 ±0.3–0.4 的"jamming 锯齿"消失。</figcaption></figure>
+<figure><img src="figs/fig_clean_forking.png" alt="clean forking comparison"><figcaption>clean 框架下的
+forking 对比：零碰撞（红）vs R=1M 碰撞（蓝），同架构唯一差异是碰撞。epoch 边界（337/674）
+瞬时 train 跳变与 epoch 级 gap 增速都是零碰撞更大。</figcaption></figure>
+<p><strong>发现：</strong></p>
+<ol>
+<li><strong>旧框架的"jamming 锯齿"是架构伪影，不是 jamming 物理</strong>。clean 单表下
+gap-R 曲线光滑近似单调（仅 768K→1M 微降 0.016、1.5M≈2M 平台），旧 4 层的剧烈锯齿
+（§4 正文）来自 4 层 × 2-hash 共 8 组 hash 的干涉。此前的临界涨落解释被新框架否证。</li>
+<li><strong>碰撞抑制 gap 跨框架复现</strong>：clean perfect（+0.561）vs clean R=1M 碰撞
+（+0.265）= <strong>2.12 倍</strong>（旧框架单层对为 2.17 倍）。R=4M（K/N=1.19，
+collision=0.325）的 hash 点（+0.466）仍显著低于 perfect——<strong>R&gt;N 时 hash 伪碰撞
+继续压制 gap，零碰撞的价值不随容量增大消失</strong>。</li>
+<li><strong>旧 4 层的高 gap 主要是参数量+求和结构</strong>：同 R≈512K，旧 4 层 mult=64
+gap=0.999 vs clean 0.218（4.6 倍）；旧单层 K=2 拼接 0.260 vs clean 0.218——
+2-hash 拼接贡献约 19%，4 层求和贡献约 3.8 倍，"表记忆容量"本身不是主因。</li>
+<li><strong>forking 在 clean 下零碰撞双赢</strong>：瞬时跳变（@337 −0.136 vs −0.115）
+与 epoch 净积累都快；旧框架"碰撞版瞬时跳变更大"的干涉模式消失，进一步佐证锯齿=伪影。</li>
+<li>min(N,K) 模型（虚线，归一化到 perfect）在 K/N&lt;0.3 段仍高估斜率（实测 log 斜率
+约 0.35–0.5），频率加权修正依然必要。</li>
+</ol>
+<p>产物：<code>figs/fig_clean_gap_vs_KN.png</code>、<code>figs/fig_clean_forking.png</code>；
+分析脚本 <code>tasks/s1_scaling_three_axis/analysis/plot_clean_figures.py</code>；
+launcher <code>tasks/s1_scaling_three_axis/launchers/run_clean_table_grid.sh</code>；
+每档 <code>table_occupancy.json</code> 在对应 <code>ctbl_*_fixed</code> 目录。
+详细登记见 <code>docs/experiment-log.md</code> §22。后续：seed 43/44、trigram/both
+module、clean 版 row-level、jamming 区（1M–3M）加密。</p>
 <h2>5. Exact-frequency axis</h2>
 <p>frequency 轴使用 L4 + 1M table 的
 <code>freq_{bigram,trigram,both,nogram}_{fs,fe}_fixed</code>。历史最终 fixed-step
@@ -696,7 +759,7 @@ profile-likelihood 和 seed 43/44。</p>
 </ul>
 <p>图：<code>figs/epoch_deltaG_fs_multiseed.png</code>（逐 seed 点 + 均值）；汇总表
 <code>figs/epoch_final_gap.csv</code>（96 行，三 seed）。</p>
-<h3>7.2 H3：table collision/saturation 律 —— trigram 幂律无饱和，both 不可定量</h3>
+<h3>7.2 H3：table collision/saturation 律 —— 有限窗口上升，但饱和未解析</h3>
 <p>table 轴三 seed（12 个公共 mult × 3 module，online final gap @1000）：</p>
 <p><strong>trigram</strong>（seed-stable，单调）：</p>
 <table>
@@ -769,12 +832,12 @@ profile-likelihood 和 seed 43/44。</p>
 </tbody>
 </table>
 <ul>
-<li>trigram gap 三 seed 在 mult 1→64 上<strong>单调上升、cv 2–17%（seed-stable）</strong>；
-  mult 8–64 区间的 log-log 斜率约 0.6–1.0（近似幂律指数 ~0.8）。</li>
-<li><strong>否证了此前"48–64 饱和拐点"的怀疑</strong>：seed 43/44 在 48→64 仍上升，
-  只有 seed 42 在 56→64 回落，三 seed 平均仍上升。因此 H3 的
-  "饱和 regime"在当前覆盖（≤1M 逻辑地址）内<strong>不成立</strong>，trigram gap 未饱和。
-  原计划加密 trigram 40–64 饱和区间的批次因此不再必要。</li>
+<li>trigram gap 在 mult 1→64 的观测窗口内总体上升，跨 seed 离散度为
+  2–17%；mult 8–64 的 log-log 斜率约 0.6–1.0，只能作为有限窗口的
+  形状摘要，不能升级为全区间幂律。</li>
+<li>seed 43/44 在 48→64 仍上升，但 seed 42 在 56→64 回落；因此当前窗口
+  未解析出稳定的饱和平台，也不能据此否证饱和。是否存在 jamming/saturation
+  转折，需要 no-compile 标准下的扩展 table 轴和更多 seed。</li>
 </ul>
 <p><strong>bigram</strong>：mult 8–32 稳（cv 2–13%），但 mult=6/24/48/64 个别点 cv 25–48%
 （seed-sensitive 点）；总体随 mult 上升但无干净幂律。</p>
@@ -876,7 +939,7 @@ mult≥48 时 I 跨 seed 剧烈变号（mult=48：+0.92/−0.27/−0.90）——
 </tr>
 <tr>
 <td>H3 table saturation</td>
-<td><strong>否证：trigram 幂律上升无饱和（≤1M）；both 大表区不可定量</strong></td>
+<td><strong>有限窗口上升；饱和与全区间幂律均未解析；both 大表区不可定量</strong></td>
 <td>§6.2</td>
 </tr>
 <tr>
@@ -999,12 +1062,11 @@ Plotly HTML（<code>rel_gap_vs_2R_multiseed.html</code>、<code>rel_gap_vs_frequ
   data/runs_scaling
 .venv/bin/python docs/plot_scripts/gen_s1_relationship_figs.py
 </code></pre>
-<p>当前交付完成的是：seed 42 正式 full grid、<strong>seed 43/44 三 seed 复现
-（epoch 96 / table 72 / frequency 16 个新 run）</strong>、table 加密最终取点、
-row-level recovery pilot、固定 probe / exact-f / occupancy 测量、产物 QC、
-三轴图、多 seed 汇总与 H1–H4 猜想检验（§6）、本附录回填。
-仍保留跨 seed profile-likelihood，以及将三轴结果提升为主报告的最终 scaling claim；
-在这些完成前，不更新 <code>docs/report/index.html</code> 的主线结论。</p>
+<p>当前已完成的是旧 compile 波次的 seed 42/43/44 数据归档、测量审计、
+三轴图和探索性数学摘要；这些产物不构成当前 no-compile 标准下的完成证明。
+仍待完成 no-compile 标准的基础 QC、三轴重跑、跨 seed profile-likelihood，
+以及将三轴结果提升为主报告的最终 scaling claim；在这些完成前，不更新
+<code>docs/report/index.html</code> 的主线结论。</p>
 <h2>9. 关系图产物索引</h2>
 <p>以下产物由 <code>docs/plot_scripts/gen_s1_relationship_figs.py</code> 生成，均只读取
 <code>data/runs_scaling/*_fixed/</code>：</p>
