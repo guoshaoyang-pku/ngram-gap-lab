@@ -270,23 +270,22 @@ only the post-warmup shape from linear to cosine:
 | run_id stem | changed flags | status |
 |---|---|---|
 | `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | done; passes gate |
-| `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | running on ophis-gpu GPU 2; epoch-alignment control |
-| `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | running on ophis-gpu GPU 4; epoch-alignment control |
+| `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | done; passes epoch-alignment control |
+| `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | done; passes epoch-alignment control |
 | `schedgrid_v2_cosine_w350_start10_floor05_s43_r1048576_both` | same as first row except `--seed 43` | running on ophis-gpu GPU 1; seed control |
-| `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | planned; prior detached launch was not created after SSH interruption |
+| `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | running on ophis-gpu GPU 2; seed control |
 
 | schedule | train @1000 | val @1000 | online gap @1000 | gate |
 |---|---:|---:|---:|---|
+| cosine, warmup 200, start 0.10, floor 0.05 | 3.8282 | 4.4730 | +0.6448 | pass |
 | cosine, warmup 350, start 0.10, floor 0.05 | 3.7047 | 4.3610 | +0.6563 | pass |
+| cosine, warmup 500, start 0.10, floor 0.05 | 3.5898 | 4.1872 | +0.5973 | pass |
 
-The endpoint-matched cosine arm passes seed 42. The two alignment controls
-must finish before assigning that success to the schedule rather than its
-location near replay. The unchanged 350-step seed controls run concurrently
-only to avoid idle GPUs; all four controls must pass before it is considered
-an SSOT candidate.
+All three warmup locations pass seed 42. The unchanged 350-step seed controls
+run concurrently; both must pass before it is considered an SSOT candidate.
 
 The 350-step peak is only 13 steps after the first fixed-replay boundary
-(`epoch_batches=337`). The 200- and 500-step controls deliberately move the
+(`epoch_batches=337`). The successful 200- and 500-step controls move the
 peak far from that boundary while holding data and all other optimizer
-coordinates fixed. They are required before treating a successful 350-step
-arm as an epoch-independent schedule result.
+coordinates fixed. This rules out that local peak/replay alignment as the
+explanation for the current seed-42 result.
