@@ -73,6 +73,7 @@ class Config:
     table_lr_scale: float = 2.0       # multiplier on the n-gram table LR
     table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     table_mult: int = 64              # n-gram table size = vocab_size * table_mult
+    bigram_clean_table: int = 0       # clean single-table rows R (0=off); SSOT: clean-table-rework.md
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
@@ -329,27 +330,47 @@ class NanoGPT(nn.Module):
             )
             # +1 row: OOV/UNK bucket for contexts absent from the train scan.
             self.bigram_table_size = int(_pack["n_distinct"]) + 1
-            # Single layer keeps the collision-free table within the fp32
-            # memory budget (4 layers x N x 768 x 12B would exceed one H200).
-            self.bigram_ve_layers = {ngram_layers[0]}
+            if config.bigram_clean_table:
+                # clean 单表 perfect anchor (SSOT): single layer, K=1 full-width.
+                self.bigram_ve_layers = {ngram_layers[0]}
+                self.bigram_K = 1
+            else:
+                # legacy 4-layer framework: single layer keeps the fp32 table
+                # within one H200 (4 layers x N x 768 x 12B would not fit).
+                self.bigram_ve_layers = {ngram_layers[0]}
+                self.bigram_K = 2
         elif config.enable_nanogpt_ngram_ve and config.enable_bigram_ve:
-            self.bigram_table_size = config.vocab_size * config.table_mult
-            self.bigram_ve_layers = (
-                {ngram_layers[0]} if config.bigram_single_layer else set(ngram_layers)
-            )
+            if config.bigram_clean_table:
+                # clean 单表 (SSOT): one nn.Embedding(R, n_embd), single layer,
+                # single hash, R freely set (no vocab*mult lock-in).
+                self.bigram_table_size = config.bigram_clean_table
+                self.bigram_ve_layers = {ngram_layers[0]}
+                self.bigram_K = 1
+            else:
+                self.bigram_table_size = config.vocab_size * config.table_mult
+                self.bigram_ve_layers = (
+                    {ngram_layers[0]} if config.bigram_single_layer else set(ngram_layers)
+                )
+                self.bigram_K = 2
         else:
             self.bigram_table_size = config.vocab_size * config.table_mult
             self.bigram_ve_layers = set()
-        self.bigram_K = 2
+            self.bigram_K = 2
         half_dim = config.n_embd // 2
         _bp = expand_bigram_hash_primes(_BASE_BIGRAM_PRIMES, len(ngram_layers))
         self.bigram_hash_primes_per_layer = {}
         self.bigram_ves = nn.ModuleDict()
         for j, li in enumerate(sorted(self.bigram_ve_layers)):
-            self.bigram_ves[str(li)] = nn.ModuleList([
-                nn.Embedding(self.bigram_table_size, half_dim),
-                nn.Embedding(self.bigram_table_size, config.n_embd - half_dim),
-            ])
+            if self.bigram_K == 1:
+                # clean 单表: one full-width embedding per layer
+                self.bigram_ves[str(li)] = nn.ModuleList([
+                    nn.Embedding(self.bigram_table_size, config.n_embd),
+                ])
+            else:
+                self.bigram_ves[str(li)] = nn.ModuleList([
+                    nn.Embedding(self.bigram_table_size, half_dim),
+                    nn.Embedding(self.bigram_table_size, config.n_embd - half_dim),
+                ])
             self.bigram_hash_primes_per_layer[li] = _bp[j]
         self.trigram_ve_layers = (
             ({ngram_layers[0], ngram_layers[-2], ngram_layers[-1]}
@@ -453,17 +474,18 @@ class NanoGPT(nn.Module):
                 yield p
 
     def _bigram_row_indices(self, li, prev_idx, idx):
-        """Row indices into the two bigram hash embeddings for layer li.
+        """Row indices into the bigram hash embedding(s) for layer li.
 
-        Perfect mode: both groups share the collision-free packed-context map
-        (identical rows, equivalent to one table split across half-dims).
+        Perfect mode: groups share the collision-free packed-context map
+        (clean K=1: a single index list; legacy K=2: identical rows twice,
+        equivalent to one table split across half-dims).
         """
         if self.bigram_perfect:
             rows = self.bigram_perfect_index[prev_idx * self.config.vocab_size + idx]
-            return [rows, rows]
+            return [rows] * self.bigram_K
         primes = self.bigram_hash_primes_per_layer[li]
         return [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
-                for p1, p2 in primes]
+                for p1, p2 in primes[:self.bigram_K]]
 
     def _compute_input_ngram_residual(self, idx):
         """Over-encoding: sum all enabled layers' n-gram values, no gate."""
@@ -1181,6 +1203,10 @@ def main():
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,
                         help="n-gram table size = vocab_size * table_mult (default 64)")
+    parser.add_argument("--bigram_clean_table", type=int, default=0,
+                        help="clean single-table rows R (0=off): one nn.Embedding(R, n_embd), "
+                             "single layer, single hash, R freely set. SSOT: "
+                             "docs/notes/method/clean-table-rework.md")
     parser.add_argument("--bigram_perfect_map", default="",
                         help="path to npz with int32 packed-bigram->row map; enables "
                              "collision-free bigram table (first ngram layer only, "
@@ -1207,8 +1233,8 @@ def main():
     parser.add_argument("--freq_eval_interval", type=int, default=10)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
     parser.add_argument("--exact_freq_eval_interval", type=int, default=10,
-                        help="steps between exact-frequency evaluations; epoch "
-                             "boundaries and the final step are also evaluated")
+                        help="exact-frequency interval when --val_steps is unset; "
+                             "otherwise follows the specified validation steps")
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
     parser.add_argument("--epoch_batches", type=int, default=0,
@@ -1258,6 +1284,7 @@ def main():
         table_optimizer=args.table_optimizer,
         table_lr_scale=args.table_lr_scale,
         table_mult=args.table_mult,
+        bigram_clean_table=args.bigram_clean_table,
         bigram_perfect_map=args.bigram_perfect_map,
         bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
@@ -1457,9 +1484,10 @@ def main():
 
         # periodic val
         val_due = (
-            (cfg.val_steps and (step + 1) in cfg.val_steps)
-            or (not cfg.val_steps and (step + 1) % cfg.val_interval_steps == 0)
-            or step == cfg.max_steps - 1
+            ((cfg.val_steps and (step + 1) in cfg.val_steps)
+             or (not cfg.val_steps
+                 and ((step + 1) % cfg.val_interval_steps == 0
+                      or step == cfg.max_steps - 1)))
         )
         if val_due:
             last_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
@@ -1485,10 +1513,7 @@ def main():
         # when --val_steps is set, probe follows the exact val steps (it needs
         # a val eval to form the fixed gap)
         if cfg.val_steps:
-            probe_due = (
-                (step + 1) in cfg.val_steps
-                or step == cfg.max_steps - 1
-            )
+            probe_due = (step + 1) in cfg.val_steps
         else:
             probe_due = (
                 (step + 1) % args.probe_eval_interval == 0
@@ -1515,9 +1540,9 @@ def main():
                   f"| epoch {train_ds._epoch+1}")
         fixed_freq_due = (
             ((cfg.val_steps and (step + 1) in cfg.val_steps)
-             or (not cfg.val_steps and (step + 1) % args.freq_eval_interval == 0)
-             or epoch_boundary
-             or step == cfg.max_steps - 1)
+             or (not cfg.val_steps
+                 and ((step + 1) % args.freq_eval_interval == 0
+                      or step == cfg.max_steps - 1)))
         )
         if fixed_train_freq_log is not None and fixed_freq_due:
             fixed_train_freq = evaluate_freq_bins(
@@ -1538,9 +1563,8 @@ def main():
         exact_freq_due = (
             ((cfg.val_steps and (step + 1) in cfg.val_steps)
              or (not cfg.val_steps
-                 and (step + 1) % args.exact_freq_eval_interval == 0)
-             or (not cfg.val_steps and epoch_boundary)
-             or step == cfg.max_steps - 1)
+                 and ((step + 1) % args.exact_freq_eval_interval == 0
+                      or step == cfg.max_steps - 1)))
         )
         if exact_freq_log is not None and exact_freq_due:
             # exact-frequency marginal on the fixed diagnostic train batches and
@@ -1570,9 +1594,9 @@ def main():
         # periodic freq-bin eval (train + val)
         if freq_bin_log is not None and (
             ((cfg.val_steps and (step + 1) in cfg.val_steps)
-             or (not cfg.val_steps and (step + 1) % args.freq_eval_interval == 0)
-             or epoch_boundary
-             or step == cfg.max_steps - 1)
+             or (not cfg.val_steps
+                 and ((step + 1) % args.freq_eval_interval == 0
+                      or step == cfg.max_steps - 1)))
         ):
             # train freq-bin: reuse the CURRENT training batch's per-token
             # loss (pre-update, identical to the online train_loss) — no extra

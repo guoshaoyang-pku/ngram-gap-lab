@@ -165,12 +165,16 @@ def compute_occupancy(data_dir: str, shard_ids: list, vocab_size: int,
                       sequence_len: int, device_batch_size: int,
                       epoch_batches: int, table_mult: int,
                       branch_primes: Optional[dict] = None,
-                      context_counts: Optional[dict] = None) -> dict:
+                      context_counts: Optional[dict] = None,
+                      bigram_clean_table: int = 0) -> dict:
     """Compute per-branch / per-layer / per-hash occupancy for one training epoch.
 
     The epoch is the first `epoch_batches * device_batch_size` chunks of the
     train prefix (nested-prefix control).  If epoch_batches == 0, uses all
     chunks (full epoch).
+
+    bigram_clean_table > 0: clean 单表 mode (SSOT clean-table-rework.md) --
+    bigram branch = single layer, single hash, R = bigram_clean_table rows.
     """
     chunk_size = sequence_len + 1
     n_chunks = epoch_batches * device_batch_size if epoch_batches > 0 else None
@@ -194,6 +198,18 @@ def compute_occupancy(data_dir: str, shard_ids: list, vocab_size: int,
     out = {"bigram": {}, "trigram": {}}
     for branch, primes_list in (("bigram", bigram_primes), ("trigram", trigram_primes)):
         keys = _context_keys(tokens, vocab_size, branch)
+        if branch == "bigram" and bigram_clean_table > 0:
+            # clean 单表: layer-1 prime family, first hash only, R rows
+            clean_primes = [primes_list[0][:1]]
+            rows = hash_rows_for_branch(tokens, vocab_size, bigram_clean_table,
+                                        branch, clean_primes)
+            for li, h_rows in rows.items():
+                per_hash = [_row_occupancy_stats(h, keys[0], bigram_clean_table,
+                                                 context_counts)
+                            for h in h_rows]
+                out[branch][str(li)] = per_hash
+            result["bigram_clean_table"] = int(bigram_clean_table)
+            continue
         rows = hash_rows_for_branch(tokens, vocab_size, table_size, branch, primes_list)
         for li, h_rows in rows.items():
             per_hash = [_row_occupancy_stats(h, keys[0], table_size, context_counts)
@@ -218,13 +234,17 @@ if __name__ == "__main__":
     parser.add_argument("--device_batch_size", type=int, default=72)
     parser.add_argument("--epoch_batches", type=int, default=0)
     parser.add_argument("--table_mult", type=int, default=64)
+    parser.add_argument("--bigram_clean_table", type=int, default=0,
+                        help=">0: clean 单表 occupancy for the bigram branch "
+                             "(single layer, single hash, R rows)")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     occ = compute_occupancy(
         args.data_dir,
         [int(x) for x in args.train_shards.split(",") if x.strip()],
         args.vocab_size, args.sequence_len, args.device_batch_size,
-        args.epoch_batches, args.table_mult)
+        args.epoch_batches, args.table_mult,
+        bigram_clean_table=args.bigram_clean_table)
     save_occupancy_json(args.out, occ)
     print(f"[table_occupancy] saved {args.out}")
     print(f"[table_occupancy] logical addresses 2R = {occ['logical_addresses']}, "

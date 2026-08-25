@@ -73,6 +73,7 @@ class Config:
     table_lr_scale: float = 2.0       # multiplier on the n-gram table LR
     table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     table_mult: int = 64              # n-gram table size = vocab_size * table_mult
+    bigram_clean_table: int = 0       # clean single-table rows R (0=off); SSOT: clean-table-rework.md
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
@@ -329,27 +330,47 @@ class NanoGPT(nn.Module):
             )
             # +1 row: OOV/UNK bucket for contexts absent from the train scan.
             self.bigram_table_size = int(_pack["n_distinct"]) + 1
-            # Single layer keeps the collision-free table within the fp32
-            # memory budget (4 layers x N x 768 x 12B would exceed one H200).
-            self.bigram_ve_layers = {ngram_layers[0]}
+            if config.bigram_clean_table:
+                # clean 单表 perfect anchor (SSOT): single layer, K=1 full-width.
+                self.bigram_ve_layers = {ngram_layers[0]}
+                self.bigram_K = 1
+            else:
+                # legacy 4-layer framework: single layer keeps the fp32 table
+                # within one H200 (4 layers x N x 768 x 12B would not fit).
+                self.bigram_ve_layers = {ngram_layers[0]}
+                self.bigram_K = 2
         elif config.enable_nanogpt_ngram_ve and config.enable_bigram_ve:
-            self.bigram_table_size = config.vocab_size * config.table_mult
-            self.bigram_ve_layers = (
-                {ngram_layers[0]} if config.bigram_single_layer else set(ngram_layers)
-            )
+            if config.bigram_clean_table:
+                # clean 单表 (SSOT): one nn.Embedding(R, n_embd), single layer,
+                # single hash, R freely set (no vocab*mult lock-in).
+                self.bigram_table_size = config.bigram_clean_table
+                self.bigram_ve_layers = {ngram_layers[0]}
+                self.bigram_K = 1
+            else:
+                self.bigram_table_size = config.vocab_size * config.table_mult
+                self.bigram_ve_layers = (
+                    {ngram_layers[0]} if config.bigram_single_layer else set(ngram_layers)
+                )
+                self.bigram_K = 2
         else:
             self.bigram_table_size = config.vocab_size * config.table_mult
             self.bigram_ve_layers = set()
-        self.bigram_K = 2
+            self.bigram_K = 2
         half_dim = config.n_embd // 2
         _bp = expand_bigram_hash_primes(_BASE_BIGRAM_PRIMES, len(ngram_layers))
         self.bigram_hash_primes_per_layer = {}
         self.bigram_ves = nn.ModuleDict()
         for j, li in enumerate(sorted(self.bigram_ve_layers)):
-            self.bigram_ves[str(li)] = nn.ModuleList([
-                nn.Embedding(self.bigram_table_size, half_dim),
-                nn.Embedding(self.bigram_table_size, config.n_embd - half_dim),
-            ])
+            if self.bigram_K == 1:
+                # clean 单表: one full-width embedding per layer
+                self.bigram_ves[str(li)] = nn.ModuleList([
+                    nn.Embedding(self.bigram_table_size, config.n_embd),
+                ])
+            else:
+                self.bigram_ves[str(li)] = nn.ModuleList([
+                    nn.Embedding(self.bigram_table_size, half_dim),
+                    nn.Embedding(self.bigram_table_size, config.n_embd - half_dim),
+                ])
             self.bigram_hash_primes_per_layer[li] = _bp[j]
         self.trigram_ve_layers = (
             ({ngram_layers[0], ngram_layers[-2], ngram_layers[-1]}
@@ -453,17 +474,18 @@ class NanoGPT(nn.Module):
                 yield p
 
     def _bigram_row_indices(self, li, prev_idx, idx):
-        """Row indices into the two bigram hash embeddings for layer li.
+        """Row indices into the bigram hash embedding(s) for layer li.
 
-        Perfect mode: both groups share the collision-free packed-context map
-        (identical rows, equivalent to one table split across half-dims).
+        Perfect mode: groups share the collision-free packed-context map
+        (clean K=1: a single index list; legacy K=2: identical rows twice,
+        equivalent to one table split across half-dims).
         """
         if self.bigram_perfect:
             rows = self.bigram_perfect_index[prev_idx * self.config.vocab_size + idx]
-            return [rows, rows]
+            return [rows] * self.bigram_K
         primes = self.bigram_hash_primes_per_layer[li]
         return [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
-                for p1, p2 in primes]
+                for p1, p2 in primes[:self.bigram_K]]
 
     def _compute_input_ngram_residual(self, idx):
         """Over-encoding: sum all enabled layers' n-gram values, no gate."""
@@ -584,8 +606,12 @@ class NanoGPT(nn.Module):
                 targets.view(-1), ignore_index=-1, reduction="none"
             ).view_as(targets)
             loss = token_losses[targets.ne(-1)].mean()
-            if return_token_losses or return_injection_stats:
-                return token_losses if return_token_losses else loss, injection_stats
+            if return_token_losses and return_injection_stats:
+                return loss, token_losses, injection_stats
+            if return_token_losses:
+                return loss, token_losses
+            if return_injection_stats:
+                return loss, injection_stats
             return loss
         if return_token_losses:
             raise ValueError("return_token_losses requires targets")
@@ -1018,6 +1044,23 @@ def evaluate_fixed_probe(model: NanoGPT, fixed_train_probe, dtype: str = "fp32")
     return float(np.mean(losses)) if losses else float("nan")
 
 
+def accumulate_freq_bins(freq_index, inp, tgt, per_token_loss, vocab_size) -> dict:
+    """Accumulate per-frequency-bin stats from ONE already-forwarded batch.
+
+    Reuses the per-token loss of the current training batch (pre-update, the
+    same quantity as the online train loss), so freq-bin train-side stats are
+    a pure online measurement with zero extra compute.
+    """
+    from ngram_freq import FreqBinLossAccumulator
+    accs = {
+        "bigram": FreqBinLossAccumulator(freq_index, vocab_size, "bigram"),
+        "trigram": FreqBinLossAccumulator(freq_index, vocab_size, "trigram"),
+    }
+    for branch in accs:
+        accs[branch].update(inp, per_token_loss)
+    return {branch: acc.summary() for branch, acc in accs.items()}
+
+
 def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
                        vocab_size: int) -> dict:
     """Run per-frequency-bin loss accumulation on n_batches from loader.
@@ -1160,6 +1203,10 @@ def main():
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,
                         help="n-gram table size = vocab_size * table_mult (default 64)")
+    parser.add_argument("--bigram_clean_table", type=int, default=0,
+                        help="clean single-table rows R (0=off): one nn.Embedding(R, n_embd), "
+                             "single layer, single hash, R freely set. SSOT: "
+                             "docs/notes/method/clean-table-rework.md")
     parser.add_argument("--bigram_perfect_map", default="",
                         help="path to npz with int32 packed-bigram->row map; enables "
                              "collision-free bigram table (first ngram layer only, "
@@ -1185,9 +1232,9 @@ def main():
                         help="path to freq_index.npz; if set, enables freq-bin eval")
     parser.add_argument("--freq_eval_interval", type=int, default=10)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
-    parser.add_argument("--exact_freq_eval_interval", type=int, default=100,
-                        help="steps between exact-frequency evaluations; epoch "
-                             "boundaries and the final step are also evaluated")
+    parser.add_argument("--exact_freq_eval_interval", type=int, default=10,
+                        help="exact-frequency interval when --val_steps is unset; "
+                             "otherwise follows the specified validation steps")
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
     parser.add_argument("--epoch_batches", type=int, default=0,
@@ -1206,7 +1253,7 @@ def main():
     parser.add_argument("--probe_eval_interval", type=int, default=10,
                         help="steps between fixed-train/val probe evals (also fired "
                              "at every epoch boundary)")
-    parser.add_argument("--dtype", default="fp32", choices=["fp32", "bf16", "fp8"],
+    parser.add_argument("--dtype", default="bf16", choices=["fp32", "bf16", "fp8"],
                         help="compute dtype for the forward pass (autocast; "
                              "weights/optimizer stay fp32): fp32 | bf16 | fp8")
     parser.add_argument("--compile", action="store_true",
@@ -1237,6 +1284,7 @@ def main():
         table_optimizer=args.table_optimizer,
         table_lr_scale=args.table_lr_scale,
         table_mult=args.table_mult,
+        bigram_clean_table=args.bigram_clean_table,
         bigram_perfect_map=args.bigram_perfect_map,
         bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
@@ -1392,11 +1440,12 @@ def main():
     t0 = time.time()
     intervention_fired = False
     amp_ctx = _autocast_ctx(args.dtype)
+    cur_inp = cur_tgt = cur_ptl = None
     for step in range(cfg.max_steps):
         # gradient accumulation
         optimizer.zero_grad()
         accum_loss = 0.0
-        for _ in range(grad_accum):
+        for micro in range(grad_accum):
             try:
                 inp, tgt = next(train_iter)
             except StopIteration:
@@ -1406,7 +1455,12 @@ def main():
                 model.apply_intervention(train_ds._epoch)
                 intervention_fired = True
             with amp_ctx:
-                loss = model(inp, targets=tgt) / grad_accum
+                if freq_bin_log is not None and micro == grad_accum - 1:
+                    loss, ptl = model(inp, targets=tgt, return_token_losses=True)
+                    cur_inp, cur_tgt, cur_ptl = inp, tgt, ptl.detach()
+                    loss = loss / grad_accum
+                else:
+                    loss = model(inp, targets=tgt) / grad_accum
             loss.backward()
             accum_loss += loss.item()
         train_loss = accum_loss
@@ -1430,9 +1484,10 @@ def main():
 
         # periodic val
         val_due = (
-            (cfg.val_steps and (step + 1) in cfg.val_steps)
-            or (not cfg.val_steps and (step + 1) % cfg.val_interval_steps == 0)
-            or step == cfg.max_steps - 1
+            ((cfg.val_steps and (step + 1) in cfg.val_steps)
+             or (not cfg.val_steps
+                 and ((step + 1) % cfg.val_interval_steps == 0
+                      or step == cfg.max_steps - 1)))
         )
         if val_due:
             last_val_loss = evaluate_val(model, validation_batches, dtype=args.dtype)
@@ -1458,10 +1513,7 @@ def main():
         # when --val_steps is set, probe follows the exact val steps (it needs
         # a val eval to form the fixed gap)
         if cfg.val_steps:
-            probe_due = (
-                (step + 1) in cfg.val_steps
-                or step == cfg.max_steps - 1
-            )
+            probe_due = (step + 1) in cfg.val_steps
         else:
             probe_due = (
                 (step + 1) % args.probe_eval_interval == 0
@@ -1488,9 +1540,9 @@ def main():
                   f"| epoch {train_ds._epoch+1}")
         fixed_freq_due = (
             ((cfg.val_steps and (step + 1) in cfg.val_steps)
-             or (not cfg.val_steps and (step + 1) % args.freq_eval_interval == 0)
-             or epoch_boundary
-             or step == cfg.max_steps - 1)
+             or (not cfg.val_steps
+                 and ((step + 1) % args.freq_eval_interval == 0
+                      or step == cfg.max_steps - 1)))
         )
         if fixed_train_freq_log is not None and fixed_freq_due:
             fixed_train_freq = evaluate_freq_bins(
@@ -1509,9 +1561,10 @@ def main():
             }) + "\n")
             fixed_train_freq_log.flush()
         exact_freq_due = (
-            (step + 1) % args.exact_freq_eval_interval == 0
-            or epoch_boundary
-            or step == cfg.max_steps - 1
+            ((cfg.val_steps and (step + 1) in cfg.val_steps)
+             or (not cfg.val_steps
+                 and ((step + 1) % args.exact_freq_eval_interval == 0
+                      or step == cfg.max_steps - 1)))
         )
         if exact_freq_log is not None and exact_freq_due:
             # exact-frequency marginal on the fixed diagnostic train batches and
@@ -1541,14 +1594,15 @@ def main():
         # periodic freq-bin eval (train + val)
         if freq_bin_log is not None and (
             ((cfg.val_steps and (step + 1) in cfg.val_steps)
-             or (not cfg.val_steps and (step + 1) % args.freq_eval_interval == 0)
-             or epoch_boundary
-             or step == cfg.max_steps - 1)
+             or (not cfg.val_steps
+                 and ((step + 1) % args.freq_eval_interval == 0
+                      or step == cfg.max_steps - 1)))
         ):
-            # train freq-bin (independent diagnostic iterator: fresh train
-            # batches, never touches the training stream)
-            train_freq = evaluate_freq_bins(model, freq_train_iter, freq_index_obj,
-                                            args.freq_eval_batches, cfg.vocab_size)
+            # train freq-bin: reuse the CURRENT training batch's per-token
+            # loss (pre-update, identical to the online train_loss) — no extra
+            # forward, no diagnostic iterator, no training-stream consumption.
+            train_freq = accumulate_freq_bins(freq_index_obj, cur_inp, cur_tgt,
+                                              cur_ptl, cfg.vocab_size)
             # val freq-bin (same fixed val data every eval)
             val_freq = evaluate_freq_bins(model, fixed_freq_val_batches, freq_index_obj,
                                           args.freq_eval_batches, cfg.vocab_size)
