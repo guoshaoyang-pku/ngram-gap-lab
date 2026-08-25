@@ -2,8 +2,9 @@
 
 ## Status
 
-**Done — one seed / one clean-table anchor per software environment.** This is
-a convergence-quality gate for a learning-rate schedule, not evidence for a
+**Complete — the no-warmdown cosine candidate passes the registered
+multi-seed, epoch-alignment, and cross-stack gates.** This is a
+convergence-quality gate for a learning-rate schedule, not evidence for a
 table-size law or an injection-position conclusion.
 
 ## Question
@@ -112,12 +113,10 @@ More importantly, **100-step `warmup_constant` followed by a permanent
 it starts at `0.0004` or `0.001`. It must not be presented as a validated
 replacement for warmdown or used for a clean-table conclusion.
 
-The current setting SSOT is not silently changed by this diagnostic. Until an
-epoch-independent no-warmdown schedule passes this gate robustly, new
-clean-table grid/ablation launches are blocked: do not start or relabel
-`ctbl_v4w_*` as evidence. A user decision is required to either retain
-warmdown temporarily or authorize a new no-warmdown schedule search. The
-aborted first attempt with full freq-eval cadence is retained as
+The schedule search below clears that gate. The current setting SSOT is still
+not silently changed: promotion of the candidate into `agents.md` and default
+launchers remains an explicit user decision under P5. The aborted first
+attempt with full freq-eval cadence is retained as
 `schedcheck_v5_warmdown_r1048576_both_s42_aborted_freq10_fixed` and is not
 evidence.
 
@@ -260,7 +259,7 @@ falls linearly to 0.05× at step 1000. The oddity is not an epoch boundary; it
 is that the 350-step warmup and 650-step linear tail are coupled through one
 `warmdown_ratio`.
 
-## Phase 7: decouple the proven warmup from the tail (in progress)
+## Phase 7: decouple the proven warmup from the tail (complete)
 
 To test whether the historical *linear tail* is required, add an explicit
 `warmup_start_lr_mult` argument to the step-anchored `warmup_cosine` schedule.
@@ -273,7 +272,7 @@ only the post-warmup shape from linear to cosine:
 | `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | done; passes epoch-alignment control |
 | `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | done; passes epoch-alignment control |
 | `schedgrid_v2_cosine_w350_start10_floor05_s43_r1048576_both` | same as first row except `--seed 43` | done; passes gate |
-| `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | running on ophis-gpu GPU 2; seed control |
+| `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | done; passes gate |
 
 | schedule | train @1000 | val @1000 | online gap @1000 | gate |
 |---|---:|---:|---:|---|
@@ -285,10 +284,10 @@ only the post-warmup shape from linear to cosine:
 |---:|---:|---:|---:|---|
 | 42 | 3.7047 | 4.3610 | +0.6563 | pass |
 | 43 | 3.2595 | 4.4116 | +1.1522 | pass |
-| 44 | — | — | — | running |
+| 44 | 3.7207 | 4.3667 | +0.6460 | pass |
 
-All three warmup locations pass seed 42. The unchanged 350-step seed controls
-run concurrently; both must pass before it is considered an SSOT candidate.
+All three warmup locations pass seed 42, and all three seed controls pass at
+warmup 350. This clears the single-host schedule gate.
 
 The 350-step peak is only 13 steps after the first fixed-replay boundary
 (`epoch_batches=337`). The successful 200- and 500-step controls move the
@@ -296,7 +295,7 @@ peak far from that boundary while holding data and all other optimizer
 coordinates fixed. This rules out that local peak/replay alignment as the
 explanation for the current seed-42 result.
 
-## Phase 8: cross-stack reproduction (running)
+## Phase 8: cross-stack reproduction (complete)
 
 The v2 cosine candidate now has one independent host result plus an
 epoch-alignment control, but an SSOT candidate must also reproduce on the
@@ -305,4 +304,18 @@ checked before launch; the data contract remains the same.
 
 | run_id stem | host | changed coordinate | status |
 |---|---|---|---|
-| `schedgrid_v2_cosine_w350_start10_floor05_s42_3601` | 360-1 GPU 1 | software stack only | running |
+| `schedgrid_v2_cosine_w350_start10_floor05_s42_3601` | 360-1 GPU 1 | software stack only | done; passes gate |
+
+The synchronized `train.py`, `ngram_freq.py`, and schedule launcher had
+matching MD5 on local and 360-1 (train `6975c37287918cdf8809105e617f9394`).
+The cross-stack arm finishes at train `3.6200`, val `4.2780`, and online gap
+`+0.6580`, matching the ophis-gpu seed-42 result (`+0.6563`). The fully tested
+candidate is therefore:
+
+```text
+--lr 0.004 --lr_schedule warmup_cosine --warmup_steps 350 \
+--warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05
+```
+
+It is a step-anchored 0.0004 → 0.004 warmup followed by a cosine decay to
+0.0002 at step 1000. No epoch quantity is read.
