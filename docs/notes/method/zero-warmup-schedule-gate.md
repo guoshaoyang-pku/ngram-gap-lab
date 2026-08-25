@@ -272,8 +272,8 @@ only the post-warmup shape from linear to cosine:
 | `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | done; passes gate |
 | `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | running on ophis-gpu GPU 2; epoch-alignment control |
 | `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | running on ophis-gpu GPU 4; epoch-alignment control |
-| `schedgrid_v2_cosine_w350_start10_floor05_s43_r1048576_both` | same as first row except `--seed 43` | running on ophis-gpu GPU 0; seed control |
-| `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | running on ophis-gpu GPU 1; seed control |
+| `schedgrid_v2_cosine_w350_start10_floor05_s43_r1048576_both` | same as first row except `--seed 43` | running on ophis-gpu GPU 1; seed control |
+| `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | planned; prior detached launch was not created after SSH interruption |
 
 | schedule | train @1000 | val @1000 | online gap @1000 | gate |
 |---|---:|---:|---:|---|
