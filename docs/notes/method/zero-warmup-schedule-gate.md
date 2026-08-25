@@ -242,8 +242,8 @@ diagnostic controls, **not** an adoption of warmdown as the new setting.
 
 | run_id stem | changed flag | status |
 |---|---|---|
-| `schedgrid_v1_warmdown_s43_r1048576_both` | `--seed 43 --lr_schedule warmdown` | planned |
-| `schedgrid_v1_warmdown_s44_r1048576_both` | `--seed 44 --lr_schedule warmdown` | planned |
+| `schedgrid_v1_warmdown_s43_r1048576_both` | `--seed 43 --lr_schedule warmdown` | running on ophis-gpu GPU 0 |
+| `schedgrid_v1_warmdown_s44_r1048576_both` | `--seed 44 --lr_schedule warmdown` | running on ophis-gpu GPU 3 |
 
 Interpretation is pre-registered: if warmdown passes both seeds while the
 cosine candidate fails, the issue is schedule shape rather than insufficient
