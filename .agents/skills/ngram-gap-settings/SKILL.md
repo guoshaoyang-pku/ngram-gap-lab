@@ -26,12 +26,12 @@ differences from it in each run entry.
 | standard run | seed `42`, 1000 steps, bf16, no `torch.compile` |
 | primary measurement | online training-batch loss and fixed validation-batch loss |
 
-Always record `--lr_schedule warmup_constant --warmup_ratio 0.35` explicitly.
-All new experiments linearly warm from 0.1×LR to 1×LR over the initial 35% of
-their declared progress, then hold LR fixed; they may not use warmdown.
-`warmdown` exists only to rerun a registered historical run. Zero-warmup
-`constant` is an optimizer diagnostic, not a main-line setting unless a
-registered convergence check justifies it.
+Always record `--lr_schedule warmup_constant --warmup_steps 100` explicitly.
+All new experiments linearly warm from 0.1×LR at step 1 to 1×LR at step 100,
+then hold LR fixed; this boundary does not move with epochs or total steps.
+They may not use warmdown. `warmdown` exists only to rerun a registered
+historical run. Zero-warmup `constant` is an optimizer diagnostic, not a
+main-line setting unless a registered convergence check justifies it.
 
 ## Do not leave table capacity implicit
 

@@ -36,7 +36,7 @@
 | n-gram 模块 | bigram + trigram clean 单表，`input` / wte 注入 |
 | **table size** | 非 table-size 固定 **`R_bigram = R_trigram = 2^20 = 1,048,576`**；R 控制碰撞，table-size 线才可改它且它是唯一变量，不能回退到 legacy `table_mult` |
 | table 优化器 | **RMSProp 无动量**，betas `(0.0, 0.99)`；历史对照使用 β₂ = `0.999` |
-| backbone 优化器 | AdamW `(0.8, 0.95)`，lr 0.004，wd 0.1，**前 35% 线性 warmup 后固定 LR** |
+| backbone 优化器 | AdamW `(0.8, 0.95)`，lr 0.004，wd 0.1，**前 100 step 线性 warmup 后固定 LR** |
 | 数据 / 评测 | fixed 顺序 epoch replay，seed 42，**1000 默认** / 2000 延长；online train loss + fixed val loss，主曲线每 10 步评估 |
 
 ## 4. 当前实验队列

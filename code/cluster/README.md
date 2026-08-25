@@ -12,10 +12,10 @@ bash code/cluster/run_baseline.sh <gpu> <run_id> [steps]
 It implements the repository contract for a non-table-size experiment:
 `input` injection; clean bigram and trigram tables with
 `R_bigram = R_trigram = 2^20`; backbone LR `0.004`; RMSProp table optimizer
-with `--table_betas 0.0,0.99`; table LR scale `2.0`; 35% linear warmup then
-fixed LR (`--lr_schedule warmup_constant --warmup_ratio 0.35`); 1000 steps by
-default; online train loss and fixed validation/frequency evaluation every 10
-steps.
+with `--table_betas 0.0,0.99`; table LR scale `2.0`; a 100-step linear warmup
+then fixed LR (`--lr_schedule warmup_constant --warmup_steps 100`); 1000 steps
+by default; online train loss and fixed validation/frequency evaluation every
+10 steps.
 
 For a table-size experiment, do not pass extra positional arguments to this
 launcher. Register the run first, then create a dedicated launcher/command
