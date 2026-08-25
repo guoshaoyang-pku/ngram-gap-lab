@@ -190,7 +190,7 @@ implementation.
 | 0.10 | 4.7531 | 5.0237 | +0.2705 |
 | 0.20 | 4.4065 | 4.7373 | +0.3308 |
 
-## Phase 4: cosine-tail continuation (planned)
+## Phase 4: cosine-tail continuation (complete)
 
 Phase 3 improves monotonically from a 0.10 to 0.20 floor without changing
 the warmup or model. To locate whether this is still an improving direction
@@ -199,5 +199,23 @@ contract and set only the terminal cosine multiplier to 0.30 or 0.40.
 
 | run_id stem | changed flag | status |
 |---|---|---|
-| `schedgrid_v1_cosine_w300_floor30_r1048576_both_s42` | `--cosine_min_lr_mult 0.30` | running on ophis-gpu GPU 0 |
-| `schedgrid_v1_cosine_w300_floor40_r1048576_both_s42` | `--cosine_min_lr_mult 0.40` | running on ophis-gpu GPU 3 |
+| `schedgrid_v1_cosine_w300_floor30_r1048576_both_s42` | `--cosine_min_lr_mult 0.30` | done; passes gate |
+| `schedgrid_v1_cosine_w300_floor40_r1048576_both_s42` | `--cosine_min_lr_mult 0.40` | done; provisional winner, passes gate |
+
+| cosine floor | train @1000 | val @1000 | online gap @1000 |
+|---:|---:|---:|---:|
+| 0.30 | 4.0675 | 4.5907 | +0.5231 |
+| 0.40 | 4.0531 | 4.6150 | +0.5619 |
+
+## Phase 5: provisional-winner seed check (planned)
+
+The provisional candidate is `warmup_cosine`, 300-step `0.001 → 0.004`
+warmup, cosine terminal multiplier `0.40`, with all remaining Phase-2
+coordinates unchanged. This is a seed robustness check, not a new schedule
+search. Both runs must independently meet the same convergence gate before the
+pending cross-stack seed-42 replication is treated as decisive.
+
+| run_id stem | changed flag | status |
+|---|---|---|
+| `schedgrid_v1_cosine_w300_floor40_s43_r1048576_both` | `--seed 43` | planned on ophis-gpu GPU 0 |
+| `schedgrid_v1_cosine_w300_floor40_s44_r1048576_both` | `--seed 44` | planned on ophis-gpu GPU 3 |
