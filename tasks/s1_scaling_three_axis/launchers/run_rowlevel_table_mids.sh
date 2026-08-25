@@ -55,7 +55,7 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult>
     --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --epoch_batches 337 \
-    --fixed_train_probe 0 \
+    --fixed_train_probe 4 \
     --val_steps 1000 \
     --table_betas 0.0,0.99 \
     --table_lr_scale 2.0 \
