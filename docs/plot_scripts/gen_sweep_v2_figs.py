@@ -313,8 +313,8 @@ def main():
             continue
         st = np.array([p["step"] for p in log])
         gp = np.array([p["gap"] for p in log])
-        ax.plot(st, smooth(gp.tolist()), "o-", color=arm["color"], linewidth=2.1,
-                markersize=2.6, label=f"{arm['key']} (final {gp[-1]:+.2f})")
+        ax.plot(st, smooth(gp.tolist(), window=21), "o-", color=arm["color"], linewidth=2.1,
+                markersize=2.2, label=f"{arm['key']} (final {gp[-1]:+.2f})")
     ax.axhline(0, color=LINE, linewidth=1.0, linestyle="--")
     ax.set_xlabel("step")
     ax.set_ylabel("gap = val − train")

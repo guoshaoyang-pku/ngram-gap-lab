@@ -95,7 +95,7 @@ def is_scaling_summary(summary, physical_id):
         and config.get("table_betas") == [0.0, 0.99]
         and (dense or sparse)
         and summary.get("compute_dtype") == "bf16"
-        and summary.get("torch_compile") is True
+        and summary.get("torch_compile") is False
     )
 
 
@@ -699,7 +699,7 @@ def fig_relationship_map(table, epoch, freq):
                     linewidth=1.2, alpha=0.75, color=color)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_title("(a) table size → gap\n(bigger table ⇒ bigger gap; no saturation ≤1M)")
+    ax.set_title("(a) table size → gap\n(bigger table ⇒ bigger gap; no plateau resolved ≤1M)")
     ax.set_xlabel("logical addresses 2R (log)")
     ax.set_ylabel("final online gap (log)")
     style_ax(ax)
