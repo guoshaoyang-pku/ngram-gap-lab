@@ -59,6 +59,15 @@ on `ophis-gpu`, with the contract above unchanged and `code/train.py` MD5
 | `schedcheck_v5_warmup100_1e3_r1048576_both_s42_ophisretry1` | `warmup_constant`, step 1–100 `0.001 → 0.004`, then fixed | running on GPU 0 |
 | `schedcheck_v5_warmdown_r1048576_both_s42_ophis` | historical warmdown baseline | planned on GPU 3 |
 
+Because the completed 360-1 `0.0004 → 0.004` result and the current
+`0.001 → 0.004` result are on different software stacks, a third same-host
+diagnostic is also registered: `schedcheck_v5_warmup100_0p4e3_r1048576_both_s42_ophis`.
+It uses `code/train.py` from commit `b04077b` (MD5
+`232da27e8e02849a27ba9e1f0ea31386`). A source diff establishes that this file
+and commit `c79ffd2` differ in executable behavior only at the
+`warmup_constant` start multiplier (`0.1` versus `0.25`); the remaining
+changes are comments or argparse help.
+
 The corresponding token shards `1`, `2..10`, and `6542` have identical MD5
 checksums on 360-1 and ophis-gpu. The validation therefore isolates schedule
 within one software environment; it does not overwrite the completed 360-1
