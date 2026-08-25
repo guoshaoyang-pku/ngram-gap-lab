@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Table-size scaling grid (plan §5) on 360-2.
+# [HISTORICAL LEGACY TABLE] Table-size scaling grid (plan §5) on 360-2.
+# `table_mult` here controls the old multi-layer/two-hash construction. Keep
+# it for provenance; use `--*_clean_table R` for any new clean-table result.
 #
 # Horizontal axis = logical addresses 2R (per n-gram, per layer, two
 # decorrelated hash embeddings).  table_mult maps R = vocab_size * table_mult:
@@ -36,6 +38,7 @@ run_arm() {  # run_one <gpu> <run_id> <table_mult> <bigram> <trigram>
     --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
     --device_batch_size 72 --total_batch_size 147456 \
     --val_interval 10 --val_batches 4 --table_norm_interval 10 --lr 0.004 \
+    --lr_schedule warmdown \
     --enable_unigram 0 --enable_bigram "$BI" --enable_trigram "$TRI" \
     --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
     --freq_eval_interval 10 --freq_eval_batches 4 \

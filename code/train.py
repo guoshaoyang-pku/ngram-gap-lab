@@ -13,7 +13,11 @@ Removed (proven unnecessary for gap):
   current shell, Muon, RoPE, RMSNorm, untied embedding, split QKV,
   x0 residual, layer pool, head gate, softcap, full theory-obs system.
 
-Default config = baseline_input standard setting (see docs/plan.md §3.1a).
+The optimizer/evaluation defaults follow the standard contract, but a new
+main-line run must explicitly select clean-table capacity with
+--bigram_clean_table / --trigram_clean_table (or a perfect-map condition).
+The legacy --table_mult path is retained only to read or rerun historical
+experiments; it is not a new-baseline default.
 
 Outputs JSONL logs under data/runs_fixed/<run_id>/:
   - train_log.jsonl   : one line per step {step, train_loss, val_loss, epoch, ...}
@@ -21,8 +25,9 @@ Outputs JSONL logs under data/runs_fixed/<run_id>/:
   - table_norm.jsonl  : periodic table param RMS (every TABLE_NORM_INTERVAL steps)
 
 Usage:
-  python train.py --run_id myrun --injection_position input --steps 1000
-  (or via env vars matching the old launcher conventions; see cluster/run_injpos.sh)
+  python train.py --run_id myrun --injection_position input --steps 1000 \
+      --bigram_clean_table <R_bigram> --trigram_clean_table <R_trigram>
+  (for the main-line command, see cluster/run_baseline.sh)
 """
 
 from __future__ import annotations
@@ -72,7 +77,7 @@ class Config:
     table_optimizer: str = "rmsprop"  # rmsprop | adamw | sgd
     table_lr_scale: float = 2.0       # multiplier on the n-gram table LR
     table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
-    table_mult: int = 64              # n-gram table size = vocab_size * table_mult
+    table_mult: int = 64              # legacy multi-layer/two-hash path only
     bigram_clean_table: int = 0       # clean single-table rows R (0=off); SSOT: clean-table-rework.md
     trigram_clean_table: int = 0      # clean single-table rows R for trigram (0=off); same SSOT
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
@@ -90,9 +95,9 @@ class Config:
     val_steps: list = field(default_factory=list)  # exact steps to eval val (overrides interval if set)
     val_batches: int = 4
     table_norm_interval_steps: int = 10
-    warmdown_ratio: float = 0.65  # last 65% of steps decays LR
+    warmdown_ratio: float = 0.65  # historical warmdown parameter
     lr_schedule_epochs: int = 0    # >0: anchor LR schedule to epoch count (ignores max_steps)
-    lr_schedule: str = "warmdown"  # warmdown (default, Karpathy-style) | constant (uniform LR, v4 baseline)
+    lr_schedule: str = "constant"  # constant (new standard) | warmdown (historical only)
     # data (paths)
     data_dir: str = ""          # directory with train.bin / val.bin
     train_shards: list = field(default_factory=list)  # list of shard indices for train
@@ -838,14 +843,13 @@ class MixedOptimizer:
 
 
 def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
-                      schedule: str = "warmdown") -> float:
+                      schedule: str = "constant") -> float:
     """LR multiplier by schedule.
 
-    - "constant": uniform LR (multiplier always 1.0). v4 baseline for the
-      interpretability experiments — no LR time structure that could confound
-      the gap curves.
-    - "warmdown": Karpathy-style linear warmup (0->1 over first 1-warmdown),
-      then linear decay to 0.05.
+    - "constant": the new-standard fixed LR (multiplier always 1.0), with no
+      LR time structure that could confound the gap curves.
+    - "warmdown": historical Karpathy-style linear warmup (0->1 over first
+      1-warmdown), then linear decay to 0.05.
     """
     if schedule == "constant":
         return 1.0
@@ -1224,14 +1228,15 @@ def main():
     parser.add_argument("--table_betas", default=None,
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,
-                        help="n-gram table size = vocab_size * table_mult (default 64)")
+                        help="[legacy only] multi-layer/two-hash table multiplier (default 64)")
     parser.add_argument("--bigram_clean_table", type=int, default=0,
                         help="clean single-table rows R (0=off): one nn.Embedding(R, n_embd), "
-                             "single layer, single hash, R freely set. SSOT: "
+                             "single layer, single hash, R freely set; required for a new main-line "
+                             "bigram run. SSOT: "
                              "docs/notes/method/clean-table-rework.md")
     parser.add_argument("--trigram_clean_table", type=int, default=0,
-                        help="clean single-table rows R for the trigram branch (0=off); "
-                             "same clean-table SSOT as --bigram_clean_table")
+                        help="clean single-table rows R for the trigram branch (0=off); required "
+                             "for a new main-line trigram run; same SSOT as --bigram_clean_table")
     parser.add_argument("--bigram_perfect_map", default="",
                         help="path to npz with int32 packed-bigram->row map; enables "
                              "collision-free bigram table (first ngram layer only, "
@@ -1262,10 +1267,10 @@ def main():
                              "otherwise follows the specified validation steps")
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
-    parser.add_argument("--lr_schedule", default="warmdown",
+    parser.add_argument("--lr_schedule", default="constant",
                         choices=["warmdown", "constant"],
-                        help="LR schedule: warmdown (Karpathy-style, default) | "
-                             "constant (uniform LR, v4 baseline)")
+                        help="LR schedule: constant (new-standard fixed LR, default) | "
+                             "warmdown (historical reruns only)")
     parser.add_argument("--epoch_batches", type=int, default=0,
                         help=">0: fix one epoch to exactly this many device batches "
                              "(nested-prefix epoch length); 0 = full shard length")

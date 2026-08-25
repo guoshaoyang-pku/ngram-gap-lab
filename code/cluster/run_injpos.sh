@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Launch v/y/input injection-point ablation on ophis-gpu.
+# [HISTORICAL LEGACY TABLE] Launch v/y/input injection-point ablation on ophis-gpu.
 # Runs 4 experiments SERIALLY on one GPU (avoids timestamp collisions).
 # v10 standard: validation + freq-bin eval every 10 steps, 2000 steps.
+# This launcher does not select clean-table R and therefore preserves the old
+# multi-layer/two-hash table path. Do not use it for a new main-line baseline;
+# start from run_baseline.sh and register a clean-table ablation instead.
 # Usage: ./run_injpos.sh [gpu_id] [steps]
 set -euo pipefail
 
@@ -39,6 +42,7 @@ run_one() {
     --val_batches 4 \
     --table_norm_interval 10 \
     --lr 0.004 \
+    --lr_schedule warmdown \
     --enable_unigram 0 \
     --enable_bigram 1 \
     --enable_trigram 1 \

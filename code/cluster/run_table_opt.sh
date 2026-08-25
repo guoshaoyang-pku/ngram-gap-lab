@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Table-optimizer ablation for the blog's standard setting (input injection, 1x shard).
+# [HISTORICAL LEGACY TABLE] Table-optimizer ablation for the old blog setting
+# (input injection, 1x shard). It does not select clean-table R; retain it for
+# provenance only, not as a new main-line optimizer baseline.
 # Goal: n-gram table RMSProp (no momentum) learns slowly/plateaus; test faster alternatives.
 # All arms share: input injection, train shard 1, val 3..10,6542, seed 42, steps (default 1000),
 # val + freq eval + table norm every 10 steps. Only the TABLE optimizer differs.
@@ -57,6 +59,7 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --val_batches 4 \
   --table_norm_interval 10 \
   --lr 0.004 \
+  --lr_schedule warmdown \
   --enable_unigram 0 \
   --enable_bigram 1 \
   --enable_trigram 1 \
