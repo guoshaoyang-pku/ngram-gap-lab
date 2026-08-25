@@ -90,7 +90,7 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --sequence_len 2048 \
   --device_batch_size 72 \
   --total_batch_size 147456 \
-  --lr 0.004 \
+  --lr 0.0006 \
   --lr_schedule warmup_constant \
   --warmup_steps 100 \
   --table_optimizer rmsprop \

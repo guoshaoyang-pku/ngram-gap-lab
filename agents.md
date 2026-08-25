@@ -79,10 +79,10 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | 坐标 | 主线默认 |
 |---|---|
 | 注入 | `input` / wte |
-| backbone LR | `0.004` |
+| backbone LR | `0.0006` |
 | table optimizer | RMSProp，无动量，`--table_betas 0.0,0.99` |
-| table LR | `--table_lr_scale 2.0`，实际 LR `0.008` |
-| LR schedule | `--lr_schedule warmup_constant --warmup_steps 100`；step 1–100 从 0.25×LR（`0.001`）线性 warmup 至 `0.004`，之后固定 LR；所有新实验禁止 warmdown |
+| table LR | `--table_lr_scale 2.0`，实际 LR `0.0012` |
+| LR schedule | `--lr_schedule warmup_constant --warmup_steps 100`；step 1–100 从 0.25×LR（`0.00015`）线性 warmup 至 `0.0006`，之后固定 LR；所有新实验禁止 warmdown |
 | 默认预算 | seed 42，1000 steps，bf16，不 `torch.compile` |
 | scalar 口径 | 当前训练 batch 的 online train loss；固定 validation batches 的 val loss；`gap = val − train` |
 
@@ -125,8 +125,8 @@ setting 仍须写明 train/val shards、frequency index 和 eval 节奏。R 控�
 | table betas | `(0.0, 0.99)` | **新标准（用户 2026-08-24 拍板）**；β₁=0 即无动量。所有新 launcher 显式传 `--table_betas 0.0,0.99` |
 | 历史 β₂=0.999 | 仅保留历史身份 | 早期 run 用 `(0.0, 0.999)`；那批 run 的 β₂ 对比因 B2 bug 无有效证据（见 `docs/experiment-log.md` §9d） |
 | backbone | AdamW，betas `(0.8, 0.95)`，weight_decay 0.1 | |
-| lr | 0.004 | table_lr_scale = **2.0（用户 2026-08-24 拍板，新标准）**；表实际学习率 = 0.008 |
-| lr schedule | **warmup_constant（warmup 后固定 LR）** | `warmup_steps=100`：step 1–100 从 0.25×LR（`0.001`）线性升至 1×LR（`0.004`），之后不衰减，不随 epoch / 总 steps 改变。所有新实验必须显式传此 schedule；warmdown 仅限重跑已有历史 run。零 warmup 的 `constant` 仅作优化器诊断，未通过收敛质检不得用于 gap 结论 |
+| lr | **0.0006（用户 2026-08-25 拍板，v5）** | table_lr_scale = **2.0**；表实际学习率 = `0.0012`。此值来自 clean-table input 的单 seed 筛选：同 1000 steps 下 `6e-4` gap 1.534，高于 `4e-4` 的 1.187 与 `4e-3` 的 0.060（`lrscan_input_lr{0p0006,0p0004,0p004}_wc`）；完整注入点与多 seed 正在验证。 |
+| lr schedule | **warmup_constant（warmup 后固定 LR）** | `warmup_steps=100`：step 1–100 从 0.25×LR（`0.00015`）线性升至 1×LR（`0.0006`），之后不衰减，不随 epoch / 总 steps 改变。所有新实验必须显式传此 schedule；warmdown 仅限重跑已有历史 run。零 warmup 的 `constant` 仅作优化器诊断，未通过收敛质检不得用于 gap 结论 |
 
 ### 1.4 数据与训练
 

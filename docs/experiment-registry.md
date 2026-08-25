@@ -10,7 +10,7 @@
 
 - **backbone**：vanilla nanoGPT 8L · 6H · 768D，vocab 8192，seq 2048，learned abs PE，LayerNorm，tied embedding，全 attention。
 - **n-gram 表**：bigram + trigram（unigram/fourgram 关）；注入点 `input`（wte over-encoding）为主，v / y 仅作消融对照；**clean 单表** `nn.Embedding(R, 768)` 单层、单 hash、R 任意（`--bigram_clean_table R`）。
-- **优化器**：表 RMSProp 无动量 betas `(0.0, 0.99)`、表 LR ×2；backbone AdamW `(0.8, 0.95)` wd 0.1、lr 0.004、**uniform LR（`--lr_schedule constant`，v4 基线；历史波次含 warmdown 0.65）**。
+- **优化器**：表 RMSProp 无动量 betas `(0.0, 0.99)`、表 LR ×2；backbone AdamW `(0.8, 0.95)` wd 0.1、lr **0.0006**、**100-step `warmup_constant`**。这是 v5 主线：step 1–100 从 `1.5e-4` 线性升至 `6e-4`，之后恒定；不使用 cosine 或 warmdown。
 - **数据**：`fixed` 模式固定顺序 epoch replay；train shard 1、val shard 不重叠；device batch 72、total batch 147,456 tokens；seed 42（43/44 复现）。
 - **计算**：bf16（autocast）、**默认不 compile**；steps 1000 / 2000。
 - **gap 定义（唯一）**：`val_loss − train_loss`，同一 step、同一 batch 口径，train 侧 = **当前训练 batch 的 online loss**（v3 起；v2 之前是 4-batch 诊断窗口，已废弃）。
@@ -25,7 +25,8 @@
 | **主线注入点** | M2 注入点消融 v10 | input / y / v / nogram 四臂；2000 步；val 每 10 步；v10 时代口径 | 注入点 loss/gap 曲线；频率 bin 双轴图；gap-vs-frequency 图；loss-gap-table-RMS 对齐 | ✅ 完成（历史口径，被 v2 取代） |
 | **主线注入点** | M2-v2 注入点消融（新标准 β₂=0.99·×2） | 同上四臂；2000 步；bf16+compile（v2 波次）；seed 42 + s43/s44 复现 | 注入点 gap/loss 曲线（图 1，原始点+3 点平滑线，epoch 边界虚线标注）；final gap 对比；频率 bin 双轴图（23 桶） | ✅ 完成（当前权威注入点图） |
 | **主线注入点** | M2-v3 注入点消融（current-batch 口径） | 同上四臂；freq-bin train 侧 = 当前训练 batch per-token loss（零额外 forward） | 同上 + freq-bin 的 train 侧与 online train_loss 完全同 batch 校验 | 🟡 三机队列运行中（`_v3_fixed` 部分回传） |
-| **主线注入点** | M2-v4 注入点消融（**uniform LR，v4 基线 · 当前权威**） | 同四臂；2000 步；`--lr_schedule constant`（uniform LR）；bf16 不 compile；seed 42 | 注入点 gap/loss 曲线（无 warmdown 干扰）；final gap 对比；频率 bin 双轴图（current-batch 口径） | 🟡 运行中（360-2，GPU3-6 并行） |
+| **主线注入点** | M2-v4 注入点消融（历史 warmup/constant 口径） | 同四臂；2000 步；历史 run 的 schedule/表架构必须逐目录核验 | 仅作过程记录，不能作为 v5 结论 | ⚠️ 被 v5 取代 |
+| **主线注入点** | M2-v5 注入点消融（当前权威候选） | 同四臂；2000 步；clean R=2²⁰；`lr=6e-4`、`warmup_constant(100)`；bf16 不 compile；seed 42，后续 43/44 | 注入点 gap/loss 曲线；频率 bin 双轴图；gap-vs-frequency；loss-gap-table-RMS 对齐 | 🟡 input 的 1000-step LR 筛选完成；y/v/nogram 对照运行中；全量队列待 optimizer gate |
 | **剂量扫描** | M5 shard 大小扫描（dose） | train shards 0.25x–8x（12 档）；input 注入；2000 步 | gap vs dose（对数-对数幂律 α≈−2）；gap @2000 对比；epoch 分界标注 | ✅ 完成（v2 12 点齐） |
 | **剂量扫描** | M5-v3 剂量重刷 | 同上 11 档；current-batch freq 口径 | 同 M5 + freq-bin current-batch | 🟡 三机队列运行中 |
 | **剂量扫描** | M6 epoch 对齐批（e6，实际 5 epoch） | 对齐 epoch 数（5 epoch）；0.25x–3x | epoch 对齐 gap 曲线；nogram 对照 | ⚠️ 不完整：缺 4x–8x；命名 `_e6` 实为 5 epoch、无 LR schedule（勘误见 log §12） |

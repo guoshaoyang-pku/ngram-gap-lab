@@ -61,8 +61,8 @@
 | `ngram5_order5_trigram_lr1x_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · 表 LR ×1** | ✅ done | +0.0015 @2000 | §19 |
 | `ngram5_order5_trigram_lr4x_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · 表 LR ×4** | ✅ done | −0.0092 @2000 | §19 |
 | `ngram5_order5_trigram_s43_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · seed 43 复现** | ✅ done | −0.0090 @2000 | §19 |
-| `l6_counttable_freq_exact_v1` | 2026-08-25 | **二元计数表 · 频率扫描 · 精确枚举** | 📝 planned | 待填 | §23 |
-| `l6_response_moments_exact_v1` | 2026-08-25 | **残差—响应映射 · 二/四/绝对矩 · 精确枚举** | 📝 planned | 待填 | §23 |
+| `l6_counttable_freq_exact_v1` | 2026-08-25 | **二元计数表 · 频率扫描 · 精确枚举** | ✅ done | slope −1.0000（f≥512） | §23 |
+| `l6_response_moments_exact_v1` | 2026-08-25 | **残差—响应映射 · 二/四/绝对矩 · 精确枚举** | ✅ done | −1.0000/−0.4995/−1.9986 | §23 |
 
 状态约定：`planned` 已登记未开跑 / `running` 运行中 / `done` 已回填 / `stalled` 超期未回填。
 新实验流程：总表加一行拿到唯一 `run_id` → 正文新建 section 按 `agents.md` §3 / `docs/plan.md` 模板填写
@@ -1616,6 +1616,116 @@ launcher `run_clean_table_dense2.sh`。
 
 ---
 
+## §21a · Clean-table backbone LR 快速扫描（warmup 后恒定 · 2026-08-25）
+
+**科学问题**：在当前 clean 单表、online train loss、固定 validation 的极简契约下，
+将 backbone base LR 从 `0.004` 降至 vanilla nanoGPT 量级的 `0.0006` 或
+`0.0004`，是否改变 input 注入的训练/验证分叉形态？这是一组筛选实验，不替代
+多 seed 主结论。
+
+**唯一变量**：`--lr`。三个臂均保留 `--table_lr_scale 2.0`，因此 table 的实际
+LR 分别为 `0.008`、`0.0012`、`0.0008`；不能把比较解释为“固定 table LR”的实验。
+其余坐标严格一致：vanilla nanoGPT 8L/6H/768D、input 注入、clean bigram/trigram
+单表 `R=2^20`、RMSProp `(0.0,0.99)`、bf16、不 compile、fixed replay、seed 42、
+train shard `1`、非重叠 validation shards `2,3,4,5,6,7,8,9,10,6542`、每 10 step
+fixed val + current-batch frequency bins，`warmup_constant`（100 steps）。
+
+**可证伪预期**：若 `0.004` 的异常形态主要由绝对步长过大造成，低 LR 臂应在相同
+1000 steps 内呈现更稳定的 train/val 曲线；若只是学习更慢，则低 LR 臂会整体滞后，
+而非仅消除异常。验收条件：每臂存在 `summary.json`、100 个 logged `train_log.jsonl`
+点、100 个 `freq_bin_loss.jsonl` 点，且 summary 记录 clean-table R、bf16、未 compile、
+`warmup_constant` 与本臂 LR。
+
+| run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
+|---|---|---|---|---|---|
+| `lrscan_input_lr0p004_wc` | 2026-08-25 | clean-table input · backbone LR 0.004 | ✅ done | +0.060@1000 | §21a |
+| `lrscan_input_lr0p0006_wc` | 2026-08-25 | clean-table input · backbone LR 0.0006 | ✅ done | +1.534@1000 | §21a |
+| `lrscan_input_lr0p0004_wc` | 2026-08-25 | clean-table input · backbone LR 0.0004 | ✅ done | +1.187@1000 | §21a |
+| `lrscan_y_lr0p0006_wc` | 2026-08-25 | clean-table y · backbone LR 0.0006 | 🔄 running | 待填 | §21a |
+| `lrscan_v_lr0p0006_wc` | 2026-08-25 | clean-table v · backbone LR 0.0006 | 🔄 running | 待填 | §21a |
+| `lrscan_nogram_lr0p0006_wc` | 2026-08-25 | no-gram 对照 · backbone LR 0.0006 | 🔄 running | 待填 | §21a |
+
+**执行位置与命令**：360-1（GPU0/1/2），仓库
+`/data/home/guoshaoyang/ngram-gap-lab`，解释器 `python3`；命令唯一地由
+`code/train.py` 与下列显式 flags 确定：
+
+```bash
+CUDA_VISIBLE_DEVICES=<gpu> python3 -u code/train.py \
+  --run_id <run_id>_fixed --out_dir data/runs_fixed --data_dir data/tokenized \
+  --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 --seed 42 --steps 1000 \
+  --dtype bf16 --injection_position input --enable_unigram 0 --enable_bigram 1 \
+  --enable_trigram 1 --bigram_clean_table 1048576 --trigram_clean_table 1048576 \
+  --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
+  --device_batch_size 72 --total_batch_size 147456 --lr <0.004|0.0006|0.0004> \
+  --lr_schedule warmup_constant --warmup_steps 100 --table_optimizer rmsprop \
+  --table_betas 0.0,0.99 --table_lr_scale 2.0 --val_interval 10 --val_batches 4 \
+  --freq_index data/freq_index.npz --freq_eval_interval 10 --freq_eval_batches 4 \
+  --exact_freq_eval_interval 10 --table_norm_interval 10 --fixed_train_probe 0
+```
+
+**回填结果（seed 42，step 1000）**：`0.004` 的 online train / fixed val 为
+`6.174 / 6.234`，gap `+0.060`；`0.0006` 为 `2.899 / 4.433`，gap
+`+1.534`；`0.0004` 为 `3.121 / 4.309`，gap `+1.187`。三臂各有 100 个
+`train_log.jsonl`、`freq_bin_loss.jsonl`、`table_norm.jsonl` 记录；summary
+已核验为 clean `R_bigram=R_trigram=1,048,576`、`bf16`、`torch_compile=false`、
+`lr_schedule=warmup_constant`。现象图：
+`docs/figs/main/fig_lrscan_clean_input.png`，其原始数据仅来自这三条 run 的
+`train_log.jsonl`。该单 seed 快速筛选支持优先推进 `6e-4`；是否把它升级为
+SSOT 仍需完整注入点臂与多 seed 确认。
+
+**注入点快速对照（已登记）**：在同一 `0.0006` 基线补 `y`、`v` 与 no-gram
+负对照，各 1000 steps。相对 `lrscan_input_lr0p0006_wc`，每条只改 injection
+coordinate（no-gram 则关闭 bigram/trigram，作为既定负对照）；其余完整命令、数据、
+clean R、评估节奏与验收条件完全相同。若 input 的强 gap 也出现在 no-gram，则不得
+归因给 n-gram；若 y/v 与 input 呈系统性不同，才可继续安排 2000-step 完整注入点消融。
+
+---
+
+## §24 · V5 优化器与学习率定标（clean-table 主线 gate，2026-08-25）
+
+**固定 v5 基线**：vanilla nanoGPT 8L/6H/768D；input 注入（optimizer
+对照唯一例外见下）；bigram + trigram clean 单表，均为 `R=1,048,576`；
+fixed replay train shard `1`、非重叠 val `2,3,4,5,6,7,8,9,10,6542`；
+seed 42、bf16、无 compile；backbone AdamW `(0.8,0.95)`、wd `0.1`、
+`lr=0.0006`；`warmup_constant --warmup_steps 100`；online train loss 与
+fixed validation loss 的同 logged-step gap。table 主基线为 RMSProp 无动量
+`(0.0,0.99)`、`table_lr_scale=2.0`（实际 `0.0012`）。
+
+**目的与判定**：先锁定 table 优化器的健康区，而不是挑选最大 gap。一个臂若出现
+NaN/Inf、末端 train loss 不低于 no-gram 对照、或 table RMS 失控，判为不健康，不得
+升级为主线。末端筛选臂显式使用 `--val_steps 1000`，只在 step 1000 计算固定 val、
+online gap 与频率统计；关键曲线臂每 10 step 记录完整轨迹。最终主线必须同时满足：
+训练稳定、input/nogram 分离、表 scale=`2` 的局部稳健性、β₂=`0.99` 的局部稳健性，
+并由 seed 43/44 复现。
+
+| run_id | 变量（其余严格为 v5 基线） | 预算 / 测量 | 状态 | 详情 |
+|---|---|---|---|---|
+| `optv5_rms_b099_s0p5` | table scale **0.5** | 1000，末端 | 🟡 planned | LR 端点 |
+| `optv5_rms_b099_s1p0` | table scale **1.0** | 1000，末端 | 🟡 planned | LR 网格 |
+| `lrscan_input_lr0p0006_wc` | table scale 2.0、β₂ 0.99 | 1000，完整曲线 | ✅ done | v5 参照，gap +1.534 |
+| `optv5_rms_b099_s3p0` | table scale **3.0** | 1000，末端 | 🟡 planned | LR 网格 |
+| `optv5_rms_b099_s4p0` | table scale **4.0** | 1000，末端 | 🟡 planned | LR 端点 |
+| `optv5_rms_b095_s2p0` | RMSProp β₂ **0.95** | 1000，末端 | 🟡 planned | β₂ 网格 |
+| `optv5_rms_b098_s2p0` | RMSProp β₂ **0.98** | 1000，末端 | 🟡 planned | β₂ 网格 |
+| `optv5_rms_b0995_s2p0` | RMSProp β₂ **0.995** | 1000，末端 | 🟡 planned | β₂ 网格 |
+| `optv5_rms_b0999_s2p0` | RMSProp β₂ **0.999** | 1000，末端 | 🟡 planned | β₂ 网格 |
+| `optv5_adamw_b099_s2p0` | table optimizer **AdamW `(0,0.99)`** | 1000，末端 | 🟡 planned | β₁=0，无动量 |
+| `optv5_sgd_m0_s2p0` | table optimizer **SGD momentum 0** | 1000，末端 | 🟡 planned | 无动量 |
+| `optv5_rms_b098_s1p0` | β₂ **0.98**、scale **1.0** | 1000，末端 | 🟡 planned | 交互低角 |
+| `optv5_rms_b098_s3p0` | β₂ **0.98**、scale **3.0** | 1000，末端 | 🟡 planned | 交互高角 |
+| `optv5_rms_b0995_s1p0` | β₂ **0.995**、scale **1.0** | 1000，末端 | 🟡 planned | 交互低角 |
+| `optv5_rms_b0995_s3p0` | β₂ **0.995**、scale **3.0** | 1000，末端 | 🟡 planned | 交互高角 |
+| `optv5_rms_b098_s2p0_curve` | β₂ **0.98** | 1000，freq=10 曲线 | 🟡 planned | β₂ 曲线 |
+| `optv5_rms_b099_s1p0_curve` | scale **1.0** | 1000，freq=10 曲线 | 🟡 planned | LR 曲线 |
+| `optv5_rms_b099_s3p0_curve` | scale **3.0** | 1000，freq=10 曲线 | 🟡 planned | LR 曲线 |
+
+**运行后唯一可接受的选择规则**：不以本批 single-seed 的最大 gap 决定主线；
+若 `scale=2, β₂=0.99` 位于健康的局部平坦区，保留它作为 v5 默认。只有它被本批
+证伪（数值不稳或被相邻点严格支配）时，才在同一 clean-table setting 下选择相邻
+健康点并以新的 run_id 登记主线。
+
+---
+
 ## §21b · clean 单表 v4 加密网格（uniform LR 重刷，2026-08-25）
 
 **背景**：§22/§22b 的 clean 单表网格（`ctbl_*`）跑在 **warmdown** 口径
@@ -1644,7 +1754,14 @@ launcher `run_clean_table_dense2.sh`。
 |---|---|---|
 | `ctbl_v4_{16K..5.42M}_bigram` | 24 | bigram 对数均匀网格 |
 | `ctbl_v4_perfect_bigram` | 1 | 零碰撞锚点 |
-| `ctbl_v4_{64K..8.39M}_trigram` | 14 | trigram 对数均匀网格 |
+| `ctbl_v4_{64K..7M}_trigram` | 14 | trigram 对数均匀网格（**8M 降为 7M**，见下） |
+
+> ⚠️ **trigram 8M 降级为 7M**（2026-08-25 现场发现）：R=8M 的 fp32 表
+> 状态 = 8M×768×12B ≈ 78GB，峰值 149GB > H200 单卡 143GB，初始化即 OOM
+> （`expandable_segments` 亦失败；旧 warmdown `ctbl_8388608_trigram` 的 OOM
+> warning 后成功是运气，不具复现性）。降为 **R=7M**（fp32 状态 64.5GB，
+> K/N = 0.369），仍覆盖大 R 区，趋势完整。此改动不涉及模型架构，仅表容量
+> 上界受显存约束，P1 不受影响。
 
 **产出**：v4 权威相图（semilog + 双对数），与 §22b warmdown 版并列对照。
 详细 gap 数值在 run 完成后回填到本表下方。
@@ -1657,7 +1774,55 @@ launcher `run_clean_table_dense2.sh`。
 
 | run_id | 只改变的变量 | 数据/重复 | 状态 | 产物 |
 |---|---|---|---|---|
-| `l6_counttable_freq_exact_v1` | 真概率 `p={0.50,0.20,0.05}` 与样本数 `f` | 二项分布精确枚举；无随机 seed | 📝 planned | `tasks/l6_residual_response/results/l6_counttable_freq_exact_v1/` |
-| `l6_response_moments_exact_v1` | 学习响应 `u(δ)={δ,sign(δ),δ³}` | Rademacher 均值精确枚举；无随机 seed | 📝 planned | `tasks/l6_residual_response/results/l6_response_moments_exact_v1/` |
+| `l6_counttable_freq_exact_v1` | 真概率 `p={0.50,0.20,0.05}` 与样本数 `f` | 二项分布精确枚举；无随机 seed | ✅ done | `tasks/l6_residual_response/results/l6_counttable_freq_exact_v1/` |
+| `l6_response_moments_exact_v1` | 学习响应 `u(δ)={δ,sign(δ),δ³}` | Rademacher 均值精确枚举；无随机 seed | ✅ done | `tasks/l6_residual_response/results/l6_response_moments_exact_v1/` |
 
-两臂都不使用 nanoGPT、GPU 或自然语料；它们只检验数学命题。正式结论与具体数值待运行后回填。
+**结果**：count table 在 `f≥512` 的三条斜率为 −1.000001 / −1.000003 /
+−1.000062，但有限 f 的局部斜率明显更浅（`p=.2`、4→8 为 −0.658）。同一
+Rademacher 残差经 linear/sign/cubic 响应的拟合斜率分别为 **−1.0000 / −0.4995 /
+−1.9986**；sign 臂在 `f=4096` 的精确值 0.012466，与 `√(2/(πf))` 一致。
+
+两臂都不使用 nanoGPT、GPU 或自然语料；它们只检验数学命题。主图：
+`docs/figs/theory/fig_l6_residual_response.{png,svg}`。
+
+### §23a · `l6_counttable_freq_exact_v1`
+
+- **状态 / owner / 日期**：`done` / Codex / 2026-08-25。
+- **科学问题**：resolved finite-support count table 的 expected gap 在什么范围才趋近
+  `f^-1`，三阶与四阶矩在有限样本时是否可忽略？
+- **预期比较 / endpoint**：比较有限 `f` 的 exact/local slope 与大样本 `-1` guide；
+  endpoint 为完整枚举 3 个 `p` × 11 个 `f`。
+- **唯一实验变量**：真概率 `p={0.50,0.20,0.05}` 与每个 context 的样本数
+  `f=4,8,...,4096`；估计器固定为 Jeffreys smoothing `alpha=0.5`。
+- **数据 / seed / compute**：对每个二项计数逐项精确求和，无 Monte Carlo，
+  `seed=null`；本地 CPU，不占 GPU、不涉及集群。
+- **命令**：`.venv/bin/python tasks/l6_residual_response/run_exact.py --experiment counttable`。
+- **安全复核**：追加 `--output-root <新的空目录>`，与已登记目录递归 `diff`；不覆盖
+  已完成的同名 run。
+- **结果目录**：`tasks/l6_residual_response/results/l6_counttable_freq_exact_v1/`。
+- **验收标准**：`config.json` 与上述 contract 一致；`metrics.csv` 为 3×11=33 行、
+  无 NaN；`summary.json.status=done`；大样本拟合接近 `-1`，同时保留逐相邻 `f`
+  的 local slope 以暴露有限样本偏离；输出目录 create-only，禁止覆盖同名 run。
+- **产物**：`config.json`（输入 contract）、`metrics.csv`（exact gap、二/三/四阶项、
+  local slope）、`summary.json`（拟合区间与斜率）。
+
+### §23b · `l6_response_moments_exact_v1`
+
+- **状态 / owner / 日期**：`done` / Codex / 2026-08-25。
+- **科学问题**：在完全相同的 `f^-1/2` 采样残差下，仅改变 learned response，
+  是否会选择不同矩并产生不同 gap 指数？
+- **预期比较 / endpoint**：比较三种响应的 exact curve 与各自理论矩；endpoint 为
+  完整枚举 3 个 response × 10 个 `f`。
+- **唯一实验变量**：`u(delta)={delta, sign(delta), delta^3}`；残差始终是 `f` 个
+  Rademacher 样本的均值，`f=8,16,...,4096`。
+- **数据 / seed / compute**：Rademacher/binomial 精确枚举，`seed=null`；本地 CPU，
+  不占 GPU、不涉及集群。
+- **命令**：`.venv/bin/python tasks/l6_residual_response/run_exact.py --experiment responses`。
+- **安全复核**：追加 `--output-root <新的空目录>`，与已登记目录递归 `diff`；不覆盖
+  已完成的同名 run。
+- **结果目录**：`tasks/l6_residual_response/results/l6_response_moments_exact_v1/`。
+- **验收标准**：`metrics.csv` 为 3×10=30 行、无 NaN；linear 臂逐点等于 `1/f`；
+  cubic 臂逐点等于 `3/f^2-2/f^3`；sign 臂渐近接近 `sqrt(2/(pi f))`；
+  `summary.json.status=done`；输出目录 create-only。
+- **产物**：`config.json`、`metrics.csv`（exact gap、理论参考、local slope）、
+  `summary.json`（拟合区间与三种响应的斜率）。
