@@ -1380,10 +1380,47 @@ jamming 区。本实验把 bigram 推到 jamming 点并加零碰撞极限锚点�
 `tasks/s1_scaling_three_axis/launchers/run_bigram_large_perfect.sh`；
 map 构建: `code/tools/make_bigram_perfect_map.py`。
 
-### 结果（待回填）
+### 结果（2026-08-25 回填，seed 42，1000 步，online final gap）
 
-- [ ] 4 臂 final gap + l1 对曲线（forking：epoch 边界 337/674 跳变幅度）
-- [ ] 并入 `analyze_scaling_table.py` 相图（K/N 0.005 → ∞）
+| run_id | K/N_bi | collision | singleton | final gap |
+|---|---|---|---|---|
+| `tbl_128_bigram_fixed` | 0.59 | 0.714 | 0.060 | **+0.5773** |
+| `tbl_256_bigram_fixed` | 1.19 | 0.518 | 0.190 | **+1.2042** |
+| `tbl_64_bigram_l1_fixed`（单层碰撞对照） | 0.30 | 0.852 | 0.005 | **+0.2604** |
+| `tbl_perfect_bigram_l1_fixed`（单层零碰撞） | ∞ | 0 | 1.0 | **+0.5651** |
+
+参照：4 层 mult=64（正式网格）= +0.9985。perfect map：distinct = 3,538,293
+（与 table_occupancy 完全一致），val OOV token 率 **4.30%**（shards 2,3）。
+
+**发现**：
+1. **单层裁决：零碰撞 gap 是碰撞版的 2.17 倍**（0.565 vs 0.260，同层数同预算，
+   唯一差异是碰撞）→ 碰撞本身抑制 gap，直接支持「碰撞削弱表记忆」机制。
+   层数折算 0.999/0.260 ≈ 3.8（4 层近似线性累加）。
+2. **4 层 64→128→256 非单调**（0.999 → 0.577 → 1.204）：mult=128 显著离群。
+   单 seed 无法区分两种解释：(a) 用户猜测的 jamming 区临界涨落；(b) hash 实现
+   伪影（乘法 hash mod 2^k，R=2^19/2^20/2^21 的低位结构差异；occupancy 早已
+   显示 hash 远非均匀：mult=64 singleton 0.47% vs Poisson 预言 ~11.5%）。
+   **需 seed 43/44 仲裁**。
+3. **forking 两种定义分离**（freq=50，epoch 边界 337/674）：
+   - 边界瞬时 train 跳变：碰撞版更大（@337 −0.112 vs perfect −0.041）——
+     碰撞行在 epoch 边界反复争抢重写，震荡大；
+   - epoch 级 gap 增速：perfect 更陡且持续（epoch 2 起每 epoch 增量 ~+0.2 vs
+     对照 ~+0.13）——零碰撞行无干扰，记忆净积累快。
+   - 「K>N 时 forking 剧烈」的预言按定义 (a) 方向相反、按定义 (b) 方向成立；
+     剧烈的是争抢震荡，不是净记忆积累。
+4. **row-level（32/16/8/4/2 五档，fixed probe）**：同档内 row gap 对行的
+   distinct-context 负载基本不敏感（曲线平），档间整体平移（token 加权均值
+   0.05 → 0.28，log 线性）→ 与 winner-take-all 记忆一致：碰撞行里主导高频
+   context 吃掉大部分梯度，负载本身边际效应弱；容量（K/N）才是主变量。
+
+产物：`figs/fig_gap_vs_KN.png`（相图）、`figs/fig_l1_forking.png`（forking 对比）、
+`figs/fig_row_level_multi.png`（row-level 三面板）；
+`tasks/s1_scaling_three_axis/analysis/plot_gap_vs_KN.py` / `plot_l1_forking.py`。
+
+### 后续（待拍板）
+- [ ] mult=128/256 的 seed 43/44（仲裁 128 离群：临界涨落 vs hash 伪影）
+- [ ] 可选：mult=128 换一组 primes 重跑（直接检验 hash mod 2^20 结构假说）
+- [ ] 可选：4 层 perfect（bf16 表存储，~87GB）验证 4× 单层折算 ≈ 2.26
 
 ## 21. v3 波次：freq-bin train 侧改为当前 batch（online，零额外 forward）（2026-08-25）
 
