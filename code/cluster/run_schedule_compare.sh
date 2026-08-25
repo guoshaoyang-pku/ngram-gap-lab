@@ -15,6 +15,9 @@ ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 TASK_ROOT="$ROOT/tasks/s1_scaling_three_axis"
 if [ -n "${NGLAB_PY:-}" ]; then
   PY="$NGLAB_PY"
+  if [ ! -x "$PY" ]; then
+    PY="$(command -v "$PY" || true)"
+  fi
 elif [ -x "$ROOT/.venv/bin/python" ]; then
   PY="$ROOT/.venv/bin/python"
 else
