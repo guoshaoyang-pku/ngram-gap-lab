@@ -512,7 +512,7 @@ def gen_static_loss_figures(data):
         ax.scatter(x, [np.nan if i in bad else v for i, v in enumerate(raw)],
                    s=8, color=RUN_COLORS[key], alpha=0.3, linewidths=0, zorder=2)
         ax.plot(x, smooth(cleaned), color=RUN_COLORS[key], linewidth=2.2,
-                marker="o", markersize=2.8, label=info["label"])
+                label=info["label"])
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation gap (train = online batch loss)", loc="left",
                  fontsize=15, fontweight="bold")

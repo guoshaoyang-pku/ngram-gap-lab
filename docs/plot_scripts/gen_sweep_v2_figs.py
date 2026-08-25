@@ -152,11 +152,15 @@ def main():
             col = colors[k]
             if key == "gap":
                 m = s["gap"] > GAP_MIN
-                ax.plot(s["steps"][m], s["gap"][m], "o-", color=col,
-                        linewidth=2.0, markersize=2.4, label=labels[k])
+                ax.plot(s["steps"][m], s["gap"][m], "o", color=col, markersize=1.8,
+                        alpha=0.30, markeredgewidth=0, zorder=2, label=labels[k])
+                ax.plot(s["steps"][m], smooth(s["gap"][m].tolist(), window=21),
+                        "-", color=col, linewidth=2.0, zorder=3)
             else:
-                ax.plot(s["steps"], smooth(s[key].tolist()), "o-", color=col,
-                        linewidth=2.0, markersize=2.4, label=labels[k])
+                ax.plot(s["steps"], s[key], "o", color=col, markersize=1.8,
+                        alpha=0.30, markeredgewidth=0, zorder=2, label=labels[k])
+                ax.plot(s["steps"], smooth(s[key].tolist(), window=21),
+                        "-", color=col, linewidth=2.0, zorder=3)
             for step, _ in s["boundaries"]:
                 ax.axvline(step, color=col, linestyle="--", linewidth=0.8, alpha=0.4)
         ax.set_xscale("log")
@@ -313,8 +317,11 @@ def main():
             continue
         st = np.array([p["step"] for p in log])
         gp = np.array([p["gap"] for p in log])
-        ax.plot(st, smooth(gp.tolist(), window=21), "o-", color=arm["color"], linewidth=2.1,
-                markersize=2.2, label=f"{arm['key']} (final {gp[-1]:+.2f})")
+        ax.plot(st, gp, "o", color=arm["color"], markersize=2.0, alpha=0.30,
+                markeredgewidth=0, zorder=2,
+                label=f"{arm['key']} raw (final {gp[-1]:+.2f})")
+        ax.plot(st, smooth(gp.tolist(), window=21), "-", color=arm["color"],
+                linewidth=2.2, zorder=3)
     ax.axhline(0, color=LINE, linewidth=1.0, linestyle="--")
     ax.set_xlabel("step")
     ax.set_ylabel("gap = val − train")
