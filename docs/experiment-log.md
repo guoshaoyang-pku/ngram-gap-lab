@@ -61,6 +61,8 @@
 | `ngram5_order5_trigram_lr1x_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · 表 LR ×1** | ✅ done | +0.0015 @2000 | §19 |
 | `ngram5_order5_trigram_lr4x_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · 表 LR ×4** | ✅ done | −0.0092 @2000 | §19 |
 | `ngram5_order5_trigram_s43_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · seed 43 复现** | ✅ done | −0.0090 @2000 | §19 |
+| `l6_counttable_freq_exact_v1` | 2026-08-25 | **二元计数表 · 频率扫描 · 精确枚举** | 📝 planned | 待填 | §23 |
+| `l6_response_moments_exact_v1` | 2026-08-25 | **残差—响应映射 · 二/四/绝对矩 · 精确枚举** | 📝 planned | 待填 | §23 |
 
 状态约定：`planned` 已登记未开跑 / `running` 运行中 / `done` 已回填 / `stalled` 超期未回填。
 新实验流程：总表加一行拿到唯一 `run_id` → 正文新建 section 按 `agents.md` §3 / `docs/plan.md` 模板填写
@@ -1333,9 +1335,9 @@ logits 72×2048×8192 ≈ 12 亿元素），不是 bf16 没生效。
 2. **全局 gap 极小（−0.0092 到 +0.0054）**：43M distinct 5gram contexts 挤在 1M 行表，collision 可能稀释 coincidental gap。与合成 markov（gap 可达 2+）完全不同；其中主臂的 −0.0067（seed 42）与 −0.0090（seed 43）方向一致，但目前仍只有两个 seed。
 3. **表 LR 消融**：×2 与 ×4 的 train/val loss 较低（0.7165/0.7098 与 0.7118/0.7026），×1 稍差（0.7736/0.7751）；LR 消融目前只有 seed 42。
 4. **per-bucket gap 峰在中频段**（trigram 主臂，step 2000）：
-   - `[51,101)`: **+1.00**
-   - `[201,501)`: +0.55
-   - `[1001,5001)`: **+1.82**
+   - `[21,51)`: **+1.00**
+   - `[101,201)`: +0.55
+   - `[501,1001)`: **+1.82**
    - `[1,50)`: ~0 甚至负（表学不过来，43M 挤 1M）
    - `>5000`: ~0（样本足够，val 稳定）
    - **暂观察到 gap 峰在中高频而非低频**，但这些桶的 token fraction 很小、可配对频次类较少；seed 43 的主臂图形相近，但仍需 seed 44 和更多配对频次统计后再判断是否是自然语言长尾分布下的稳健现象。
@@ -1611,3 +1613,51 @@ launcher `run_clean_table_dense2.sh`。
 | `nglab1x_y_v4` | 2026-08-25 | 注入点消融 · y · uniform LR | 🔄 running | 待填 | §21 |
 | `nglab1x_v_v4` | 2026-08-25 | 注入点消融 · v · uniform LR | 🔄 running | 待填 | §21 |
 | `nglab1x_nogram_v4` | 2026-08-25 | 注入点消融 · nogram 对照 · uniform LR | 🔄 running | 待填 | §21 |
+
+---
+
+## §21b · clean 单表 v4 加密网格（uniform LR 重刷，2026-08-25）
+
+**背景**：§22/§22b 的 clean 单表网格（`ctbl_*`）跑在 **warmdown** 口径
+（launcher 缺 `--lr_schedule constant`，末端 `lr_m 0.05`）。用户 2026-08-25
+拍板：重刷全部 v4 实验，clean 网格统一到 **v4 uniform LR**，bigram 与 trigram
+**都加密取点**。双对数线性非常好（bigram 斜率 ~0.33、trigram ~0.67），趋势可信，
+重刷是统一口径而非纠错。6M>perfect 的大 R 涨落**不跑 seed 43/44 仲裁**，作为
+观察保留。
+
+**口径**：与 v4 基线一致——`--lr_schedule constant`、`--table_betas 0.0,0.99`、
+`--table_lr_scale 2.0`、`--dtype bf16`（不 compile）、1000 步、seed 42、sparse
+末端（`--val_steps 1000`，只取 final gap）。run_id namespace `ctbl_v4_*`，
+旧 warmdown `ctbl_*` 不覆盖（P2）。
+
+**网格**：
+- bigram **24 点对数均匀**（R 16K→5.42M，K/N 0.0045→1.53）+ `ctbl_v4_perfect_bigram`
+  零碰撞锚点（复用 `bigram_perfect_map_s1.npz`，val OOV 4.30%）
+- trigram **14 点对数均匀**（R 64K→8.39M，K/N 0.0035→0.44；19M 行放不下，
+  无零碰撞锚点）
+- 共 39 run；launcher `run_clean_table_v4_grid.sh`，wave 调度
+  （360-2 GPU0/1/2/7 + 360-1 GPU1-7，11 卡并行）
+
+**登记**（run 表，2026-08-25 启动，backfill 后回填）：
+
+| run_id 前缀 | 点数 | 说明 |
+|---|---|---|
+| `ctbl_v4_{16K..5.42M}_bigram` | 24 | bigram 对数均匀网格 |
+| `ctbl_v4_perfect_bigram` | 1 | 零碰撞锚点 |
+| `ctbl_v4_{64K..8.39M}_trigram` | 14 | trigram 对数均匀网格 |
+
+**产出**：v4 权威相图（semilog + 双对数），与 §22b warmdown 版并列对照。
+详细 gap 数值在 run 完成后回填到本表下方。
+
+---
+
+## §23 · L6 残差—响应精确模型（2026-08-25）
+
+**问题**：−1 是否必然出现？loss gap 是否只由方差决定？
+
+| run_id | 只改变的变量 | 数据/重复 | 状态 | 产物 |
+|---|---|---|---|---|
+| `l6_counttable_freq_exact_v1` | 真概率 `p={0.50,0.20,0.05}` 与样本数 `f` | 二项分布精确枚举；无随机 seed | 📝 planned | `tasks/l6_residual_response/results/l6_counttable_freq_exact_v1/` |
+| `l6_response_moments_exact_v1` | 学习响应 `u(δ)={δ,sign(δ),δ³}` | Rademacher 均值精确枚举；无随机 seed | 📝 planned | `tasks/l6_residual_response/results/l6_response_moments_exact_v1/` |
+
+两臂都不使用 nanoGPT、GPU 或自然语料；它们只检验数学命题。正式结论与具体数值待运行后回填。
