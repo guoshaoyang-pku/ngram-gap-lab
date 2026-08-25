@@ -2,9 +2,9 @@
 
 ## Status
 
-**Done — one seed / one clean-table anchor.** This is a convergence-quality
-gate for a learning-rate schedule, not evidence for a table-size law or an
-injection-position conclusion.
+**Done — one seed / one clean-table anchor per software environment.** This is
+a convergence-quality gate for a learning-rate schedule, not evidence for a
+table-size law or an injection-position conclusion.
 
 ## Question
 
@@ -45,23 +45,23 @@ Artifacts are under `data/runs_scaling/<run_id>_fixed/` on 360-1. The
 launcher is `code/cluster/run_schedule_compare.sh`; code is from scheduler
 commit `b04077b` and launcher commit `e6be4dd`.
 
-## Current-standard validation (running)
+## Current-standard validation (complete)
 
 The current SSOT subsequently changed the warmup start from `0.1×` to
 `0.25×` (`0.001`) in commit `c79ffd2`. The matched three-arm gate above still
 establishes the zero-warmup failure, but it is not exact evidence for that
-new start value. The following two one-seed, same-host anchors are registered
-on `ophis-gpu`, with the contract above unchanged and `code/train.py` MD5
+new start value. The following one-seed, same-host anchors ran on `ophis-gpu`,
+with the contract above unchanged and current `code/train.py` MD5
 `88e3dacae052c7add4ed6484ba373a6a`:
 
 | run_id | schedule | status |
 |---|---|---|
-| `schedcheck_v5_warmup100_1e3_r1048576_both_s42_ophisretry1` | `warmup_constant`, step 1–100 `0.001 → 0.004`, then fixed | running on GPU 0 |
-| `schedcheck_v5_warmdown_r1048576_both_s42_ophis` | historical warmdown baseline | planned on GPU 3 |
+| `schedcheck_v5_warmup100_1e3_r1048576_both_s42_ophisretry1` | `warmup_constant`, step 1–100 `0.001 → 0.004`, then fixed | done |
+| `schedcheck_v5_warmdown_r1048576_both_s42_ophis` | historical warmdown baseline | done |
 
 Because the completed 360-1 `0.0004 → 0.004` result and the current
 `0.001 → 0.004` result are on different software stacks, a third same-host
-diagnostic is also registered: `schedcheck_v5_warmup100_0p4e3_r1048576_both_s42_ophis`.
+diagnostic also ran: `schedcheck_v5_warmup100_0p4e3_r1048576_both_s42_ophis`.
 It uses `code/train.py` from commit `b04077b` (MD5
 `232da27e8e02849a27ba9e1f0ea31386`). A source diff establishes that this file
 and commit `c79ffd2` differ in executable behavior only at the
@@ -73,7 +73,7 @@ checksums on 360-1 and ophis-gpu. The validation therefore isolates schedule
 within one software environment; it does not overwrite the completed 360-1
 gate or relabel its artifacts.
 
-## Results
+## Results: 360-1 matched gate
 
 | run_id | train @1000 | val @1000 | online gap @1000 |
 |---|---:|---:|---:|
@@ -85,16 +85,38 @@ At step 500, warmdown / zero-warmup constant / warmup-100 had online train
 loss 4.6751 / 6.0737 / 4.7221 and gap +0.0934 / +0.0289 / +0.1682,
 respectively.
 
+## Results: ophis-gpu same-host scale control
+
+The three rows below have the same seed, data checksums, model, clean-table
+capacities, optimizer, evaluation steps, and host. The two fixed-LR rows are
+the historical and current source variants described above; they differ only
+in the warmup start (`0.0004` versus `0.001`).
+
+| schedule | train @500 | gap @500 | train @1000 | val @1000 | online gap @1000 |
+|---|---:|---:|---:|---:|---:|
+| warmdown | 4.6848 | +0.1333 | 3.6387 | 4.3031 | **+0.6644** |
+| warmup-100, `0.0004 → 0.004`, then fixed | 5.0997 | +0.0924 | 5.7240 | 5.8392 | **+0.1152** |
+| warmup-100, `0.001 → 0.004`, then fixed | 5.4753 | +0.0917 | 5.9251 | 6.0271 | **+0.1020** |
+
+Thus the `0.001` start is modestly worse than `0.0004`, but neither
+100-step warmup variant reaches the warmdown quality regime on this matched
+anchor. The earlier 360-1 `0.0004` arm did reach it (3.9826 / 4.6816 / +0.6990),
+so warmup-then-fixed-LR is stack-sensitive rather than a robust replacement.
+
 ## Decision boundary
 
 The zero-warmup `constant` arm fails this quality gate: its small gap is
 coupled to high train loss, so it cannot support a clean-table gap conclusion.
-`warmup_constant --warmup_steps 100` restores a low-loss, positive-gap regime
-without a warmdown phase; it is the new standard schedule.
+More importantly, **100-step `warmup_constant` followed by a permanent
+`0.004` also fails the gate on the same-host control**, regardless of whether
+it starts at `0.0004` or `0.001`. It must not be presented as a validated
+replacement for warmdown or used for a clean-table conclusion.
 
-This is one anchor and one seed. Before claiming a table-size or
-injection-position result, create new `v5` run IDs under the warmup-100
-contract and rerun the relevant grid/ablation. Do not overwrite or re-label
-`ctbl_v4_*` artifacts. The aborted first attempt with full freq-eval cadence is
-retained as `schedcheck_v5_warmdown_r1048576_both_s42_aborted_freq10_fixed` and
-is not evidence.
+The current setting SSOT is not silently changed by this diagnostic. Until an
+epoch-independent no-warmdown schedule passes this gate robustly, new
+clean-table grid/ablation launches are blocked: do not start or relabel
+`ctbl_v4w_*` as evidence. A user decision is required to either retain
+warmdown temporarily or authorize a new no-warmdown schedule search. The
+aborted first attempt with full freq-eval cadence is retained as
+`schedcheck_v5_warmdown_r1048576_both_s42_aborted_freq10_fixed` and is not
+evidence.
