@@ -223,7 +223,7 @@ ngram-gap-lab/
 │   ├── prepare_data.py          # 数据准备
 │   ├── make_ngram_blocks.py     # controlled block 构造（data_gen 的 alpha=0 特例）
 │   ├── analyze_minimal.py       # 极简分析入口
-│   ├── cluster/                 # 各集群 launcher + setup_env.sh
+│   ├── cluster/                 # `README.md` 指定唯一主线入口；其余 launcher 按历史溯源保留
 │   └── tools/                   # 语料熵、生成器等价性校验等通用工具
 ├── tasks/                       # ★ 独立敏捷验证任务（toy model / 数学模型）
 │   ├── README.md                #   ★ L1–L5 任务索引（先读这个）

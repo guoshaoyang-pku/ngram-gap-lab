@@ -52,7 +52,7 @@ ngram-gap-lab/
 ├── code/
 │   ├── train.py           # vanilla nanoGPT + n-gram table + 3 injection points
 │   ├── ngram_freq.py      # per-frequency-bin loss statistics
-│   ├── cluster/           # cluster launchers + env setup
+│   ├── cluster/           # canonical launcher index + historical launchers + env setup
 │   ├── tools/              # corpus entropy, generator equivalence checks
 ├── tasks/                  # self-contained toy / mathematical validation tasks
 ├── ngram5_freq_gap/       # order-5 / trigram controlled experiment package
