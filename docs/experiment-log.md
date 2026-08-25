@@ -1720,15 +1720,22 @@ online gap 与频率统计；关键曲线臂每 10 step 记录完整轨迹。最
 | `optv5_rms_b098_s2p0_curve` | β₂ **0.98** | 1000，freq=10 曲线 | 🔄 running | β₂ 曲线 |
 | `optv5_rms_b099_s1p0_curve` | scale **1.0** | 1000，freq=10 曲线 | 🔄 running | LR 曲线 |
 | `optv5_rms_b099_s3p0_curve` | scale **3.0** | 1000，freq=10 曲线 | 🔄 running | LR 曲线 |
-| `optv5_rms_b099_s2p0_s43_2000` | seed **43** | 2000，freq=10 曲线 | 🔄 running | 多 seed gate |
-| `optv5_rms_b099_s2p0_s44_2000` | seed **44** | 2000，freq=10 曲线 | 🔄 running | 多 seed gate |
-| `optv5_rms_b0995_s2p0_s43_2000` | β₂ **0.995**、seed 43 | 2000，freq=10 曲线 | 🔄 running | 高 β₂ gate |
-| `optv5_rms_b0995_s2p0_s44_2000` | β₂ **0.995**、seed 44 | 2000，freq=10 曲线 | 🔄 running | 高 β₂ gate |
+| `optv5_rms_b099_s2p0_s43_2000` | seed **43** | 2000，freq=10 曲线 | ✅ done | 多 seed gate，gap +5.681 |
+| `optv5_rms_b099_s2p0_s44_2000` | seed **44** | 2000，freq=10 曲线 | ✅ done | 多 seed gate，gap +5.458 |
+| `optv5_rms_b0995_s2p0_s43_2000` | β₂ **0.995**、seed 43 | 2000，freq=10 曲线 | ✅ done | 高 β₂ gate，gap +5.891 |
+| `optv5_rms_b0995_s2p0_s44_2000` | β₂ **0.995**、seed 44 | 2000，freq=10 曲线 | ✅ done | 高 β₂ gate，gap +5.681 |
 
 **运行后唯一可接受的选择规则**：不以本批 single-seed 的最大 gap 决定主线；
 若 `scale=2, β₂=0.99` 位于健康的局部平坦区，保留它作为 v5 默认。只有它被本批
 证伪（数值不稳或被相邻点严格支配）时，才在同一 clean-table setting 下选择相邻
 健康点并以新的 run_id 登记主线。
+
+**multi-seed gate 回填（2000 steps）**：β₂ `.99` 的 seed 43/44 final
+`(train,val,gap)` 分别为 `(0.878,6.560,5.681)` / `(0.967,6.425,5.458)`；
+β₂ `.995` 为 `(0.877,6.768,5.891)` / `(0.901,6.581,5.681)`。`.995` 的 gap
+增量伴随两 seed 都更高的 validation loss（`+0.208/+0.156`），不作为更好的
+机制 setting。按预注册健康规则，v5 固定 **RMSProp `(0,0.99)`、scale `2.0`**；
+`.995` 保留为优化器消融结果。
 
 ---
 
@@ -1752,6 +1759,7 @@ partial 目录则拒绝覆盖。
 | 家族 | run_id 模式 | 数量 | 步数 / 变量 | 状态 |
 |---|---|---:|---|---|
 | 注入点 | `nglab1x_{input,y,v,nogram}_v5` | 4 | 2000；唯一变量为注入坐标 | 🟡 queued |
+| 注入点复现 | `nglab1x_{input,y,v,nogram}_v5_s{43,44}` | 8 | 2000；唯一变量为随机 seed | 🟡 queued |
 | dose fixed-step | `nglab{0_25x..8x}_input_v5` | 11 | 2000；唯一变量为训练 shard 剂量 | 🟡 queued |
 | epoch-aligned | `nglab{0_25x..4x}_e5_v5` | 9 | 5 epoch，420–6700；唯一变量为剂量、epoch 数恒定 | 🟡 queued |
 | causal | `nglab1x_{reset,mask,freeze}_*_v5` | 5 | 1000；唯一变量为登记的 intervention | 🟡 queued |

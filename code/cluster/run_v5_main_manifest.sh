@@ -21,6 +21,22 @@ case "$GROUP" in
       "nglab1x_nogram_v5|1|2,3,4,5,6,7,8,9,10,6542|2000|--enable_bigram 0 --enable_trigram 0"
     )
     ;;
+  inj_seed43)
+    SPECS=(
+      "nglab1x_input_v5_s43|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 43"
+      "nglab1x_y_v5_s43|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 43 --injection_position y"
+      "nglab1x_v_v5_s43|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 43 --injection_position v"
+      "nglab1x_nogram_v5_s43|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 43 --enable_bigram 0 --enable_trigram 0"
+    )
+    ;;
+  inj_seed44)
+    SPECS=(
+      "nglab1x_input_v5_s44|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 44"
+      "nglab1x_y_v5_s44|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 44 --injection_position y"
+      "nglab1x_v_v5_s44|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 44 --injection_position v"
+      "nglab1x_nogram_v5_s44|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 44 --enable_bigram 0 --enable_trigram 0"
+    )
+    ;;
   dose)
     SPECS=(
       "nglab0_25x_input_v5|62|2,3,4,5,6,7,8,9,10,6542|2000|"
