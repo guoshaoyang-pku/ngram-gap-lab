@@ -73,6 +73,8 @@ class Config:
     table_lr_scale: float = 2.0       # multiplier on the n-gram table LR
     table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     table_mult: int = 64              # n-gram table size = vocab_size * table_mult
+    bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
+    bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
     intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
     adam_betas: tuple = (0.8, 0.95)
@@ -312,10 +314,32 @@ class NanoGPT(nn.Module):
             for i in ngram_layers
             if config.enable_nanogpt_ngram_ve and config.enable_unigram_ve
         })
-        self.bigram_ve_layers = (
-            set(ngram_layers) if config.enable_nanogpt_ngram_ve and config.enable_bigram_ve else set()
+        self.bigram_perfect = bool(
+            config.enable_nanogpt_ngram_ve and config.enable_bigram_ve
+            and config.bigram_perfect_map
         )
-        self.bigram_table_size = config.vocab_size * config.table_mult
+        if self.bigram_perfect:
+            _pack = np.load(config.bigram_perfect_map)
+            # int64 for safe embedding indexing; OOV contexts are pre-filled
+            # with n_distinct (the shared UNK row) by the map builder.
+            self.register_buffer(
+                "bigram_perfect_index",
+                torch.from_numpy(np.ascontiguousarray(_pack["map"], dtype=np.int64)),
+                persistent=False,
+            )
+            # +1 row: OOV/UNK bucket for contexts absent from the train scan.
+            self.bigram_table_size = int(_pack["n_distinct"]) + 1
+            # Single layer keeps the collision-free table within the fp32
+            # memory budget (4 layers x N x 768 x 12B would exceed one H200).
+            self.bigram_ve_layers = {ngram_layers[0]}
+        elif config.enable_nanogpt_ngram_ve and config.enable_bigram_ve:
+            self.bigram_table_size = config.vocab_size * config.table_mult
+            self.bigram_ve_layers = (
+                {ngram_layers[0]} if config.bigram_single_layer else set(ngram_layers)
+            )
+        else:
+            self.bigram_table_size = config.vocab_size * config.table_mult
+            self.bigram_ve_layers = set()
         self.bigram_K = 2
         half_dim = config.n_embd // 2
         _bp = expand_bigram_hash_primes(_BASE_BIGRAM_PRIMES, len(ngram_layers))
@@ -428,6 +452,19 @@ class NanoGPT(nn.Module):
             if not any(m in name for m in markers):
                 yield p
 
+    def _bigram_row_indices(self, li, prev_idx, idx):
+        """Row indices into the two bigram hash embeddings for layer li.
+
+        Perfect mode: both groups share the collision-free packed-context map
+        (identical rows, equivalent to one table split across half-dims).
+        """
+        if self.bigram_perfect:
+            rows = self.bigram_perfect_index[prev_idx * self.config.vocab_size + idx]
+            return [rows, rows]
+        primes = self.bigram_hash_primes_per_layer[li]
+        return [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
+                for p1, p2 in primes]
+
     def _compute_input_ngram_residual(self, idx):
         """Over-encoding: sum all enabled layers' n-gram values, no gate."""
         _B, T = idx.size()
@@ -441,8 +478,7 @@ class NanoGPT(nn.Module):
         if self.config.enable_bigram_ve:
             for li in sorted(self.bigram_ve_layers):
                 lvs = self.bigram_ves[str(li)]
-                primes = self.bigram_hash_primes_per_layer[li]
-                idxs = [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size for p1, p2 in primes]
+                idxs = self._bigram_row_indices(li, prev_idx, idx)
                 bgve = torch.cat([lvs[k](idxs[k]) for k in range(self.bigram_K)], dim=-1)
                 residual = bgve if residual is None else residual + bgve
         if self.config.enable_trigram_ve:
@@ -486,8 +522,7 @@ class NanoGPT(nn.Module):
                 branch_residuals["trigram"] = []
                 for li in sorted(self.bigram_ve_layers):
                     lvs = self.bigram_ves[str(li)]
-                    bi = [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
-                          for p1, p2 in self.bigram_hash_primes_per_layer[li]]
+                    bi = self._bigram_row_indices(li, prev_idx, idx)
                     branch_residuals["bigram"].append(
                         torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1)
                     )
@@ -518,10 +553,7 @@ class NanoGPT(nn.Module):
         bigram_indices = {}
         if self.config.enable_bigram_ve:
             for li in self.bigram_ve_layers:
-                bp = self.bigram_hash_primes_per_layer[li]
-                bigram_indices[li] = [
-                    ((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size for p1, p2 in bp
-                ]
+                bigram_indices[li] = self._bigram_row_indices(li, prev_idx, idx)
         trigram_indices = {}
         if self.config.enable_trigram_ve:
             for li in self.trigram_ve_layers:
@@ -1114,6 +1146,10 @@ def main():
     parser.add_argument("--table_diag", type=int, default=0,
                         help="1: log per-step table-update diagnostics to table_diag.jsonl "
                              "(replay-shock fingerprint: hit rows, |g|, denom, |g|/denom amplification)")
+    parser.add_argument("--save_final_model", action="store_true",
+                        help="save the final model.state_dict() to final_model.pt "
+                             "and the fixed train/val probe tokens to probe_tokens.npz "
+                             "for offline per-token / row-level loss analysis")
     parser.add_argument("--lr", type=float, default=0.004)
     parser.add_argument("--table_optimizer", default="rmsprop",
                         choices=["rmsprop", "adamw", "sgd"],
@@ -1124,6 +1160,13 @@ def main():
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,
                         help="n-gram table size = vocab_size * table_mult (default 64)")
+    parser.add_argument("--bigram_perfect_map", default="",
+                        help="path to npz with int32 packed-bigram->row map; enables "
+                             "collision-free bigram table (first ngram layer only, "
+                             "rows = n_distinct+1, OOV -> shared UNK row)")
+    parser.add_argument("--bigram_single_layer", action="store_true",
+                        help="restrict the bigram table to the first ngram layer "
+                             "(control arm for the collision-free perfect-map run)")
     parser.add_argument("--intervention", default="none",
                         choices=["none", "reset_table", "mask_readout",
                                  "freeze_table", "freeze_backbone"],
@@ -1194,6 +1237,8 @@ def main():
         table_optimizer=args.table_optimizer,
         table_lr_scale=args.table_lr_scale,
         table_mult=args.table_mult,
+        bigram_perfect_map=args.bigram_perfect_map,
+        bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
         intervention_epoch=args.intervention_epoch,
         data_dir=args.data_dir,
@@ -1318,9 +1363,9 @@ def main():
             fixed_train_freq_log = open(
                 os.path.join(cfg.out_dir, "fixed_train_freq_bin_loss.jsonl"), "w"
             )
-            exact_freq_log = open(
-                os.path.join(cfg.out_dir, "exact_freq_loss.jsonl"), "w"
-            )
+        exact_freq_log = open(
+            os.path.join(cfg.out_dir, "exact_freq_loss.jsonl"), "w"
+        )
         print(f"[nglab] freq-bin eval enabled (index: {args.freq_index})")
         # Independent train-side diagnostic iterator: reads the same shards in
         # the same fixed order but owns its own dataset state, so freq-bin
@@ -1331,6 +1376,13 @@ def main():
                                               cfg.device_batch_size,
                                               cfg.data_seed)
         freq_train_iter = freq_train_ds.iter_batches(device)
+        # exact-frequency diagnostics need a fixed train-side reference even when
+        # --fixed_train_probe is 0: grab a small fixed set from the independent
+        # diagnostic iterator (never touches the training stream or epoch counter).
+        if not fixed_train_probe:
+            exact_freq_train_batches = [next(freq_train_iter) for _ in range(4)]
+        else:
+            exact_freq_train_batches = fixed_train_probe
     last_val_loss = float("nan")
     last_train_loss = float("nan")
     last_fixed_train_loss = float("nan")
@@ -1462,18 +1514,18 @@ def main():
             or step == cfg.max_steps - 1
         )
         if exact_freq_log is not None and exact_freq_due:
-            # exact-frequency marginal on the fixed train probe and the
-            # fixed val batches, plus context-matched gap statistics.
+            # exact-frequency marginal on the fixed diagnostic train batches and
+            # the fixed val batches, plus context-matched gap statistics.
             ef_train = {b: evaluate_exact_freq(
-                model, fixed_train_probe, freq_index_obj,
-                len(fixed_train_probe), cfg.vocab_size, b)
+                model, exact_freq_train_batches, freq_index_obj,
+                len(exact_freq_train_batches), cfg.vocab_size, b)
                 for b in ("bigram", "trigram")}
             ef_val = {b: evaluate_exact_freq(
                 model, validation_batches, freq_index_obj,
                 len(validation_batches), cfg.vocab_size, b)
                 for b in ("bigram", "trigram")}
             shared = {b: compute_shared_contexts(
-                model, fixed_train_probe, validation_batches,
+                model, exact_freq_train_batches, validation_batches,
                 freq_index_obj, cfg.vocab_size, b)
                 for b in ("bigram", "trigram")}
             exact_freq_log.write(json.dumps({
@@ -1529,6 +1581,26 @@ def main():
     if exact_freq_log is not None:
         exact_freq_log.close()
 
+    # save final model + probe tokens for offline per-token / row-level analysis
+    if args.save_final_model:
+        raw_model = getattr(model, "_orig_mod", model)
+        torch.save(raw_model.state_dict(), os.path.join(cfg.out_dir, "final_model.pt"))
+        print(f"[nglab] saved final_model.pt ({sum(p.numel() for p in raw_model.parameters())/1e6:.1f}M params)")
+        if fixed_train_probe:
+            # Save the full chunk (input + the single next token as target tail)
+            # so downstream row-level analysis can rebuild exact (inp, tgt)
+            # pairs and hash contexts without off-by-one.
+            probe_chunk = torch.stack([
+                torch.cat([b[0].cpu(), b[1][:, -1:].cpu()], dim=1)
+                for b in fixed_train_probe
+            ]).numpy()  # (n_probe, B, T+1)
+            np.savez(
+                os.path.join(cfg.out_dir, "probe_tokens.npz"),
+                fixed_train_probe_chunk=probe_chunk,
+                fixed_train_probe_sha256=probe_hash,
+            )
+            print(f"[nglab] saved probe_tokens.npz (fixed train probe chunk {probe_chunk.shape}, sha={probe_hash})")
+
     # summary
     summary = {
         "run_id": args.run_id,
@@ -1562,6 +1634,10 @@ def main():
         "final_fixed_val_loss": last_fixed_val_loss,
         "final_fixed_gap": last_fixed_val_loss - last_fixed_train_loss,
         "n_params": n_params,
+        "bigram_perfect_rows": (
+            getattr(getattr(model, "_orig_mod", model), "bigram_table_size", None)
+            if cfg.bigram_perfect_map else None
+        ),
         "config": cfg.__dict__,
     }
     with open(os.path.join(cfg.out_dir, "summary.json"), "w") as f:

@@ -1343,3 +1343,44 @@ logits 72×2048×8192 ≈ 12 亿元素），不是 bf16 没生效。
 - [ ] bigram 注入臂（是否需要）
 - [x] seed 43 主臂复现（与 seed 42 同一 data/probe hash，gap −0.0090）
 - [ ] seed 44 复现；LR 消融的多 seed 复现
+
+## 20. bigram 大表 + 免碰撞（perfect-map）极限臂（2026-08-25）
+
+### 目的（superposition/localization 相图，郭绍阳提议）
+
+检验 gap Δ 与 hash table 大小 K 的定量关系。粗糙模型 Δ ~ min(N, K) 预言
+K<<N 时 log-log 斜率 1；实测 23 点网格斜率仅 0.49（bigram），且现有网格
+K/N 最大 0.30（bigram N=3.54M distinct contexts），从未触及 K~N 的
+jamming 区。本实验把 bigram 推到 jamming 点并加零碰撞极限锚点。
+
+### 偏离极简基线的登记（P1 要求）
+
+- `tbl_128/256_bigram_fixed`：仅改 `table_mult`（128/256），其余全对齐 §1。
+- `tbl_perfect_bigram_l1_fixed`：bigram hash → **预计算 packed-context→row
+  静态映射（零碰撞，N+1 行含 UNK）**，且 bigram 表**仅开第 1 个 ngram 层**
+  （fp32 显存约束：4 层 × 3.54M × 768 × 12B > 单卡 H200）。OOV（train 未见）
+  context → 共享 UNK 行，val OOV 率由 map 构建脚本记账。
+- `tbl_64_bigram_l1_fixed`：mult=64 + `--bigram_single_layer`，作为 perfect
+  臂的同层数对照（二者 Δ 只在单层口径内直接可比；与 4 层主网格的折算另记）。
+- train.py 变更：`--bigram_perfect_map` / `--bigram_single_layer` /
+  `--save_final_model`（自 tasks 副本合并回归）+ exact_freq probe=0 兜底修复。
+  全部新参数默认关闭，**不影响任何已有 run 的口径**。
+
+### 登记（planned）
+
+| run_id | mult | K/N_bi | 监测 | 角色 |
+|---|---|---|---|---|
+| `tbl_128_bigram_fixed` | 128 | 0.59 | sparse（末端） | 过渡段加密 |
+| `tbl_256_bigram_fixed` | 256 | 1.19 | sparse（末端） | jamming 点 |
+| `tbl_64_bigram_l1_fixed` | 64 单层 | 0.30 | freq=50 曲线 | 单层对照 |
+| `tbl_perfect_bigram_l1_fixed` | 零碰撞单层 | ∞ | freq=50 曲线 | Δ∞ 锚点 + forking 上限 |
+
+数据/优化器/步数全部对齐正式网格（shard 1，val 2-10+6542，epoch 337，
+β=(0,0.99)，lr 0.004×2，bf16，1000 步，seed 42）。launcher:
+`tasks/s1_scaling_three_axis/launchers/run_bigram_large_perfect.sh`；
+map 构建: `code/tools/make_bigram_perfect_map.py`。
+
+### 结果（待回填）
+
+- [ ] 4 臂 final gap + l1 对曲线（forking：epoch 边界 337/674 跳变幅度）
+- [ ] 并入 `analyze_scaling_table.py` 相图（K/N 0.005 → ∞）

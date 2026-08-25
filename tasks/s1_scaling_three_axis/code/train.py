@@ -73,6 +73,8 @@ class Config:
     table_lr_scale: float = 2.0       # multiplier on the n-gram table LR
     table_betas: tuple = (0.0, 0.99)  # (beta1, beta2) for adamw; beta1 = momentum for sgd
     table_mult: int = 64              # n-gram table size = vocab_size * table_mult
+    bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
+    bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
     intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
     adam_betas: tuple = (0.8, 0.95)
@@ -312,10 +314,32 @@ class NanoGPT(nn.Module):
             for i in ngram_layers
             if config.enable_nanogpt_ngram_ve and config.enable_unigram_ve
         })
-        self.bigram_ve_layers = (
-            set(ngram_layers) if config.enable_nanogpt_ngram_ve and config.enable_bigram_ve else set()
+        self.bigram_perfect = bool(
+            config.enable_nanogpt_ngram_ve and config.enable_bigram_ve
+            and config.bigram_perfect_map
         )
-        self.bigram_table_size = config.vocab_size * config.table_mult
+        if self.bigram_perfect:
+            _pack = np.load(config.bigram_perfect_map)
+            # int64 for safe embedding indexing; OOV contexts are pre-filled
+            # with n_distinct (the shared UNK row) by the map builder.
+            self.register_buffer(
+                "bigram_perfect_index",
+                torch.from_numpy(np.ascontiguousarray(_pack["map"], dtype=np.int64)),
+                persistent=False,
+            )
+            # +1 row: OOV/UNK bucket for contexts absent from the train scan.
+            self.bigram_table_size = int(_pack["n_distinct"]) + 1
+            # Single layer keeps the collision-free table within the fp32
+            # memory budget (4 layers x N x 768 x 12B would exceed one H200).
+            self.bigram_ve_layers = {ngram_layers[0]}
+        elif config.enable_nanogpt_ngram_ve and config.enable_bigram_ve:
+            self.bigram_table_size = config.vocab_size * config.table_mult
+            self.bigram_ve_layers = (
+                {ngram_layers[0]} if config.bigram_single_layer else set(ngram_layers)
+            )
+        else:
+            self.bigram_table_size = config.vocab_size * config.table_mult
+            self.bigram_ve_layers = set()
         self.bigram_K = 2
         half_dim = config.n_embd // 2
         _bp = expand_bigram_hash_primes(_BASE_BIGRAM_PRIMES, len(ngram_layers))
@@ -428,6 +452,19 @@ class NanoGPT(nn.Module):
             if not any(m in name for m in markers):
                 yield p
 
+    def _bigram_row_indices(self, li, prev_idx, idx):
+        """Row indices into the two bigram hash embeddings for layer li.
+
+        Perfect mode: both groups share the collision-free packed-context map
+        (identical rows, equivalent to one table split across half-dims).
+        """
+        if self.bigram_perfect:
+            rows = self.bigram_perfect_index[prev_idx * self.config.vocab_size + idx]
+            return [rows, rows]
+        primes = self.bigram_hash_primes_per_layer[li]
+        return [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
+                for p1, p2 in primes]
+
     def _compute_input_ngram_residual(self, idx):
         """Over-encoding: sum all enabled layers' n-gram values, no gate."""
         _B, T = idx.size()
@@ -441,8 +478,7 @@ class NanoGPT(nn.Module):
         if self.config.enable_bigram_ve:
             for li in sorted(self.bigram_ve_layers):
                 lvs = self.bigram_ves[str(li)]
-                primes = self.bigram_hash_primes_per_layer[li]
-                idxs = [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size for p1, p2 in primes]
+                idxs = self._bigram_row_indices(li, prev_idx, idx)
                 bgve = torch.cat([lvs[k](idxs[k]) for k in range(self.bigram_K)], dim=-1)
                 residual = bgve if residual is None else residual + bgve
         if self.config.enable_trigram_ve:
@@ -486,8 +522,7 @@ class NanoGPT(nn.Module):
                 branch_residuals["trigram"] = []
                 for li in sorted(self.bigram_ve_layers):
                     lvs = self.bigram_ves[str(li)]
-                    bi = [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size
-                          for p1, p2 in self.bigram_hash_primes_per_layer[li]]
+                    bi = self._bigram_row_indices(li, prev_idx, idx)
                     branch_residuals["bigram"].append(
                         torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1)
                     )
@@ -518,10 +553,7 @@ class NanoGPT(nn.Module):
         bigram_indices = {}
         if self.config.enable_bigram_ve:
             for li in self.bigram_ve_layers:
-                bp = self.bigram_hash_primes_per_layer[li]
-                bigram_indices[li] = [
-                    ((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size for p1, p2 in bp
-                ]
+                bigram_indices[li] = self._bigram_row_indices(li, prev_idx, idx)
         trigram_indices = {}
         if self.config.enable_trigram_ve:
             for li in self.trigram_ve_layers:
@@ -593,6 +625,7 @@ class MixedOptimizer:
         self.rms_steps = {}
         self.rms_exp_avg_sq = {}
         self.table_exp_avg = {}  # adamw first moment / sgd momentum buffer
+        self._diag = None        # per-step table-update diagnostics (opt-in)
         ngram_markers = ("value_embeds", "bigram_ves", "trigram_ves",
                          "ve_gate", "bigram_gate", "trigram_gate")
         self.ngram_params = []
@@ -612,6 +645,58 @@ class MixedOptimizer:
                     p.grad = None
                 else:
                     p.grad.zero_()
+
+    # --- per-step table-update diagnostics (opt-in via enable_table_diag) ---
+    def enable_table_diag(self):
+        self._diag = self._new_table_diag()
+
+    @staticmethod
+    def _new_table_diag():
+        return {"n_hit": 0, "g_sq_sum": 0.0, "g_sq_n": 0,
+                "denom_sq_sum": 0.0, "denom_sq_n": 0,
+                "amp_sum": 0.0, "amp_max": 0.0, "amp_n": 0}
+
+    def _record_table_diag(self, p, g, denom):
+        """Accumulate hit-row gradient/denom/update-amplification stats.
+
+        Shock fingerprint: per-row |g|/denom. A fresh row (its RMSProp
+        second-moment EMA still tracks the current gradient) gives ~1.
+        A stale row (EMA decayed while unvisited, then revisited at an epoch
+        boundary) gives ~1/sqrt(beta2^k) >> 1 — the replay-shock amplifier.
+        """
+        if self._diag is None:
+            return
+        row_g2 = g.pow(2).sum(-1)          # (n_rows,)
+        hit = row_g2 > 0
+        n_hit = int(hit.sum().item())
+        if n_hit == 0:
+            return
+        row_d2 = denom.pow(2).sum(-1)
+        row_g = row_g2.sqrt()
+        row_d = row_d2.sqrt()
+        amp = row_g[hit] / row_d[hit].clamp_min(1e-10)
+        d = self._diag
+        d["n_hit"] += n_hit
+        d["g_sq_sum"] += float(row_g2[hit].sum().item())
+        d["g_sq_n"] += n_hit
+        d["denom_sq_sum"] += float(row_d2[hit].sum().item())
+        d["denom_sq_n"] += n_hit
+        d["amp_sum"] += float(amp.sum().item())
+        d["amp_max"] = max(d["amp_max"], float(amp.max().item()))
+        d["amp_n"] += n_hit
+
+    def pop_table_diag(self):
+        """Return the accumulated diagnostics dict and reset for the next step."""
+        d = self._diag
+        if d is None:
+            return None
+        out = {"n_hit": d["n_hit"],
+               "g_rms": (d["g_sq_sum"] / d["g_sq_n"]) ** 0.5 if d["g_sq_n"] else 0.0,
+               "denom_rms": (d["denom_sq_sum"] / d["denom_sq_n"]) ** 0.5 if d["denom_sq_n"] else 0.0,
+               "shock_mean": d["amp_sum"] / d["amp_n"] if d["amp_n"] else 0.0,
+               "shock_max": d["amp_max"]}
+        self._diag = self._new_table_diag()
+        return out
 
     def _adamw_step(self, name, p, lr_t):
         g = p.grad
@@ -656,6 +741,7 @@ class MixedOptimizer:
         bias2 = 1 - b2 ** step
         denom = (exp_avg_sq / bias2).sqrt() + 1e-10
         p.add_(g / denom, alpha=-lr_t)
+        self._record_table_diag(p, g, denom)
 
     def _table_adamw_step(self, name, p, lr_t):
         g = p.grad
@@ -799,6 +885,39 @@ class TokenizedShardDataset:
                 tgt = torch.from_numpy(chunk[1:])
                 emitted += 1
                 yield inp, tgt
+
+    def chunk_offsets(self) -> list:
+        """Global chunk offset of each shard (cumulative over shard_chunks).
+
+        Returns [(sid, offset_start), ...]; global chunk index g belongs to
+        shard sid at local index g - offset_start.  Uniform train probes use
+        this to sample the ENTIRE train stream, not just its head.
+        """
+        offs = []
+        acc = 0
+        for sid in self.shard_ids:
+            offs.append((sid, acc))
+            acc += self.shard_chunks(sid)
+        return offs
+
+    def get_chunk(self, global_idx: int):
+        """Return (input, target) tensors for the g-th chunk of the full stream.
+
+        Uniform train probe uses this to grab batches spread across the whole
+        train set (independent of the training iterator, which is what the
+        head-only `first` probe cannot do).
+        """
+        for sid, off in self.chunk_offsets():
+            n = self.shard_chunks(sid)
+            if off <= global_idx < off + n:
+                buf = self._load_shard(sid)
+                local = global_idx - off
+                start = local * self.chunk_size
+                chunk = np.array(buf[start:start + self.chunk_size], dtype=np.int64)
+                inp = torch.from_numpy(chunk[:-1])
+                tgt = torch.from_numpy(chunk[1:])
+                return inp, tgt
+        raise IndexError(f"chunk {global_idx} out of range")
 
     def epoch_progress(self) -> float:
         """Fraction of the current epoch completed (0..1 within an epoch)."""
@@ -1024,6 +1143,13 @@ def main():
                              "overrides --val_interval when set")
     parser.add_argument("--val_batches", type=int, default=4)
     parser.add_argument("--table_norm_interval", type=int, default=10)
+    parser.add_argument("--table_diag", type=int, default=0,
+                        help="1: log per-step table-update diagnostics to table_diag.jsonl "
+                             "(replay-shock fingerprint: hit rows, |g|, denom, |g|/denom amplification)")
+    parser.add_argument("--save_final_model", action="store_true",
+                        help="save the final model.state_dict() to final_model.pt "
+                             "and the fixed train/val probe tokens to probe_tokens.npz "
+                             "for offline per-token / row-level loss analysis")
     parser.add_argument("--lr", type=float, default=0.004)
     parser.add_argument("--table_optimizer", default="rmsprop",
                         choices=["rmsprop", "adamw", "sgd"],
@@ -1034,6 +1160,13 @@ def main():
                         help="beta1,beta2 for table (adamw: both; sgd: beta1=momentum); default 0.0,0.99")
     parser.add_argument("--table_mult", type=int, default=64,
                         help="n-gram table size = vocab_size * table_mult (default 64)")
+    parser.add_argument("--bigram_perfect_map", default="",
+                        help="path to npz with int32 packed-bigram->row map; enables "
+                             "collision-free bigram table (first ngram layer only, "
+                             "rows = n_distinct+1, OOV -> shared UNK row)")
+    parser.add_argument("--bigram_single_layer", action="store_true",
+                        help="restrict the bigram table to the first ngram layer "
+                             "(control arm for the collision-free perfect-map run)")
     parser.add_argument("--intervention", default="none",
                         choices=["none", "reset_table", "mask_readout",
                                  "freeze_table", "freeze_backbone"],
@@ -1063,20 +1196,22 @@ def main():
     parser.add_argument("--fixed_train_probe", type=int, default=0,
                         help="number of fixed train batches to hold for the "
                              "fixed-train probe (0 disables)")
+    parser.add_argument("--train_probe_mode", default="first",
+                        choices=["first", "uniform"],
+                        help="how the fixed train probe is sampled from the train "
+                             "set: 'first' = head of the stream (default, backward "
+                             "compatible); 'uniform' = evenly-spaced chunks across "
+                             "the ENTIRE train stream (parallel to the fixed val "
+                             "probe; avoids head-of-epoch memorization bias)")
     parser.add_argument("--probe_eval_interval", type=int, default=10,
                         help="steps between fixed-train/val probe evals (also fired "
                              "at every epoch boundary)")
-    parser.add_argument("--dtype", default="bf16", choices=["fp32", "bf16", "fp8"],
+    parser.add_argument("--dtype", default="fp32", choices=["fp32", "bf16", "fp8"],
                         help="compute dtype for the forward pass (autocast; "
                              "weights/optimizer stay fp32): fp32 | bf16 | fp8")
-    parser.add_argument("--compile", dest="compile", action="store_true", default=True,
-                        help="wrap the model with torch.compile (default true for S1 scaling runs)")
-    parser.add_argument("--no_compile", dest="compile", action="store_false",
-                        help="disable torch.compile explicitly")
-    parser.add_argument("--save_final_model", action="store_true",
-                        help="save the final model.state_dict() to final_model.pt "
-                             "and the fixed train/val probe tokens to probe_tokens.npz "
-                             "for offline per-token / row-level loss analysis")
+    parser.add_argument("--compile", action="store_true",
+                        help="wrap the model with torch.compile (opt-in; not part "
+                             "of the standard bf16 configuration)")
     args = parser.parse_args()
 
     cfg = Config(
@@ -1102,6 +1237,8 @@ def main():
         table_optimizer=args.table_optimizer,
         table_lr_scale=args.table_lr_scale,
         table_mult=args.table_mult,
+        bigram_perfect_map=args.bigram_perfect_map,
+        bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
         intervention_epoch=args.intervention_epoch,
         data_dir=args.data_dir,
@@ -1149,18 +1286,41 @@ def main():
     # own iterator, so grabbing the probe never consumes the training stream and
     # never advances the training epoch counter.  The probe is a fixed set of
     # train batches reused for every probe eval; its gap is fixed_val − fixed_train.
+    # --train_probe_mode first: head of the train stream (backward compatible).
+    # --train_probe_mode uniform: evenly-spaced chunks across the ENTIRE train
+    # stream, so the probe parallels the fixed val probe instead of being biased
+    # toward the head-of-epoch batches that get replayed/memorized first.
     fixed_train_probe = []
     probe_hash = None
     if args.fixed_train_probe > 0:
         probe_ds = TokenizedShardDataset(cfg.data_dir, cfg.train_shards, cfg.sequence_len,
                                          cfg.device_batch_size, cfg.data_seed,
                                          epoch_batches=cfg.epoch_batches)
-        probe_iter = probe_ds.iter_batches(device)
-        for _ in range(args.fixed_train_probe):
-            fixed_train_probe.append(next(probe_iter))
+        n_chunks = probe_ds.total_chunks()
+        n_need = args.fixed_train_probe * cfg.device_batch_size
+        if args.train_probe_mode == "uniform" and n_need < n_chunks:
+            # evenly-spaced chunk indices covering [0, n_chunks): use the probe
+            # seed so the sample is deterministic but independent of training.
+            idx = [int(round(i * (n_chunks - 1) / (n_need - 1)))
+                   for i in range(n_need)] if n_need > 1 else [0]
+            chunks = [probe_ds.get_chunk(g) for g in idx]
+        else:
+            # head-of-stream (default) or degenerate small train set: just walk
+            # the iterator in order (identical to the historical behavior).
+            probe_iter = probe_ds.iter_batches(device)
+            fixed_train_probe = [next(probe_iter) for _ in range(args.fixed_train_probe)]
+            chunks = None
+        if chunks is not None:
+            # re-batch the sampled chunks into device batches
+            fixed_train_probe = []
+            for i in range(0, len(chunks), cfg.device_batch_size):
+                inp = torch.stack([c[0] for c in chunks[i:i + cfg.device_batch_size]]).to(device)
+                tgt = torch.stack([c[1] for c in chunks[i:i + cfg.device_batch_size]]).to(device)
+                fixed_train_probe.append((inp, tgt))
         probe_hash = hashlib.sha256(
             b"".join(batch[0].cpu().numpy().tobytes() for batch in fixed_train_probe)).hexdigest()[:16]
-        print(f"[nglab] fixed train probe: {len(fixed_train_probe)} batches, sha256={probe_hash}")
+        print(f"[nglab] fixed train probe: {len(fixed_train_probe)} batches "
+              f"mode={args.train_probe_mode} sha256={probe_hash}")
     grad_accum = max(1, cfg.total_batch_size // (cfg.device_batch_size * cfg.sequence_len))
     print(f"[nglab] grad_accum={grad_accum} train_chunks={train_ds.total_chunks()} "
           f"val_chunks={val_ds.total_chunks()}")
@@ -1180,10 +1340,14 @@ def main():
                                table_optimizer=cfg.table_optimizer,
                                table_lr_scale=cfg.table_lr_scale,
                                table_betas=cfg.table_betas)
+    if args.table_diag:
+        optimizer.enable_table_diag()
 
     # logs
     train_log = open(os.path.join(cfg.out_dir, "train_log.jsonl"), "w")
     table_log = open(os.path.join(cfg.out_dir, "table_norm.jsonl"), "w")
+    table_diag_log = open(os.path.join(cfg.out_dir, "table_diag.jsonl"), "w") \
+        if args.table_diag else None
     probe_log = None
     if args.fixed_train_probe > 0:
         probe_log = open(os.path.join(cfg.out_dir, "fixed_train_loss.jsonl"), "w")
@@ -1254,6 +1418,16 @@ def main():
         lr_mult = get_lr_multiplier(progress, cfg.warmdown_ratio)
         optimizer.step(lr_mult=lr_mult)
 
+        # per-step table-update diagnostics (replay-shock fingerprint)
+        if table_diag_log is not None:
+            diag = optimizer.pop_table_diag()
+            if diag is not None:
+                diag["step"] = step + 1
+                diag["epoch"] = train_ds._epoch + 1
+                table_diag_log.write(json.dumps(diag) + "\n")
+                if (step + 1) % cfg.val_interval_steps == 0:
+                    table_diag_log.flush()
+
         # periodic val
         val_due = (
             (cfg.val_steps and (step + 1) in cfg.val_steps)
@@ -1281,6 +1455,8 @@ def main():
         epoch_boundary = (train_ds._batch_in_epoch == 0 and step > 0)
 
         # periodic fixed-train probe eval (interval + epoch boundary)
+        # when --val_steps is set, probe follows the exact val steps (it needs
+        # a val eval to form the fixed gap)
         if cfg.val_steps:
             probe_due = (
                 (step + 1) in cfg.val_steps
@@ -1394,6 +1570,8 @@ def main():
 
     train_log.close()
     table_log.close()
+    if table_diag_log is not None:
+        table_diag_log.close()
     if probe_log is not None:
         probe_log.close()
     if fixed_train_freq_log is not None:
@@ -1432,7 +1610,9 @@ def main():
         "epoch_batches": cfg.epoch_batches,
         "fixed_train_probe_sha256": probe_hash if args.fixed_train_probe > 0 else None,
         "fixed_train_probe_batches": len(fixed_train_probe),
+        "train_probe_mode": args.train_probe_mode if args.fixed_train_probe > 0 else None,
         "probe_eval_interval": args.probe_eval_interval,
+        "val_steps": cfg.val_steps or None,
         "exact_freq_eval_interval": args.exact_freq_eval_interval,
         "fixed_train_loss_log": (
             "fixed_train_loss.jsonl" if probe_log is not None else None
@@ -1454,6 +1634,10 @@ def main():
         "final_fixed_val_loss": last_fixed_val_loss,
         "final_fixed_gap": last_fixed_val_loss - last_fixed_train_loss,
         "n_params": n_params,
+        "bigram_perfect_rows": (
+            getattr(getattr(model, "_orig_mod", model), "bigram_table_size", None)
+            if cfg.bigram_perfect_map else None
+        ),
         "config": cfg.__dict__,
     }
     with open(os.path.join(cfg.out_dir, "summary.json"), "w") as f:
