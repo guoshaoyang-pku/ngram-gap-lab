@@ -1700,24 +1700,24 @@ online gap 与频率统计；关键曲线臂每 10 step 记录完整轨迹。最
 
 | run_id | 变量（其余严格为 v5 基线） | 预算 / 测量 | 状态 | 详情 |
 |---|---|---|---|---|
-| `optv5_rms_b099_s0p5` | table scale **0.5** | 1000，末端 | 🟡 planned | LR 端点 |
-| `optv5_rms_b099_s1p0` | table scale **1.0** | 1000，末端 | 🟡 planned | LR 网格 |
+| `optv5_rms_b099_s0p5` | table scale **0.5** | 1000，末端 | 🔄 running | LR 端点 |
+| `optv5_rms_b099_s1p0` | table scale **1.0** | 1000，末端 | 🔄 running | LR 网格 |
 | `lrscan_input_lr0p0006_wc` | table scale 2.0、β₂ 0.99 | 1000，完整曲线 | ✅ done | v5 参照，gap +1.534 |
-| `optv5_rms_b099_s3p0` | table scale **3.0** | 1000，末端 | 🟡 planned | LR 网格 |
-| `optv5_rms_b099_s4p0` | table scale **4.0** | 1000，末端 | 🟡 planned | LR 端点 |
-| `optv5_rms_b095_s2p0` | RMSProp β₂ **0.95** | 1000，末端 | 🟡 planned | β₂ 网格 |
-| `optv5_rms_b098_s2p0` | RMSProp β₂ **0.98** | 1000，末端 | 🟡 planned | β₂ 网格 |
-| `optv5_rms_b0995_s2p0` | RMSProp β₂ **0.995** | 1000，末端 | 🟡 planned | β₂ 网格 |
-| `optv5_rms_b0999_s2p0` | RMSProp β₂ **0.999** | 1000，末端 | 🟡 planned | β₂ 网格 |
-| `optv5_adamw_b099_s2p0` | table optimizer **AdamW `(0,0.99)`** | 1000，末端 | 🟡 planned | β₁=0，无动量 |
-| `optv5_sgd_m0_s2p0` | table optimizer **SGD momentum 0** | 1000，末端 | 🟡 planned | 无动量 |
-| `optv5_rms_b098_s1p0` | β₂ **0.98**、scale **1.0** | 1000，末端 | 🟡 planned | 交互低角 |
-| `optv5_rms_b098_s3p0` | β₂ **0.98**、scale **3.0** | 1000，末端 | 🟡 planned | 交互高角 |
-| `optv5_rms_b0995_s1p0` | β₂ **0.995**、scale **1.0** | 1000，末端 | 🟡 planned | 交互低角 |
-| `optv5_rms_b0995_s3p0` | β₂ **0.995**、scale **3.0** | 1000，末端 | 🟡 planned | 交互高角 |
-| `optv5_rms_b098_s2p0_curve` | β₂ **0.98** | 1000，freq=10 曲线 | 🟡 planned | β₂ 曲线 |
-| `optv5_rms_b099_s1p0_curve` | scale **1.0** | 1000，freq=10 曲线 | 🟡 planned | LR 曲线 |
-| `optv5_rms_b099_s3p0_curve` | scale **3.0** | 1000，freq=10 曲线 | 🟡 planned | LR 曲线 |
+| `optv5_rms_b099_s3p0` | table scale **3.0** | 1000，末端 | 🔄 running | LR 网格 |
+| `optv5_rms_b099_s4p0` | table scale **4.0** | 1000，末端 | 🔄 running | LR 端点 |
+| `optv5_rms_b095_s2p0` | RMSProp β₂ **0.95** | 1000，末端 | 🔄 running | β₂ 网格 |
+| `optv5_rms_b098_s2p0` | RMSProp β₂ **0.98** | 1000，末端 | 🔄 running | β₂ 网格 |
+| `optv5_rms_b0995_s2p0` | RMSProp β₂ **0.995** | 1000，末端 | 🔄 running | β₂ 网格 |
+| `optv5_rms_b0999_s2p0` | RMSProp β₂ **0.999** | 1000，末端 | 🔄 running | β₂ 网格 |
+| `optv5_adamw_b099_s2p0` | table optimizer **AdamW `(0,0.99)`** | 1000，末端 | 🔄 running | β₁=0，无动量 |
+| `optv5_sgd_m0_s2p0` | table optimizer **SGD momentum 0** | 1000，末端 | 🔄 running | 无动量 |
+| `optv5_rms_b098_s1p0` | β₂ **0.98**、scale **1.0** | 1000，末端 | 🔄 running | 交互低角 |
+| `optv5_rms_b098_s3p0` | β₂ **0.98**、scale **3.0** | 1000，末端 | 🔄 running | 交互高角 |
+| `optv5_rms_b0995_s1p0` | β₂ **0.995**、scale **1.0** | 1000，末端 | 🔄 running | 交互低角 |
+| `optv5_rms_b0995_s3p0` | β₂ **0.995**、scale **1.0** | 1000，末端 | 🔄 running | 交互高角 |
+| `optv5_rms_b098_s2p0_curve` | β₂ **0.98** | 1000，freq=10 曲线 | 🔄 running | β₂ 曲线 |
+| `optv5_rms_b099_s1p0_curve` | scale **1.0** | 1000，freq=10 曲线 | 🔄 running | LR 曲线 |
+| `optv5_rms_b099_s3p0_curve` | scale **3.0** | 1000，freq=10 曲线 | 🔄 running | LR 曲线 |
 
 **运行后唯一可接受的选择规则**：不以本批 single-seed 的最大 gap 决定主线；
 若 `scale=2, β₂=0.99` 位于健康的局部平坦区，保留它作为 v5 默认。只有它被本批

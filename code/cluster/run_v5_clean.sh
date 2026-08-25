@@ -21,6 +21,10 @@ DATA_DIR="${NGLAB_DATA_DIR:-$ROOT/data/tokenized}"
 OUT_DIR="${NGLAB_OUT_DIR:-$ROOT/data/runs_fixed}"
 RESULT_DIR="$OUT_DIR/${RUN_ID}_fixed"
 
+if [[ "$PY" != */* ]]; then
+  PY="$(command -v "$PY")"
+fi
+
 pick_freq_index() {
   local compact="${TRAIN_SHARDS// /}"
   local name="freq_index"
