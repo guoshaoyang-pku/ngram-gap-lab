@@ -90,9 +90,10 @@ class Config:
     val_steps: list = field(default_factory=list)  # exact steps to eval val (overrides interval if set)
     val_batches: int = 4
     table_norm_interval_steps: int = 10
-    warmdown_ratio: float = 0.65  # last 65% of steps decays LR
+    warmup_ratio: float = 0.35    # first 35% of progress: 0.1x -> 1.0x
+    warmdown_ratio: float = 0.65  # historical warmdown parameter
     lr_schedule_epochs: int = 0    # >0: anchor LR schedule to epoch count (ignores max_steps)
-    lr_schedule: str = "warmdown"  # warmdown (default, Karpathy-style) | constant (uniform LR, v4 baseline)
+    lr_schedule: str = "warmup_constant"  # new standard | constant/warmdown historical controls
     # data (paths)
     data_dir: str = ""          # directory with train.bin / val.bin
     train_shards: list = field(default_factory=list)  # list of shard indices for train
@@ -838,17 +839,25 @@ class MixedOptimizer:
 
 
 def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65,
-                      schedule: str = "warmdown") -> float:
+                      schedule: str = "warmup_constant",
+                      warmup_ratio: float = 0.35) -> float:
     """LR multiplier by schedule.
 
-    - "constant": uniform LR (multiplier always 1.0). v4 baseline for the
-      interpretability experiments — no LR time structure that could confound
-      the gap curves.
-    - "warmdown": Karpathy-style linear warmup (0->1 over first 1-warmdown),
-      then linear decay to 0.05.
+    - "warmup_constant": the new-standard schedule. Linearly warm from 0.1x
+      to 1.0x over the initial warmup_ratio, then hold the base LR fixed.
+    - "constant": zero-warmup fixed LR; retained as a diagnostic control.
+    - "warmdown": historical Karpathy-style linear warmup (0->1 over first
+      1-warmdown), then linear decay to 0.05.
     """
     if schedule == "constant":
         return 1.0
+    if schedule == "warmup_constant":
+        if warmup_ratio <= 0.0:
+            return 1.0
+        warmup_progress = min(1.0, max(0.0, progress) / warmup_ratio)
+        return 0.1 + 0.9 * warmup_progress
+    if schedule != "warmdown":
+        raise ValueError(f"unknown lr schedule: {schedule}")
     if progress < 1.0 - warmdown_ratio:
         # warmup phase: linear from 0.1 to 1.0
         w = progress / max(1e-6, 1.0 - warmdown_ratio)
@@ -1262,10 +1271,13 @@ def main():
                              "otherwise follows the specified validation steps")
     parser.add_argument("--lr_schedule_epochs", type=int, default=0,
                         help=">0: anchor LR schedule to this many epochs (epoch-based progress)")
-    parser.add_argument("--lr_schedule", default="warmdown",
-                        choices=["warmdown", "constant"],
-                        help="LR schedule: warmdown (Karpathy-style, default) | "
-                             "constant (uniform LR, v4 baseline)")
+    parser.add_argument("--warmup_ratio", type=float, default=0.35,
+                        help="initial progress fraction for warmup_constant (default 0.35; "
+                             "LR rises linearly from 0.1x to 1.0x)")
+    parser.add_argument("--lr_schedule", default="warmup_constant",
+                        choices=["warmup_constant", "constant", "warmdown"],
+                        help="LR schedule: warmup_constant (new standard, default) | "
+                             "constant (zero-warmup diagnostic) | warmdown (historical reruns only)")
     parser.add_argument("--epoch_batches", type=int, default=0,
                         help=">0: fix one epoch to exactly this many device batches "
                              "(nested-prefix epoch length); 0 = full shard length")
@@ -1289,6 +1301,8 @@ def main():
                         help="wrap the model with torch.compile (opt-in; not part "
                              "of the standard bf16 configuration)")
     args = parser.parse_args()
+    if not 0.0 <= args.warmup_ratio <= 1.0:
+        parser.error("--warmup_ratio must be in [0, 1]")
 
     cfg = Config(
         vocab_size=args.vocab_size,
@@ -1308,6 +1322,7 @@ def main():
         val_steps=[int(x) for x in args.val_steps.split(",") if x.strip()],
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
+        warmup_ratio=args.warmup_ratio,
         lr_schedule_epochs=args.lr_schedule_epochs,
         lr_schedule=args.lr_schedule,
         nanogpt_adam_lr=args.lr,
@@ -1500,7 +1515,12 @@ def main():
             progress = min(1.0, (train_ds._epoch + train_ds.epoch_progress()) / cfg.lr_schedule_epochs)
         else:
             progress = (step + 1) / cfg.max_steps
-        lr_mult = get_lr_multiplier(progress, cfg.warmdown_ratio, cfg.lr_schedule)
+        lr_mult = get_lr_multiplier(
+            progress,
+            warmdown_ratio=cfg.warmdown_ratio,
+            schedule=cfg.lr_schedule,
+            warmup_ratio=cfg.warmup_ratio,
+        )
         optimizer.step(lr_mult=lr_mult)
 
         # per-step table-update diagnostics (replay-shock fingerprint)

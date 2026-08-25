@@ -25,7 +25,7 @@ no RoPE, no RMSNorm, no momentum on the table optimizer.
 | n-gram module | bigram + trigram **clean single tables**, **`input` / wte injection** (over-encoding) |
 | table size | clean-table `R_bigram = R_trigram = 2^20 = 1,048,576` outside a table-size experiment; never use legacy `table_mult` |
 | table optimizer | **RMSProp, no momentum**, betas `(0.0, 0.99)` |
-| backbone optimizer | AdamW `(0.8, 0.95)`, lr 0.004, wd 0.1, **constant LR** |
+| backbone optimizer | AdamW `(0.8, 0.95)`, lr 0.004, wd 0.1, **35% linear warmup then fixed LR** |
 | data | fixed-order epoch replay, seed 42, **1000 default** / 2000 extended steps |
 | evaluation | online current-batch train loss; fixed validation batches; validation + freq-bin eval every **10 steps** for full curves |
 
@@ -80,11 +80,12 @@ bash code/cluster/run_baseline.sh 0 <run_id>
 ```
 
 `run_baseline.sh` is the new main-line entry point: input injection, LR 0.004,
-RMSProp `(0.0, 0.99)`, table LR ×2, **constant** LR, bf16, 1000 steps, online
-train loss, and fixed validation. Non-table-size experiments lock both clean
-table capacities to `2^20`; a table-size line must name its alternative R
-values in a dedicated launcher. The legacy injection-point launcher remains
-for historical provenance, not as a new clean-table default.
+RMSProp `(0.0, 0.99)`, table LR ×2, a **35% linear warmup then fixed** LR,
+bf16, 1000 steps, online train loss, and fixed validation. Non-table-size
+experiments lock both clean table capacities to `2^20`; a table-size line must
+name its alternative R values in a dedicated launcher. The legacy
+injection-point launcher remains for historical provenance, not as a new
+clean-table default.
 
 ### Local CPU smoke test
 

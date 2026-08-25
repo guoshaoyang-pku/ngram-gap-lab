@@ -82,7 +82,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | backbone LR | `0.004` |
 | table optimizer | RMSProp，无动量，`--table_betas 0.0,0.99` |
 | table LR | `--table_lr_scale 2.0`，实际 LR `0.008` |
-| LR schedule | `--lr_schedule constant`；所有新实验固定 LR，禁止 warmdown |
+| LR schedule | `--lr_schedule warmup_constant --warmup_ratio 0.35`；前 35% 从 0.1×LR 线性 warmup，之后固定 LR；所有新实验禁止 warmdown |
 | 默认预算 | seed 42，1000 steps，bf16，不 `torch.compile` |
 | scalar 口径 | 当前训练 batch 的 online train loss；固定 validation batches 的 val loss；`gap = val − train` |
 
@@ -126,7 +126,7 @@ setting 仍须写明 train/val shards、frequency index 和 eval 节奏。R 控�
 | 历史 β₂=0.999 | 仅保留历史身份 | 早期 run 用 `(0.0, 0.999)`；那批 run 的 β₂ 对比因 B2 bug 无有效证据（见 `docs/experiment-log.md` §9d） |
 | backbone | AdamW，betas `(0.8, 0.95)`，weight_decay 0.1 | |
 | lr | 0.004 | table_lr_scale = **2.0（用户 2026-08-24 拍板，新标准）**；表实际学习率 = 0.008 |
-| lr schedule | **constant（固定 LR）** | 所有新实验必须显式传 `--lr_schedule constant`；warmdown 仅限重跑已有历史 run，`--lr_schedule_epochs N` 也只在注册为独立历史/对照变量时使用 |
+| lr schedule | **warmup_constant（warmup 后固定 LR）** | `warmup_ratio=0.35`：前 35% 从 0.1×LR 线性升至 1×LR，之后不衰减。所有新实验必须显式传此 schedule；warmdown 仅限重跑已有历史 run。零 warmup 的 `constant` 仅作优化器诊断，未通过收敛质检不得用于 gap 结论 |
 
 ### 1.4 数据与训练
 

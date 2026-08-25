@@ -12,9 +12,10 @@ bash code/cluster/run_baseline.sh <gpu> <run_id> [steps]
 It implements the repository contract for a non-table-size experiment:
 `input` injection; clean bigram and trigram tables with
 `R_bigram = R_trigram = 2^20`; backbone LR `0.004`; RMSProp table optimizer
-with `--table_betas 0.0,0.99`; table LR scale `2.0`; fixed LR
-(`--lr_schedule constant`); 1000 steps by default; online train loss and fixed
-validation/frequency evaluation every 10 steps.
+with `--table_betas 0.0,0.99`; table LR scale `2.0`; 35% linear warmup then
+fixed LR (`--lr_schedule warmup_constant --warmup_ratio 0.35`); 1000 steps by
+default; online train loss and fixed validation/frequency evaluation every 10
+steps.
 
 For a table-size experiment, do not pass extra positional arguments to this
 launcher. Register the run first, then create a dedicated launcher/command
@@ -38,8 +39,9 @@ fresh settings review and a new run registration.
 
 The `run_injpos.sh`, `run_table_opt.sh`, `run_scaling_epoch.sh`, and
 `run_scaling_table.sh` scripts explicitly preserve their historical warmdown
-behavior. The repository-wide default is fixed LR, so any other historical
-replay must state its intended `--lr_schedule` before it is executed.
+behavior. The repository-wide default is warmup then fixed LR, so any other
+historical replay must state its intended `--lr_schedule` before it is
+executed.
 
 `setup_env.sh` and the `launch_*`, `assign_gpus.py`, and `rerun_*` helpers are
 environment/scheduling utilities rather than canonical experiment definitions.
