@@ -140,14 +140,14 @@ boundary. This floor is explicit as `--cosine_min_lr_mult 0.05`.
 
 | run_id stem | changed flags | status |
 |---|---|---|
-| `schedgrid_v1_hold_w200_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 200` | running on 360-1 GPU 0 |
-| `schedgrid_v1_hold_w300_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 300` | running on 360-1 GPU 1 |
-| `schedgrid_v1_cosine_w100_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 100 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 2 |
-| `schedgrid_v1_cosine_w200_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 200 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 3 |
-| `schedgrid_v1_cosine_w300_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 300 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 4 |
-| `schedgrid_v1_cosine_w400_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 400 --cosine_min_lr_mult 0.05` | running on 360-1 GPU 5 |
-| `schedgrid_v1_warmdown_current_r1048576_both_s42` | `--lr_schedule warmdown` | running same-code reference on 360-1 GPU 7 |
-| `schedgrid_v1_cosine_w500_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 500 --cosine_min_lr_mult 0.05` | planned; waits for a released card |
+| `schedgrid_v1_hold_w200_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 200` | done; fails gate |
+| `schedgrid_v1_hold_w300_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 300` | done; fails gate |
+| `schedgrid_v1_cosine_w100_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 100 --cosine_min_lr_mult 0.05` | done; fails gate |
+| `schedgrid_v1_cosine_w200_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 200 --cosine_min_lr_mult 0.05` | done; fails gate |
+| `schedgrid_v1_cosine_w300_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 300 --cosine_min_lr_mult 0.05` | done; best first-pass cosine, still fails gate |
+| `schedgrid_v1_cosine_w400_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 400 --cosine_min_lr_mult 0.05` | done; fails gate |
+| `schedgrid_v1_warmdown_current_r1048576_both_s42` | `--lr_schedule warmdown` | failed before step 1: CUDA launch failure on known-bad 360-1 GPU 7 |
+| `schedgrid_v1_cosine_w500_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 500 --cosine_min_lr_mult 0.05` | stalled; no known-good 360-1 card became available |
 
 **Falsifiable gate.** A candidate passes only if its final online train loss is
 at most `4.3` and its final online gap is at least `+0.5` on this anchor; this
@@ -155,3 +155,32 @@ is deliberately looser than the same-host warmdown reference (3.6387 / +0.6644)
 but rejects the fixed-LR plateau. A passing arm must then be rerun on a second
 software stack before it becomes an SSOT setting. A failed arm remains a
 recorded diagnostic, not a table-size result.
+
+### First-pass results (360-1)
+
+| schedule | train @1000 | val @1000 | online gap @1000 |
+|---|---:|---:|---:|
+| hold, warmup 200 | 6.1105 | 6.2048 | +0.0943 |
+| hold, warmup 300 | 5.8822 | 6.0011 | +0.1189 |
+| cosine, warmup 100, floor 0.05 | 5.2921 | 5.4500 | +0.1578 |
+| cosine, warmup 200, floor 0.05 | 5.2379 | 5.4566 | +0.2187 |
+| cosine, warmup 300, floor 0.05 | 4.7952 | 5.0659 | +0.2707 |
+| cosine, warmup 400, floor 0.05 | 5.1785 | 5.3760 | +0.1975 |
+
+The hold arms show that longer warmup alone does not cure the plateau. Cosine
+decay helps but none passes the convergence gate. The best first-pass arm,
+cosine warmup 300, has a lower late-stage multiplier than warmdown; Phase 3
+therefore changes only its explicit cosine floor.
+
+## Phase 3: cosine-tail floor control (planned)
+
+Both arms retain `warmup_cosine`, a 300-step `0.001 → 0.004` warmup, all
+Phase-2 coordinates, and the scalar checkpoint cadence. Only
+`--cosine_min_lr_mult` changes. They run against the existing ophis-gpu
+warmdown anchor, which has the same data checksums and unchanged warmdown
+implementation.
+
+| run_id stem | changed flag | status |
+|---|---|---|
+| `schedgrid_v1_cosine_w300_floor10_r1048576_both_s42` | `--cosine_min_lr_mult 0.10` | planned on ophis-gpu GPU 0 |
+| `schedgrid_v1_cosine_w300_floor20_r1048576_both_s42` | `--cosine_min_lr_mult 0.20` | planned on ophis-gpu GPU 3 |
