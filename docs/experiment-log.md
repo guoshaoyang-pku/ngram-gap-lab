@@ -1486,3 +1486,70 @@ v2 波次 freq-bin 的 train 侧是「每次评估从独立诊断迭代器新取
 
 - [ ] `freq_bin_loss.jsonl` 每 eval 的 train token_count = 147456（单 batch）
 - [ ] per-bin 加权均值 ≈ 同 step `train_log.train_loss`（相对差 < 1e-3）
+
+## 22. clean 单表 bigram R 网格（新 SSOT 框架首扫，2026-08-25）
+
+### 目的
+
+按 `docs/notes/method/clean-table-rework.md`（用户 2026-08-25 拍板的新 SSOT）
+重扫 table-size 轴：`--bigram_clean_table R`（单 `nn.Embedding(R, 768)`、单层、
+单 hash、R 任意）。§20 的 34 点网格为 [HISTORICAL 4-LAYER FRAMEWORK]，本节
+是新框架的第一张相图，与旧框架并列对照。
+
+### 实现（train.py）
+
+- `--bigram_clean_table R`：bigram 分支强制单层 `{ngram_layers[0]}` + `bigram_K=1`
+  （单全宽 embedding，`torch.cat` 单张量恒等，lookup 路径零侵入）。
+- 与 `--bigram_perfect_map` 组合 = 零碰撞锚点（K=1 单表 + map 行号，
+  R = n_distinct+1，不再需要 single_layer 开关）。
+- 默认 0（关闭），旧 4 层路径与已有 run 口径不变；四路径本地冒烟通过。
+- `table_occupancy.py --bigram_clean_table R`：clean 模式 occupancy
+  （layer-1 primes 第一组 hash、R 行）。
+- run_id namespace `ctbl_*`，产物仍入 `data/runs_scaling/`（与旧框架并列）。
+- launcher `tasks/s1_scaling_three_axis/launchers/run_clean_table_grid.sh`
+  （wave 调度；rolling-slot 曾把 786K/65K 发到被 perfect/1M 占用的卡上 OOM，
+  已修为按波次 wait）。
+
+### 结果（seed 42，1000 步，online final gap，N=3,538,293）
+
+| R | K/N | gap | | R | K/N | gap |
+|---|---|---|---|---|---|---|
+| 64K | 0.019 | +0.097 | | 1.5M | 0.444 | +0.306 |
+| 128K | 0.037 | +0.146 | | 2M | 0.593 | +0.305 |
+| 256K | 0.074 | +0.159 | | 2.5M | 0.741 | +0.370 |
+| 384K | 0.111 | +0.190 | | 3M | 0.889 | +0.393 |
+| 512K | 0.148 | +0.218 | | 4M | 1.185 | +0.466 |
+| 768K | 0.222 | +0.281 | | **perfect** | **1.0 零碰撞** | **+0.561** |
+| 1M | 0.296 | +0.265 | | | | |
+
+**发现**：
+1. **clean 单表的 gap-R 曲线光滑近似单调**（仅 768K→1M 微降 0.016、
+   1.5M≈2M 平台），与旧 4 层框架 ±0.3–0.4 的剧烈锯齿形成决定性对比。
+   **旧框架的"jamming 锯齿"主要是 4 层 × 2-hash 拼接的架构干涉伪影
+   （8 组 hash 相互作用），不是 jamming 物理**——§20 发现 5 的临界涨落
+   解释在新框架下被否证。这是 clean 重做的第一个实质科学收益。
+2. **碰撞抑制 gap 跨框架复现**：clean perfect（0.561）vs clean R=1M 碰撞
+   （0.265）= **2.12 倍**（旧框架单层对为 2.17 倍）；且 R=4M（K/N=1.19）
+   的 hash 点（0.466，collision=0.325）仍显著低于 perfect——**R>N 时 hash
+   伪碰撞继续压制 gap，零碰撞的价值不随容量增大消失**。
+3. **旧 4 层 gap 大部分是参数量/求和结构的功劳**：同 R=512K 附近，旧 4 层
+   mult=64 gap=0.999 vs clean 0.218（4.6 倍）；旧单层 mult=64（K=2 拼接）
+   0.260 vs clean 0.218——2-hash 拼接贡献 ~19%，4 层求和贡献 ~3.8 倍。
+   回答 SSOT §4 问题 3：主要是参数量（4× 行数）+ 求和平均的方差缩减，
+   不是"表记忆容量"本身的增益。
+4. **forking（clean，同架构唯一差异=碰撞）**：epoch 边界 train 跳变
+   perfect 更大（@337 −0.136 vs −0.115；@674 −0.085 vs −0.070），gap 增速
+   也更快更持续（epoch 2 起每 epoch +0.15–0.2 vs +0.05–0.1）——clean 框架下
+   零碰撞同时赢得瞬时跳变与净积累，旧框架"碰撞版瞬时跳变更大"的干涉
+   模式消失，进一步支持锯齿=架构伪影。
+5. min(N,K) 模型（图中虚线，归一化到 perfect）在 K/N<0.3 段仍高估斜率
+   （实测 log 斜率 ~0.35–0.5）：频率加权修正依然必要。
+
+产物：`figs/fig_clean_gap_vs_KN.png`、`figs/fig_clean_forking.png`；
+`tasks/s1_scaling_three_axis/analysis/plot_clean_figures.py`。
+
+### 后续（待拍板）
+- [ ] clean 网格 seed 43/44（确认光滑性与 perfect 倍率的跨 seed 稳健性）
+- [ ] clean 版 trigram / both module（SSOT §3.2 要求三 module）
+- [ ] clean 版 row-level（--save_final_model + probe，复用 §20 管线）
+- [ ] jamming 区更密取点（R 1M-3M 间插 6-8 点）刻画 1.5M≈2M 平台结构

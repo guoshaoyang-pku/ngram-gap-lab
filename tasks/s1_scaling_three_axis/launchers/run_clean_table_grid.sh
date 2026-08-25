@@ -99,12 +99,35 @@ launch() {  # launch <cmd...> (gpu appended as LAST argument)
   ACTIVE=$((ACTIVE + 1))
 }
 
-# longest runs first
-launch run_perfect_curve
-launch run_hash_curve
-for R in 4194304 3145728 2621440 2097152 1572864 786432 524288 393216 262144 131072 65536; do
-  launch run_hash_sparse "$R"
-done
+# NOTE: wave-based scheduling (not rolling slots): a rolling slot can reassign
+# a GPU whose previous (long) run is still alive -> OOM (2026-08-25 786K/65K).
+wave() {  # wave <cmd-args-as-one-string-per-task...>
+  local i=0
+  for spec in "$@"; do
+    local GPU="${GPUS[$((i % NGPU))]}"
+    i=$((i + 1))
+    eval "$spec" "$GPU" &
+  done
+  wait
+}
 
-while [ "$ACTIVE" -gt 0 ]; do wait -n; ACTIVE=$((ACTIVE - 1)); done
+# wave 1: the two freq=50 curve runs (slowest) + largest tables
+wave \
+  "run_perfect_curve" \
+  "run_hash_curve" \
+  "run_hash_sparse 4194304" \
+  "run_hash_sparse 3145728" \
+  "run_hash_sparse 2621440" \
+  "run_hash_sparse 2097152" \
+  "run_hash_sparse 1572864"
+
+# wave 2: remaining sparse arms
+wave \
+  "run_hash_sparse 786432" \
+  "run_hash_sparse 524288" \
+  "run_hash_sparse 393216" \
+  "run_hash_sparse 262144" \
+  "run_hash_sparse 131072" \
+  "run_hash_sparse 65536"
+
 echo "=== clean-table grid done at $(date) ==="
