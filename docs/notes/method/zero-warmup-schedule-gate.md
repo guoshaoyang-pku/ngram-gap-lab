@@ -120,3 +120,36 @@ warmdown temporarily or authorize a new no-warmdown schedule search. The
 aborted first attempt with full freq-eval cadence is retained as
 `schedcheck_v5_warmdown_r1048576_both_s42_aborted_freq10_fixed` and is not
 evidence.
+
+## Phase 2: minimal no-warmdown schedule search (planned)
+
+**Question.** Is the failed fixed-LR plateau caused chiefly by too-short
+warmup, or does the post-warmup decay itself supply the late-stage convergence?
+The only changed coordinate is the LR schedule. All arms use the clean-table
+anchor above: input injection, `R_bigram = R_trigram = 1,048,576`, AdamW
+backbone LR `0.004`, RMSProp tables `(0.0, 0.99)` at LR scale `2.0`, shard 1
+train / shards `2..10,6542` fixed validation, seed 42, bf16/no-compile,
+1000 steps, and `epoch_batches=337`.
+
+The runner is `code/cluster/run_schedule_search.sh` from commit `a5efb31`.
+It records only fixed scalar checkpoints at steps 100/250/500/750/1000; no
+frequency diagnostic is enabled during this convergence screen. `warmup_cosine`
+is step-anchored: the shared linear warmup is `0.001 → 0.004`, then a cosine
+decay reaches multiplier `0.05` exactly at step 1000. It never reads an epoch
+boundary. This floor is explicit as `--cosine_min_lr_mult 0.05`.
+
+| run_id stem | changed flags | status |
+|---|---|---|
+| `schedgrid_v1_hold_w200_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 200` | planned |
+| `schedgrid_v1_hold_w300_r1048576_both_s42` | `--lr_schedule warmup_constant --warmup_steps 300` | planned |
+| `schedgrid_v1_cosine_w100_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 100 --cosine_min_lr_mult 0.05` | planned |
+| `schedgrid_v1_cosine_w200_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 200 --cosine_min_lr_mult 0.05` | planned |
+| `schedgrid_v1_cosine_w300_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 300 --cosine_min_lr_mult 0.05` | planned |
+| `schedgrid_v1_cosine_w400_r1048576_both_s42` | `--lr_schedule warmup_cosine --warmup_steps 400 --cosine_min_lr_mult 0.05` | planned |
+
+**Falsifiable gate.** A candidate passes only if its final online train loss is
+at most `4.3` and its final online gap is at least `+0.5` on this anchor; this
+is deliberately looser than the same-host warmdown reference (3.6387 / +0.6644)
+but rejects the fixed-LR plateau. A passing arm must then be rerun on a second
+software stack before it becomes an SSOT setting. A failed arm remains a
+recorded diagnostic, not a table-size result.
