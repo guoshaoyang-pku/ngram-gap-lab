@@ -269,7 +269,7 @@ only the post-warmup shape from linear to cosine:
 
 | run_id stem | changed flags | status |
 |---|---|---|
-| `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | planned |
+| `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | running on ophis-gpu GPU 1 |
 
 If it passes seed 42, run the unchanged arm for seeds 43/44 before considering
 it an SSOT candidate. If it fails seed 42, retain warmdown provisionally and
