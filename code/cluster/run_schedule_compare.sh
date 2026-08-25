@@ -13,7 +13,13 @@ GPU="${1:?gpu id required}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 TASK_ROOT="$ROOT/tasks/s1_scaling_three_axis"
-PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
+if [ -n "${NGLAB_PY:-}" ]; then
+  PY="$NGLAB_PY"
+elif [ -x "$ROOT/.venv/bin/python" ]; then
+  PY="$ROOT/.venv/bin/python"
+else
+  PY="$(command -v python3)"
+fi
 DATA_DIR="${NGLAB_DATA_DIR:-$ROOT/data/tokenized}"
 FREQ_INDEX="${NGLAB_FREQ_INDEX:-$ROOT/data/freq_index.npz}"
 OUT_DIR="${NGLAB_OUT_DIR:-$ROOT/data/runs_scaling}"
