@@ -272,7 +272,7 @@ only the post-warmup shape from linear to cosine:
 | `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | done; passes gate |
 | `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | done; passes epoch-alignment control |
 | `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | done; passes epoch-alignment control |
-| `schedgrid_v2_cosine_w350_start10_floor05_s43_r1048576_both` | same as first row except `--seed 43` | running on ophis-gpu GPU 1; seed control |
+| `schedgrid_v2_cosine_w350_start10_floor05_s43_r1048576_both` | same as first row except `--seed 43` | done; passes gate |
 | `schedgrid_v2_cosine_w350_start10_floor05_s44_r1048576_both` | same as first row except `--seed 44` | running on ophis-gpu GPU 2; seed control |
 
 | schedule | train @1000 | val @1000 | online gap @1000 | gate |
@@ -280,6 +280,12 @@ only the post-warmup shape from linear to cosine:
 | cosine, warmup 200, start 0.10, floor 0.05 | 3.8282 | 4.4730 | +0.6448 | pass |
 | cosine, warmup 350, start 0.10, floor 0.05 | 3.7047 | 4.3610 | +0.6563 | pass |
 | cosine, warmup 500, start 0.10, floor 0.05 | 3.5898 | 4.1872 | +0.5973 | pass |
+
+| seed (warmup 350) | train @1000 | val @1000 | online gap @1000 | gate |
+|---:|---:|---:|---:|---|
+| 42 | 3.7047 | 4.3610 | +0.6563 | pass |
+| 43 | 3.2595 | 4.4116 | +1.1522 | pass |
+| 44 | — | — | — | running |
 
 All three warmup locations pass seed 42. The unchanged 350-step seed controls
 run concurrently; both must pass before it is considered an SSOT candidate.
@@ -289,3 +295,14 @@ The 350-step peak is only 13 steps after the first fixed-replay boundary
 peak far from that boundary while holding data and all other optimizer
 coordinates fixed. This rules out that local peak/replay alignment as the
 explanation for the current seed-42 result.
+
+## Phase 8: cross-stack reproduction (running)
+
+The v2 cosine candidate now has one independent host result plus an
+epoch-alignment control, but an SSOT candidate must also reproduce on the
+360-1 software stack. Source is synced from committed local code and MD5
+checked before launch; the data contract remains the same.
+
+| run_id stem | host | changed coordinate | status |
+|---|---|---|---|
+| `schedgrid_v2_cosine_w350_start10_floor05_s42_3601` | 360-1 GPU 0 | software stack only | running |
