@@ -270,8 +270,16 @@ only the post-warmup shape from linear to cosine:
 | run_id stem | changed flags | status |
 |---|---|---|
 | `schedgrid_v2_cosine_w350_start10_floor05_s42_r1048576_both` | `--lr_schedule warmup_cosine --warmup_steps 350 --warmup_start_lr_mult 0.10 --cosine_min_lr_mult 0.05 --seed 42` | running on ophis-gpu GPU 1 |
+| `schedgrid_v2_cosine_w200_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 200` | planned; epoch-alignment control |
+| `schedgrid_v2_cosine_w500_start10_floor05_s42_r1048576_both` | same as above except `--warmup_steps 500` | planned; epoch-alignment control |
 
 If it passes seed 42, run the unchanged arm for seeds 43/44 before considering
 it an SSOT candidate. If it fails seed 42, retain warmdown provisionally and
 test a still simpler explicit linear schedule in a separate registered phase;
 do not broaden model or optimizer variables.
+
+The 350-step peak is only 13 steps after the first fixed-replay boundary
+(`epoch_batches=337`). The 200- and 500-step controls deliberately move the
+peak far from that boundary while holding data and all other optimizer
+coordinates fixed. They are required before treating a successful 350-step
+arm as an epoch-independent schedule result.
