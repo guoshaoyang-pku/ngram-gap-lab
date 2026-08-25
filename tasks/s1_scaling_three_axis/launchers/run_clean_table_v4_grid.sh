@@ -33,25 +33,36 @@ run_one() {  # run_one <gpu> <run_id> <extra args...>
   fi
   mkdir -p "$RESULT_DIR"
   echo "[ctbl4] $RUN_ID -> GPU $GPU at $(date)"
-  CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \
-    --run_id "${RUN_ID}_fixed" --injection_position input \
-    --steps 1000 --seed 42 \
-    --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
-    --device_batch_size 72 --total_batch_size 147456 \
-    --val_batches 4 --lr 0.004 \
-    --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
-    --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
-    --freq_index "$FREQ_IDX" \
-    --epoch_batches 337 \
-    --fixed_train_probe 0 \
-    --table_optimizer rmsprop \
-    --table_betas 0.0,0.99 \
-    --table_lr_scale 2.0 \
-    --lr_schedule constant \
-    --dtype bf16 \
-    "$@" \
-    > "$RESULT_DIR/train.log" 2>&1
-  echo "[ctbl4] $RUN_ID done (exit=$?) at $(date)"
+  local rc=1 attempt=0
+  while [ "$rc" -ne 0 ] && [ "$attempt" -lt 2 ]; do
+    attempt=$((attempt + 1))
+    set +e
+    CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$TASK_ROOT/code/train.py" \
+      --run_id "${RUN_ID}_fixed" --injection_position input \
+      --steps 1000 --seed 42 \
+      --data_dir "$DATA_DIR" --out_dir "$OUT_DIR" \
+      --device_batch_size 72 --total_batch_size 147456 \
+      --val_batches 4 --lr 0.004 \
+      --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
+      --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
+      --freq_index "$FREQ_IDX" \
+      --epoch_batches 337 \
+      --fixed_train_probe 0 \
+      --table_optimizer rmsprop \
+      --table_betas 0.0,0.99 \
+      --table_lr_scale 2.0 \
+      --lr_schedule constant \
+      --dtype bf16 \
+      "$@" \
+      > "$RESULT_DIR/train.log" 2>&1
+    rc=$?
+    set -e
+    if [ "$rc" -ne 0 ] && [ "$attempt" -lt 2 ]; then
+      echo "[ctbl4] $RUN_ID attempt $attempt failed (rc=$rc), retrying on $(date)"
+      sleep 10
+    fi
+  done
+  echo "[ctbl4] $RUN_ID done (rc=$rc) at $(date)"
 }
 
 occ_clean() {  # occ_clean <run_dir> <branch_flag> <R>
@@ -65,6 +76,10 @@ occ_clean() {  # occ_clean <run_dir> <branch_flag> <R>
 
 run_bi() {  # <R> <gpu>
   local R="$1" GPU="$2"
+  if [ -f "$OUT_DIR/ctbl_v4_${R}_bigram_fixed/summary.json" ]; then
+    echo "[ctbl4] SKIP run_bi $R (summary.json present)"
+    return 0
+  fi
   run_one "$GPU" "ctbl_v4_${R}_bigram" \
     --enable_unigram 0 --enable_bigram 1 --enable_trigram 0 \
     --bigram_clean_table "$R" --val_steps 1000 --exact_freq_eval_interval 1000
@@ -73,6 +88,10 @@ run_bi() {  # <R> <gpu>
 
 run_bi_perfect() {  # <gpu>
   local GPU="$1"
+  if [ -f "$OUT_DIR/ctbl_v4_perfect_bigram_fixed/summary.json" ]; then
+    echo "[ctbl4] SKIP run_bi_perfect (summary.json present)"
+    return 0
+  fi
   run_one "$GPU" "ctbl_v4_perfect_bigram" \
     --enable_unigram 0 --enable_bigram 1 --enable_trigram 0 \
     --bigram_perfect_map "$ROOT/data/bigram_perfect_map_s1.npz" \
@@ -81,6 +100,10 @@ run_bi_perfect() {  # <gpu>
 
 run_tri() {  # <R> <gpu>
   local R="$1" GPU="$2"
+  if [ -f "$OUT_DIR/ctbl_v4_${R}_trigram_fixed/summary.json" ]; then
+    echo "[ctbl4] SKIP run_tri $R (summary.json present)"
+    return 0
+  fi
   run_one "$GPU" "ctbl_v4_${R}_trigram" \
     --enable_unigram 0 --enable_bigram 0 --enable_trigram 1 \
     --trigram_clean_table "$R" --val_steps 1000 --exact_freq_eval_interval 1000
