@@ -1,0 +1,4 @@
+interface:
+  display_name: "N-gram Gap Plotting"
+  short_description: "Create evidence-traceable n-gram gap figures."
+  default_prompt: "Plot an n-gram-gap-lab run using its canonical artifacts."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "N-gram Gap Settings"
+  short_description: "Define and validate a minimal experiment contract."
+  default_prompt: "Prepare a registered n-gram-gap-lab experiment setting."

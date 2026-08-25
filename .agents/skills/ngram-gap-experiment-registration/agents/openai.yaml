@@ -1,0 +1,4 @@
+interface:
+  display_name: "N-gram Gap Experiment Registration"
+  short_description: "Register and hand off one reproducible experiment."
+  default_prompt: "Register a new n-gram-gap-lab experiment and prepare its handoff."

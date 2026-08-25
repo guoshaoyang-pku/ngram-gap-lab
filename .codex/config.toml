@@ -1,0 +1,4 @@
+# This repository keeps its canonical guide as the historical lowercase
+# `agents.md`. Declare it as a project instruction fallback so Codex discovery
+# is consistent on case-sensitive collaborator machines as well.
+project_doc_fallback_filenames = ["agents.md"]
