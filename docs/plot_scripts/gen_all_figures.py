@@ -34,7 +34,9 @@ FALLBACK_BLOG_DIR = os.environ.get(
                  "blogs", "ngram-gap-mechanism-guide"),
 )
 
-# v2 new standard (table β₂=0.99 · table_lr_scale=2.0 · bf16+compile).
+# v2 historical source wave (table β₂=0.99 · table_lr_scale=2.0 · bf16+compile).
+# These committed v2 artifacts predate the current no-compile standard and are
+# not evidence for newly rerun canonical claims.
 # Colors follow the ngram-gap-plotting skill RUN_COLORS.
 RUNS = {
     "v": {"label": "v (ResFormer, add to V)", "color": "#b67524", "dir": "nglab1x_v_v2_fixed"},
@@ -443,7 +445,7 @@ def epoch_boundary_pairs(train_log):
     return pairs
 
 
-def smooth(pts, window=7):
+def smooth(pts, window=3):
     """Centered moving average to soften single-step noise / early spikes."""
     n = len(pts)
     if n == 0:
@@ -511,7 +513,7 @@ def gen_static_loss_figures(data):
         cleaned, bad = clean_series(raw)
         ax.scatter(x, [np.nan if i in bad else v for i, v in enumerate(raw)],
                    s=8, color=RUN_COLORS[key], alpha=0.3, linewidths=0, zorder=2)
-        ax.plot(x, smooth(cleaned), color=RUN_COLORS[key], linewidth=2.2,
+        ax.plot(x, smooth(cleaned), color=RUN_COLORS[key], linewidth=1.2,
                 label=info["label"])
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation gap (train = online batch loss)", loc="left",
@@ -538,9 +540,9 @@ def gen_static_loss_figures(data):
                    s=6, color=color, alpha=0.22, linewidths=0, zorder=2)
         ax.scatter(x, [np.nan if i in val_bad else v for i, v in enumerate(val_raw)],
                    s=6, color=color, alpha=0.22, linewidths=0, zorder=2)
-        ax.plot(x, smooth(tr_clean), color=color, linewidth=1.5,
+        ax.plot(x, smooth(tr_clean), color=color, linewidth=1.0,
                 linestyle="--", alpha=0.72, label=f"{key} train")
-        ax.plot(x, smooth(val_clean), color=color, linewidth=2.1,
+        ax.plot(x, smooth(val_clean), color=color, linewidth=1.2,
                 label=f"{key} val")
     add_epoch_lines(ax, epoch_boundary_pairs(data["v"]["train_log"]))
     ax.set_title("Train / validation loss (train dashed = online batch loss)", loc="left",
@@ -572,7 +574,7 @@ def gen_static_norm_figures(data):
                 ax.scatter(x, [np.nan if i in bad else v for i, v in enumerate(raw)],
                            s=6, color=color, alpha=0.22, linewidths=0, zorder=2)
                 ax.plot(x, smooth(cleaned), color=color,
-                        linewidth=2.2, label=label)
+                        linewidth=1.2, label=label)
     add_epoch_lines(ax, epoch_boundary_pairs(d["train_log"]))
     ax.set_title("N-gram table norm", loc="left", fontsize=15, fontweight="bold")
     ax.set_xlabel("step")
@@ -595,15 +597,15 @@ def gen_static_norm_figures(data):
                s=6, color="#2d6f9f", alpha=0.22, linewidths=0, zorder=2)
     ax.scatter(x, [np.nan if i in val_bad else v for i, v in enumerate(val_raw)],
                s=6, color="#c4493d", alpha=0.22, linewidths=0, zorder=2)
-    ax.plot(x, smooth(tr_clean), color="#2d6f9f", linewidth=1.6,
+    ax.plot(x, smooth(tr_clean), color="#2d6f9f", linewidth=1.0,
             linestyle="--", label="train loss")
-    ax.plot(x, smooth(val_clean), color="#c4493d", linewidth=2.1,
+    ax.plot(x, smooth(val_clean), color="#c4493d", linewidth=1.2,
             label="val loss")
     ax.set_ylabel("loss")
     ax2 = ax.twinx()
     ax2.scatter(x, [np.nan if i in gap_bad else v for i, v in enumerate(gap_raw)],
                 s=6, color=ANCHOR, alpha=0.22, linewidths=0, zorder=2)
-    ax2.plot(x, smooth(gap_clean), color=ANCHOR, linewidth=2.0,
+    ax2.plot(x, smooth(gap_clean), color=ANCHOR, linewidth=1.2,
              label="gap")
     ax2.set_ylabel("gap", color=ANCHOR)
     ax2.tick_params(colors=ANCHOR, labelsize=9)
@@ -642,16 +644,16 @@ def gen_static_combined_norm_figure(data):
                s=6, color="#3c8d5a", alpha=0.22, linewidths=0, zorder=2)
     ax.scatter(x_loss, [np.nan if i in val_bad else v for i, v in enumerate(val_raw)],
                s=6, color="#d97932", alpha=0.22, linewidths=0, zorder=2)
-    ax.plot(x_loss, train_loss, color="#3c8d5a", linewidth=1.7,
+    ax.plot(x_loss, train_loss, color="#3c8d5a", linewidth=1.0,
             linestyle="--", label="train loss")
-    ax.plot(x_loss, val_loss, color="#d97932", linewidth=2.1,
+    ax.plot(x_loss, val_loss, color="#d97932", linewidth=1.2,
             label="val loss")
     ax.set_xlabel("step")
     ax.set_ylabel("loss")
     ax2 = ax.twinx()
     ax2.scatter(x_loss, [np.nan if i in gap_bad else v for i, v in enumerate(gap_raw)],
                 s=6, color=ANCHOR, alpha=0.22, linewidths=0, zorder=2)
-    ax2.plot(x_loss, gap, color=ANCHOR, linewidth=2.0, label="gap")
+    ax2.plot(x_loss, gap, color=ANCHOR, linewidth=1.2, label="gap")
     ax2.set_ylabel("gap", color=ANCHOR)
     ax2.tick_params(colors=ANCHOR, labelsize=9)
     ax2.spines["right"].set_color(ANCHOR)
