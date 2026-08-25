@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
+OUT_DIR="${NGLAB_OUT_DIR:-$ROOT/data/runs_fixed}"
 GROUP="${V5_GROUP:?set V5_GROUP to inj, dose, epoch, causal, rho, or long}"
 GPUS=("$@")
 
@@ -116,7 +117,7 @@ run_one() {
   local spec="$2"
   local run_id train_shards val_shards steps extra result_dir
   IFS='|' read -r run_id train_shards val_shards steps extra <<< "$spec"
-  result_dir="$ROOT/data/runs_fixed/${run_id}_fixed"
+  result_dir="$OUT_DIR/${run_id}_fixed"
   if [[ -f "$result_dir/summary.json" ]]; then
     echo "[v5-$GROUP] skip complete $run_id"
     return 0
@@ -126,7 +127,7 @@ run_one() {
     return 2
   }
   echo "[v5-$GROUP] $run_id gpu=$gpu steps=$steps"
-  NGLAB_PY="$PY" bash "$SCRIPT_DIR/run_v5_clean.sh" "$gpu" "$run_id" \
+  NGLAB_PY="$PY" NGLAB_OUT_DIR="$OUT_DIR" bash "$SCRIPT_DIR/run_v5_clean.sh" "$gpu" "$run_id" \
     "$train_shards" "$val_shards" "$steps" $extra
 }
 
