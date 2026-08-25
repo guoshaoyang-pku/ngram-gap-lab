@@ -1758,6 +1758,8 @@ partial 目录则拒绝覆盖。
 | fixed probe | `nglab{1,2}x_input_rho_v5` | 2 | 2000；唯一新增诊断为 fixed probe | 🟡 queued |
 | backbone safety | `nglab1x_nogram_long_v5` | 1 | 8000；无 n-gram 的长训练保险对照 | 🟡 queued |
 | table size | `ctbl_v5_both_{R}` | 18 | 1000 末端；唯一变量为 bigram/trigram 同步的 clean R | 🟡 queued |
+| S1 epoch-prefix | `s1v5_L{1..4}_{both,nogram}_fs` | 8 | 1000；唯一变量为 `epoch_batches=42/84/168/337` 与既定 no-gram control | 🟡 queued |
+| S1 frequency | `s1v5_freq_{bigram,trigram,both,nogram}` | 4 | 1000；L4 `epoch_batches=337`，唯一变量为既定 module arm | 🟡 queued |
 
 **table-size 采样**：bigram / trigram 始终同时开启、并取相同 physical rows
 `R=16K, 22K, 30K, 41K, 56K, 76K, 104K, 142K, 194K, 265K, 362K, 494K, 675K,

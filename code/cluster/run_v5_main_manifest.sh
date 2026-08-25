@@ -69,6 +69,26 @@ case "$GROUP" in
       "nglab1x_nogram_long_v5|1|2,3,4,5,6,7,8,9,10,6542|8000|--enable_bigram 0 --enable_trigram 0"
     )
     ;;
+  s1_epoch)
+    SPECS=(
+      "s1v5_L1_both_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 42"
+      "s1v5_L2_both_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 84"
+      "s1v5_L3_both_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 168"
+      "s1v5_L4_both_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 337"
+      "s1v5_L1_nogram_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 42 --enable_bigram 0 --enable_trigram 0"
+      "s1v5_L2_nogram_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 84 --enable_bigram 0 --enable_trigram 0"
+      "s1v5_L3_nogram_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 168 --enable_bigram 0 --enable_trigram 0"
+      "s1v5_L4_nogram_fs|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 337 --enable_bigram 0 --enable_trigram 0"
+    )
+    ;;
+  s1_frequency)
+    SPECS=(
+      "s1v5_freq_bigram|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 337 --enable_bigram 1 --enable_trigram 0"
+      "s1v5_freq_trigram|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 337 --enable_bigram 0 --enable_trigram 1"
+      "s1v5_freq_both|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 337"
+      "s1v5_freq_nogram|1|2,3,4,5,6,7,8,9,10,6542|1000|--epoch_batches 337 --enable_bigram 0 --enable_trigram 0"
+    )
+    ;;
   *)
     echo "unknown V5_GROUP=$GROUP" >&2
     exit 2
