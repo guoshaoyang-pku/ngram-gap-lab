@@ -125,7 +125,12 @@
   <tr id="registry-m2-v4">
     <td>M2-v5 注入点消融<br><span class="note">（当前唯一主线）</span></td>
     <td>input / y / v / nogram；2000 步；clean R=2²⁰；<code>lr=6e-4</code>、<code>warmup_constant(100)</code>；bf16、不 compile；train loss=当前 batch online loss；seed 42/43/44</td>
-    <td class="visual">原始 online loss/gap 点（只以 3 点均值连线）；频率 bin 双轴图；gap-vs-frequency；loss-gap-table-RMS 对齐。v5 图只在相应完整 run 回传后生成，不复用 v2 图。</td>
+    <td class="visual">原始 online loss/gap 点（只以 3 点均值连线）；频率 bin 双轴图；gap-vs-frequency；loss-gap-table-RMS 对齐。
+      <div class="inline-figures">
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_injection.png"><img src="../../docs/figs/main/fig_v5_injection.png" alt="v5 注入点 online gap 与 loss"></a><figcaption>seed 42 四臂：gap / loss</figcaption></figure>
+      </div>
+      <span class="note">图源：<code>nglab1x_{input,y,v,nogram}_v5_fixed/train_log.jsonl</code>；点为原始 online 记录，线为 3 点均值。三个 seed 的端点见状态列。</span>
+    </td>
     <td class="st-done">✅ 三 seed × 四臂完成；seed 42 input/y/v/nogram=5.741/3.640/2.014/0.245，s43=5.811/3.277/2.881/0.253，s44=5.515/3.439/2.723/0.253</td>
     <td class="com"><input type="text"></td>
   </tr>
@@ -135,7 +140,12 @@
     <td rowspan="3" class="center"><b>剂量<br>扫描</b></td>
     <td>M5-v5 fixed-step 剂量扫描</td>
     <td rowspan="2">0.25x、0.5x、0.75x、1.5x、2x、2.5x、3x、4x、5x、6x、8x；input；2000 步；v5 SSOT</td>
-    <td class="visual">原始 online gap vs dose（双对数）、gap@2000 与 epoch 分界标注。v5 图在完整 run 回传后生成，不复用 v2 剂量图。</td>
+    <td class="visual">原始 online gap vs dose（双对数）、gap@2000 与 epoch 分界标注。
+      <div class="inline-figures">
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_dose_fixedstep.png"><img src="../../docs/figs/main/fig_v5_dose_fixedstep.png" alt="v5 fixed-step 剂量扫描"></a><figcaption>step 2000 · dose–gap</figcaption></figure>
+      </div>
+      <span class="note">图源：11 个 <code>nglab*_input_v5_fixed/summary.json</code>；仅改变 train-shard dose，x 轴为对数。</span>
+    </td>
     <td class="st-done">✅ 11/11 完成；gap 11.589（0.25x）→−0.077（8x）</td>
     <td class="com"><input type="text"></td>
   </tr>
@@ -241,9 +251,11 @@
     <td rowspan="2">L1–L4 前缀（42/84/168/337 batches）；both 与 no-gram；1000 步；v5 SSOT</td>
     <td class="visual">online gap vs epoch 长度；both 与 no-gram 对照
       <div class="inline-figures">
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_s1_epoch_prefix.png"><img src="../../docs/figs/main/fig_v5_s1_epoch_prefix.png" alt="v5 S1 epoch prefix"></a><figcaption>v5 epoch-prefix 端点</figcaption></figure>
         <figure class="inline-figure"><a href="../../docs/appendices/s1_scaling_three_axis/figs/epoch_deltaG_fs_multiseed.png"><img src="../../docs/appendices/s1_scaling_three_axis/figs/epoch_deltaG_fs_multiseed.png" alt="epoch 多 seed"></a><figcaption>epoch 多 seed</figcaption></figure>
         <figure class="inline-figure"><a href="../../docs/appendices/s1_scaling_three_axis/figs/rel_relationship_map.png"><img src="../../docs/appendices/s1_scaling_three_axis/figs/rel_relationship_map.png" alt="三轴关系"></a><figcaption>三轴关系</figcaption></figure>
       </div>
+      <span class="note">左图图源：<code>s1v5_L{1..4}_{both,nogram}_fs_fixed</code> 的 step-1000 online 端点；其余旧附录图只作历史结构参照。</span>
     </td>
     <td class="st-done">✅ 8/8 完成；both/no-gram 均有完整 L1–L4 曲线</td>
     <td class="com"><input type="text"></td>
@@ -273,10 +285,12 @@
     <td>bigram/trigram 同步 clean R；18 个近对数均匀点，16K–2.347M；1000 步末端；seed 42</td>
     <td class="visual">gap-R、occupancy/collision 与频率加权负载；旧图只作结构参照
       <div class="inline-figures">
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_s1_table_size.png"><img src="../../docs/figs/main/fig_v5_s1_table_size.png" alt="v5 clean 双表 table-size"></a><figcaption>v5 双表 gap–R</figcaption></figure>
         <figure class="inline-figure"><a href="../../docs/appendices/s1_scaling_three_axis/figs/fig_clean_gap_vs_KN.png"><img src="../../docs/appendices/s1_scaling_three_axis/figs/fig_clean_gap_vs_KN.png" alt="clean 单表 gap R"></a><figcaption>clean gap–R</figcaption></figure>
         <figure class="inline-figure"><a href="../../docs/appendices/s1_scaling_three_axis/figs/fig_clean_forking.png"><img src="../../docs/appendices/s1_scaling_three_axis/figs/fig_clean_forking.png" alt="clean 单表 forking"></a><figcaption>clean forking</figcaption></figure>
         <figure class="inline-figure"><a href="../../docs/appendices/s1_scaling_three_axis/figs/fig_gap_vs_KN.png"><img src="../../docs/appendices/s1_scaling_three_axis/figs/fig_gap_vs_KN.png" alt="K N 相图"></a><figcaption>K/N 相图</figcaption></figure>
       </div>
+      <span class="note">左图图源：18 个 <code>ctbl_v5_both_{R}_fixed/summary.json</code>；bigram/trigram 同步扩容，seed 42、step 1000。</span>
     </td>
     <td class="st-done">✅ 18/18 完成</td>
     <td class="com"><input type="text"></td>
