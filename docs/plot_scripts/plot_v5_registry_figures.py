@@ -98,7 +98,15 @@ def ordered_frequency_buckets(stats):
     def lower_bound(label):
         if label == "novel":
             return -1
-        return int(label.split("-")[0].rstrip("+"))
+        token = label.split("-")[0].rstrip("+")
+        multiplier = 1
+        if token.endswith("k"):
+            token = token[:-1]
+            multiplier = 1_000
+        elif token.endswith("m"):
+            token = token[:-1]
+            multiplier = 1_000_000
+        return int(float(token) * multiplier)
     return sorted(stats, key=lower_bound)
 
 

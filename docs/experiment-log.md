@@ -63,6 +63,9 @@
 | `ngram5_order5_trigram_s43_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · seed 43 复现** | ✅ done | −0.0090 @2000 | §19 |
 | `l6_counttable_freq_exact_v1` | 2026-08-25 | **二元计数表 · 频率扫描 · 精确枚举** | ✅ done | slope −1.0000（f≥512） | §23 |
 | `l6_response_moments_exact_v1` | 2026-08-25 | **残差—响应映射 · 二/四/绝对矩 · 精确枚举** | ✅ done | −1.0000/−0.4995/−1.9986 | §23 |
+| `optv5d_rms_b095_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.95，scale=8** | running | 待填 | §24c |
+| `optv5d_rms_b099_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.99，scale=8** | running | 待填 | §24c |
+| `optv5d_rms_b0995_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.995，scale=8** | running | 待填 | §24c |
 
 状态约定：`planned` 已登记未开跑 / `running` 运行中 / `done` 已回填 / `stalled` 超期未回填。
 新实验流程：总表加一行拿到唯一 `run_id` → 正文新建 section 按 `agents.md` §3 / `docs/plan.md` 模板填写
@@ -1757,7 +1760,7 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 |---|---|---:|---:|---|---|
 | optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | 🟡 running on 360-2 |
 | causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | 🟡 running on ophis-gpu |
-| M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | 🟡 running on 360-1 |
+| M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | ✅ done (2026-08-26) |
 | dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | 🟡 running on ophis-gpu + 360-2 |
 | table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | clean bigram/trigram physical-row diagnostics | ✅ done (2026-08-26) |
 
@@ -1790,6 +1793,12 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
   `summary.json` 前收到 `SIGTERM`，对应 360-2 目录保留为非权威 partial；
   这两个剂量只读取 ophis-gpu 的权威完整产物。360-2 队列随后自动释放两张卡并继续
   其余 9 个互不重复的剂量 run。
+- M2 current-batch frequency refresh 已在 360-1 完成。四臂在 step 2000 都具有
+  `summary.json`、`train_log.jsonl`、`freq_bin_loss.jsonl`、`exact_freq_loss.jsonl`
+  与 `table_norm.jsonl`；final gap（input/y/v/nogram）为
+  `5.754749/3.465313/2.011368/0.248242`。绘图只读取这四条 final freq-bin
+  记录，图中 train 侧是该 logged step 的当前训练 batch pre-update per-token loss，
+  val 侧是 fixed validation batches；bigram/trigram 图已生成并嵌入 registry。
 
 所有新训练 run 的 owner 为 local v5-refresh queue，seed 42，结果目录为
 `data/runs_fixed/<run_id>_fixed/`；训练/验证 shard 均由下表和 launcher
@@ -1889,6 +1898,56 @@ bigram/trigram clean-table 都只使用各自第一组完整 hash；专用
 路径的 `2R`）、`occupied≤R`、collision ∈ [0,1]；随后才生成并嵌入
 `fig_v5_s1_table_load_collision.png`。该 JSON 的字段包括 `K`、`R`、occupied、
 `K/R`、occupancy 与 `(K−occupied)/K`，其中 `K/R` 是负载比，不是 collision。
+
+---
+
+## §24c · 高 table-LR 的 β₂ 不敏感性 gate（2026-08-26）
+
+**动机**：用户要求选择可作定量分析的 table setting，核心门槛是 gap 不能强依赖
+RMSProp 的 β₂。§24b 的有效完整 scale=2 中心臂是
+`optv5c_rms_b099_s2p0_r1`（不要误用同名 100-step smoke）；β₂ 从 `.95` 到
+`.999` 的 gap 为 `1.239→1.669`，跨度 `0.430`（均值的 28.6%），故**scale=2
+不能被称为 β₂ 不敏感**。它的 table-LR 单轴曲线在 scale `2→3→4` 的 gap
+增量为 `+0.335→+0.186`，只显示边际递减，尚未证明饱和。
+
+**科学问题 / 可证伪比较**：在更高的固定 table LR（scale=8，实际 table LR
+`0.0048`）下，RMSProp β₂ 的差异是否降到可忽略量，同时训练和 fixed validation
+仍健康？若三个 β₂ 臂的末端 gap 相对跨度仍超过 10%，或出现非有限数/明显失稳，
+则否定「scale=8 是 β₂ 不敏感的定量 setting」；不得仅以较大 gap 选它为主线。
+
+**本 family 内唯一变量**：`--table_betas` 的第二项，`.95/.99/.995`。高 LR
+`--table_lr_scale 8.0` 是本次 gate 的固定基准坐标，而非对 SSOT scale=2 的静默
+替换；backbone LR 仍严格为 `0.0006`，不扫描 backbone LR。
+
+**固定完整契约**：vanilla nanoGPT 8L/6H/768D；input 注入；bigram+trigram
+clean 单表且各 `R=1,048,576`；backbone AdamW `(0.8,.95)`、wd `.1`、LR
+`.0006`；table RMSProp、β₁=0；warmup_constant 100 steps；fixed replay
+train shard `1`、non-overlap val shards `2,3,4,5,6,7,8,9,10,6542`；seed 42；
+1000 steps；bf16、无 compile；val/frequency/exact-frequency/table-RMS 均每 10
+steps；gap=同 logged step 的 fixed val−current-batch online train。
+
+| run_id | GPU / cluster | 只改变量 | 结果目录 | 状态 |
+|---|---|---|---|---|
+| `optv5d_rms_b095_s8p0` | 360-2 GPU0 | β₂=.95 | `data/runs_fixed/optv5d_rms_b095_s8p0_fixed/` | running |
+| `optv5d_rms_b099_s8p0` | 360-2 GPU1 | β₂=.99 | `data/runs_fixed/optv5d_rms_b099_s8p0_fixed/` | running |
+| `optv5d_rms_b0995_s8p0` | 360-2 GPU2 | β₂=.995 | `data/runs_fixed/optv5d_rms_b0995_s8p0_fixed/` | running |
+
+**精确执行命令**（远端仓库 `/data/home/guoshaoyang/ngram-gap-lab`，解释器
+`/usr/bin/python3`；运行前已核对本机与 360-2 的 `train.py`、`ngram_freq.py`、
+`run_v5_clean.sh` MD5 一致）：
+
+```bash
+NGLAB_PY=/usr/bin/python3 bash code/cluster/run_v5_clean.sh <GPU> <run_id> 1 \
+  2,3,4,5,6,7,8,9,10,6542 1000 --table_lr_scale 8.0 --table_betas 0.0,<beta2>
+```
+
+**验收与后续 gate**：每臂必须有完整 `summary.json`、100 个 step-10
+`train_log.jsonl` / `freq_bin_loss.jsonl` / `exact_freq_loss.jsonl` /
+`table_norm.jsonl` 点，达到 step 1000 且无 NaN/Inf。令
+`spread=(max(gap)-min(gap))/gap(beta2=.99)`；只有 `spread≤0.10`、三个 train/val
+曲线均有限且无明显末端爆炸时，才称为候选 β₂-insensitive 区。通过后才登记
+scale=16 的中心臂及同样的 β₂ gate；不通过则停止把 LR 上探作为定量主 setting，
+保留 scale=2 仅作 optimizer-dependent 现象设置。
 
 ---
 
