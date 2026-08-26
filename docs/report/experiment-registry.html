@@ -259,10 +259,14 @@
     <td class="center"><b>因果<br>干预</b></td>
     <td>Causal interventions（v5）</td>
     <td>input、1000 步、val/frequency=10。已完成 precursor：reset-table e1/e2、mask-readout e1、freeze-table e1、freeze-backbone e1。新 causal-refresh 另加 no-intervention、hash-reseed e1、mask-low-f≤200 e1、mask-high-f&gt;200 e1；其余 v5 SSOT</td>
-    <td class="visual">完整 online train / fixed val / gap 曲线，epoch 边界虚线。<code>reset_table</code> 是重新初始化表参数，不改变 hash；<code>mask_readout</code> 是边界后的 no-gram 破坏性基准；<code>hash_reseed</code> 只换 context→row 映射、保留表权重与 RMSProp state。
-      <div class="inline-figures"><figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_causal_existing_losses.png"><img src="../../docs/figs/main/fig_v5_causal_existing_losses.png" alt="v5 因果 precursor loss gap 曲线"></a><figcaption>已有 5 臂 precursor：loss / gap</figcaption></figure></div>
+    <td class="visual">九臂完整 online train / fixed val / gap 曲线；各色虚线精确标出记录在 <code>summary.json</code> 的干预步（e1 为 step 338，reset e2 为 step 675）。<code>reset_table</code> 重初始化表参数，不改 hash；<code>mask_readout</code> 是边界后的 no-gram 破坏性基准；<code>hash_reseed</code> 只换 context→row 映射、保留表权重与 RMSProp state；low/high mask 用 <code>f≤200</code>/<code>f&gt;200</code> 的互补集合。
+      <div class="inline-figures">
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_causal_losses.png"><img src="../../docs/figs/main/fig_v5_causal_losses.png" alt="v5 九臂因果 online train validation gap 曲线"></a><figcaption>九臂：online train / fixed val / gap</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_causal_frequency_effect.png"><img src="../../docs/figs/main/fig_v5_causal_frequency_effect.png" alt="v5 因果低高频屏蔽频率分桶 gap"></a><figcaption>low/high mask：末步频率 gap</figcaption></figure>
+      </div>
+      <span class="note">图源严格限定为九个 <code>causalv5c_*_fixed</code> run 的 100 条 step-10 <code>train_log.jsonl</code> / <code>freq_bin_loss.jsonl</code> / <code>exact_freq_loss.jsonl</code> / <code>table_norm.jsonl</code>；均到 step 1000、无 NaN/Inf。频率图只包含已有 train token loss 的桶，<code>novel</code> 不定义 gap。</span>
     </td>
-    <td class="st-run">🟡 已有 5/5 precursor；9 臂 causal-refresh 在 ophis-gpu 运行中，不将旧语义混写为新证据</td>
+    <td class="st-done">✅ 9/9 causal-refresh 完成（seed 42、step 1000）：none=1.544；reset e1/e2=0.704/0.068；mask-readout=0.016；freeze table/backbone=1.133/0.821；hash-reseed=0.637；mask low/high=0.066/1.529</td>
     <td class="com"><input type="text"></td>
   </tr>
 

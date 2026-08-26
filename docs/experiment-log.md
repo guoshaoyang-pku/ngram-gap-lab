@@ -1759,7 +1759,7 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 | family | run_id 模式 | 数量 | steps | 唯一变量 | 状态 |
 |---|---|---:|---:|---|---|
 | optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | ✅ done (2026-08-26) |
-| causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | 🟡 running on ophis-gpu |
+| causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | ✅ done (2026-08-26) |
 | M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | ✅ done (2026-08-26) |
 | dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | 🟡 running on ophis-gpu + 360-2 |
 | table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | clean bigram/trigram physical-row diagnostics | ✅ done (2026-08-26) |
@@ -1826,15 +1826,15 @@ same-step `fixed val − current-batch online train`。
 | `optv5c_rms_b0999_s2p0` | 同上 | 1000 | RMSProp β₂=.999 | 10-step curves / ✅ done, gap 1.669 |
 | `optv5c_adamw_b099_s2p0` | 同上 | 1000 | table AdamW `(0,.99)` | 10-step curves / ✅ done, gap 1.502 |
 | `optv5c_sgd_m0_s2p0` | 同上 | 1000 | table SGD momentum 0 | 10-step curves / ✅ done, gap 0.078 |
-| `causalv5c_none` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | no intervention | curves + intervention event / planned |
-| `causalv5c_reset_table_e1` | 同上 | 1000 | reset table at epoch 2 | curves + intervention event / planned |
-| `causalv5c_reset_table_e2` | 同上 | 1000 | reset table at epoch 3 | curves + intervention event / planned |
-| `causalv5c_mask_readout_e1` | 同上 | 1000 | no-gram benchmark at epoch 2 | curves + intervention event / planned |
-| `causalv5c_freeze_table_e1` | 同上 | 1000 | freeze table at epoch 2 | curves + intervention event / planned |
-| `causalv5c_freeze_backbone_e1` | 同上 | 1000 | freeze backbone at epoch 2 | curves + intervention event / planned |
-| `causalv5c_hash_reseed_e1` | 同上 | 1000 | reseed context→row hash at epoch 2 | curves + preserved-state event / planned |
-| `causalv5c_mask_low_f200_e1` | 同上 | 1000 | mask `f≤200` at epoch 2 | curves + index provenance / planned |
-| `causalv5c_mask_high_f200_e1` | 同上 | 1000 | mask `f>200` at epoch 2 | curves + index provenance / planned |
+| `causalv5c_none` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | no intervention | 10-step curves / ✅ done, gap 1.544 |
+| `causalv5c_reset_table_e1` | 同上 | 1000 | reset table at epoch 2 | event step 338 / ✅ done, gap 0.704 |
+| `causalv5c_reset_table_e2` | 同上 | 1000 | reset table at epoch 3 | event step 675 / ✅ done, gap 0.068 |
+| `causalv5c_mask_readout_e1` | 同上 | 1000 | no-gram benchmark at epoch 2 | event step 338 / ✅ done, gap 0.016 |
+| `causalv5c_freeze_table_e1` | 同上 | 1000 | freeze table at epoch 2 | event step 338 / ✅ done, gap 1.133 |
+| `causalv5c_freeze_backbone_e1` | 同上 | 1000 | freeze backbone at epoch 2 | event step 338 / ✅ done, gap 0.821 |
+| `causalv5c_hash_reseed_e1` | 同上 | 1000 | reseed context→row hash at epoch 2 | state-preserved event step 338 / ✅ done, gap 0.637 |
+| `causalv5c_mask_low_f200_e1` | 同上 | 1000 | mask `f≤200` at epoch 2 | index provenance / ✅ done, gap 0.066 |
+| `causalv5c_mask_high_f200_e1` | 同上 | 1000 | mask `f>200` at epoch 2 | index provenance / ✅ done, gap 1.529 |
 | `nglab0_25x_input_v5_freq10` | `62` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.25x dose | 10-step curves + matching index / planned |
 | `nglab0_5x_input_v5_freq10` | `60` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.5x dose | 10-step curves + matching index / planned |
 | `nglab0_75x_input_v5_freq10` | `63` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.75x dose | 10-step curves + matching index / planned |
@@ -1895,6 +1895,17 @@ step、epoch、干预类型、hash identity 前后、频率阈值和索引 SHA25
 频率 mask 的静态 index 是测量与 intervention 的共同 provenance，但不可消费
 训练迭代器；训练仍只从主训练流取 batch。low/high mask 使用同一阈值且必须在单元测试中
 逐位置互补。
+
+**回填结果（2026-08-26，seed 42，step 1000）**：九臂均具备 `summary.json`
+与 100 条 step-10 `train_log.jsonl` / `freq_bin_loss.jsonl` /
+`exact_freq_loss.jsonl` / `table_norm.jsonl`，所有终值有限。final gap 依次为：
+control `1.543546`；reset-table e1/e2 `0.703685/0.067515`；mask-readout
+`0.016310`；freeze-table/backbone `1.133129/0.821469`；hash-reseed
+`0.637072`；mask-low/high `0.065961/1.528893`。事件记录确认 e1 干预在
+step 338、reset e2 在 step 675；hash-reseed 改变 hash identity 且保留表参数和
+optimizer state。正式图 `fig_v5_causal_losses.png` 与
+`fig_v5_causal_frequency_effect.png` 只读取此批完整证据；后者排除 `novel`
+桶，因为它没有 train loss，不能定义 gap。
 
 ### Dose frequency refresh（12 臂）
 

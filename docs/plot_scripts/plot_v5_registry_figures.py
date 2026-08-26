@@ -385,8 +385,20 @@ def frequency_gaps(record, branch):
             else np.nan
         )
         for bucket in train
-        if bucket in val
+        if bucket != "novel" and bucket in val
     }
+
+
+def intervention_steps(run_id):
+    summary_path = RUNS_FIXED / f"{run_id}_fixed" / "summary.json"
+    if not summary_path.exists():
+        return []
+    events = read_json(summary_path).get("intervention", {}).get("events", [])
+    return [
+        int(event["step"])
+        for event in events
+        if isinstance(event.get("step"), (int, float))
+    ]
 
 
 def exact_frequency_rows_from_shared(record, branch):
@@ -617,10 +629,6 @@ def plot_causal_refresh():
     for color, (run_id, rows) in zip(colors, curves):
         steps = np.asarray([row["step"] for row in rows])
         label = run_id.replace("causalv5c_", "")
-        boundary = next(
-            (row["step"] for row in rows if int(row.get("epoch", 0)) >= 2),
-            None,
-        )
         for axis, (metric, ylabel) in zip(axes, metrics):
             values = np.asarray(
                 [row.get(metric, row["val_loss"] - row["train_loss"]) for row in rows]
@@ -628,15 +636,15 @@ def plot_causal_refresh():
             axis.scatter(steps, values, color=color, s=3.2, alpha=0.28)
             averaged, offsets = smooth(values)
             axis.plot(steps[offsets], averaged, color=color, linewidth=0.75, label=label)
-            if boundary is not None:
-                axis.axvline(boundary, color=color, linewidth=0.45, linestyle=":", alpha=0.55)
+            for step in intervention_steps(run_id):
+                axis.axvline(step, color=color, linewidth=0.45, linestyle=":", alpha=0.55)
             axis.set_ylabel(ylabel)
             axis.grid(alpha=0.20)
     axes[0].legend(ncol=3, fontsize=7, frameon=False)
     axes[-1].set_xlabel("optimizer step")
     figure.suptitle(
         "V5 causal-refresh · nine matched intervention arms\n"
-        "points = raw online records; thin lines = 3-point visual connector; dotted lines = epoch-2 boundary"
+        "points = raw online records; thin lines = 3-point visual connector; dotted lines = recorded intervention step"
     )
     figure.tight_layout()
     save_figure(figure, "fig_v5_causal_losses.png")
