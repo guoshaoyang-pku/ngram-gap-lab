@@ -80,6 +80,8 @@ class Config:
     table_mult: int = 64              # legacy multi-layer/two-hash path only
     bigram_clean_table: int = 0       # clean single-table rows R (0=off); SSOT: clean-table-rework.md
     trigram_clean_table: int = 0      # clean single-table rows R for trigram (0=off); same SSOT
+    bigram_table_dim: int = 0         # clean-table row width d (0=n_embd); frozen zero-pad projection back to n_embd
+    trigram_table_dim: int = 0        # same rule for the trigram branch
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
     intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone | hash_reseed | mask_low_freq | mask_high_freq
@@ -371,11 +373,17 @@ class NanoGPT(nn.Module):
         _bp = expand_bigram_hash_primes(_BASE_BIGRAM_PRIMES, len(ngram_layers))
         self.bigram_hash_primes_per_layer = {}
         self.bigram_ves = nn.ModuleDict()
+        # X2: clean-table row width d (0 = full n_embd). Narrow rows are read
+        # through a frozen zero-pad projection (functional pad: no parameter,
+        # no RNG, no optimizer group), so d=0 is bit-identical to the baseline.
+        self.bigram_table_dim = (
+            config.bigram_table_dim if config.bigram_table_dim > 0 else config.n_embd
+        )
         for j, li in enumerate(sorted(self.bigram_ve_layers)):
             if self.bigram_K == 1:
-                # clean 单表: one full-width embedding per layer
+                # clean 单表: one embedding per layer with row width d
                 self.bigram_ves[str(li)] = nn.ModuleList([
-                    nn.Embedding(self.bigram_table_size, config.n_embd),
+                    nn.Embedding(self.bigram_table_size, self.bigram_table_dim),
                 ])
             else:
                 self.bigram_ves[str(li)] = nn.ModuleList([
@@ -402,10 +410,13 @@ class NanoGPT(nn.Module):
             _tp.append(_tp[len(_tp) % len(_BASE_TRIGRAM_PRIMES)])
         self.trigram_hash_primes_per_layer = {}
         self.trigram_ves = nn.ModuleDict()
+        self.trigram_table_dim = (
+            config.trigram_table_dim if config.trigram_table_dim > 0 else config.n_embd
+        )
         for j, li in enumerate(sorted(self.trigram_ve_layers)):
             if self.trigram_K == 1:
                 self.trigram_ves[str(li)] = nn.ModuleList([
-                    nn.Embedding(self.trigram_table_size, config.n_embd),
+                    nn.Embedding(self.trigram_table_size, self.trigram_table_dim),
                 ])
             else:
                 self.trigram_ves[str(li)] = nn.ModuleList([
@@ -605,6 +616,12 @@ class NanoGPT(nn.Module):
             if not any(m in name for m in markers):
                 yield p
 
+    def _pad_to_embd(self, vec, dim: int):
+        """X2: frozen zero-pad projection from table row width d to n_embd."""
+        if vec.size(-1) == self.config.n_embd:
+            return vec
+        return F.pad(vec, (0, self.config.n_embd - dim))
+
     def _bigram_row_indices(self, li, prev_idx, idx):
         """Row indices into the bigram hash embedding(s) for layer li.
 
@@ -644,6 +661,7 @@ class NanoGPT(nn.Module):
                 lvs = self.bigram_ves[str(li)]
                 idxs = self._bigram_row_indices(li, prev_idx, idx)
                 bgve = torch.cat([lvs[k](idxs[k]) for k in range(self.bigram_K)], dim=-1)
+                bgve = self._pad_to_embd(bgve, self.bigram_table_dim)
                 mask = self._frequency_mask(
                     "bigram",
                     prev_idx.long() * self.config.vocab_size + idx.long(),
@@ -656,6 +674,7 @@ class NanoGPT(nn.Module):
                 ti = self._trigram_row_indices(li, prev2_idx, prev_idx, idx)
                 lvs = self.trigram_ves[str(li)]
                 tgve = torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1)
+                tgve = self._pad_to_embd(tgve, self.trigram_table_dim)
                 mask = self._frequency_mask(
                     "trigram",
                     prev2_idx.long() * (self.config.vocab_size * self.config.vocab_size)
@@ -697,13 +716,19 @@ class NanoGPT(nn.Module):
                     lvs = self.bigram_ves[str(li)]
                     bi = self._bigram_row_indices(li, prev_idx, idx)
                     branch_residuals["bigram"].append(
-                        torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1)
+                        self._pad_to_embd(
+                            torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1),
+                            self.bigram_table_dim,
+                        )
                     )
                 for li in sorted(self.trigram_ve_layers):
                     lvs = self.trigram_ves[str(li)]
                     ti = self._trigram_row_indices(li, prev2_idx, prev_idx, idx)
                     branch_residuals["trigram"].append(
-                        torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1)
+                        self._pad_to_embd(
+                            torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1),
+                            self.trigram_table_dim,
+                        )
                     )
                 for branch, residuals in branch_residuals.items():
                     if residuals:
@@ -734,12 +759,18 @@ class NanoGPT(nn.Module):
             if self.config.enable_bigram_ve and i in self.bigram_ve_layers:
                 lvs = self.bigram_ves[str(i)]
                 bi = bigram_indices[i]
-                bgve = torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1)
+                bgve = self._pad_to_embd(
+                    torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1),
+                    self.bigram_table_dim,
+                )
             tgve = None
             if self.config.enable_trigram_ve and i in self.trigram_ve_layers:
                 ti = trigram_indices[i]
                 lvs = self.trigram_ves[str(i)]
-                tgve = torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1)
+                tgve = self._pad_to_embd(
+                    torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1),
+                    self.trigram_table_dim,
+                )
             x = block(x, ve=ve, bigram_ve=bgve, trigram_ve=tgve)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
@@ -1396,6 +1427,13 @@ def main():
     parser.add_argument("--trigram_clean_table", type=int, default=0,
                         help="clean single-table rows R for the trigram branch (0=off); required "
                              "for a new main-line trigram run; same SSOT as --bigram_clean_table")
+    parser.add_argument("--bigram_table_dim", type=int, default=0,
+                        help="X2: clean-table row width d (0=n_embd); rows are read through a "
+                             "frozen zero-pad projection back to n_embd; only valid with "
+                             "--bigram_clean_table")
+    parser.add_argument("--trigram_table_dim", type=int, default=0,
+                        help="X2: trigram clean-table row width d (0=n_embd); same rule as "
+                             "--bigram_table_dim")
     parser.add_argument("--bigram_perfect_map", default="",
                         help="path to npz with int32 packed-bigram->row map; enables "
                              "collision-free bigram table (first ngram layer only, "
@@ -1510,6 +1548,8 @@ def main():
         table_mult=args.table_mult,
         bigram_clean_table=args.bigram_clean_table,
         trigram_clean_table=args.trigram_clean_table,
+        bigram_table_dim=args.bigram_table_dim,
+        trigram_table_dim=args.trigram_table_dim,
         bigram_perfect_map=args.bigram_perfect_map,
         bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
@@ -1529,6 +1569,15 @@ def main():
         cfg.table_betas = tuple(parts)
     else:
         cfg.table_betas = (0.0, 0.99)  # β₂=0.99 is the scaling default (plan §1)
+    # X2: narrow table rows are a clean-table-only variable
+    if cfg.bigram_table_dim and not cfg.bigram_clean_table:
+        raise SystemExit("--bigram_table_dim requires --bigram_clean_table > 0")
+    if cfg.trigram_table_dim and not cfg.trigram_clean_table:
+        raise SystemExit("--trigram_table_dim requires --trigram_clean_table > 0")
+    if min(cfg.bigram_table_dim, cfg.trigram_table_dim) < 0:
+        raise SystemExit("table_dim must be >= 0")
+    if max(cfg.bigram_table_dim, cfg.trigram_table_dim) > cfg.n_embd:
+        raise SystemExit("table_dim must be <= n_embd (rows are zero-padded up to n_embd)")
 
     set_seed(cfg.seed)
     os.makedirs(cfg.out_dir, exist_ok=True)

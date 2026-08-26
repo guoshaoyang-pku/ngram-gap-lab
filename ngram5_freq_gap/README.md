@@ -83,10 +83,12 @@ current-shell fallback 或仓库外历史模型 fallback。
 未来做全语料仿真按那份文档 + `agents.md` §1 重建，不复活旧脚本。
 ## 6. 命名说明
 
-包名里的 `ngram5` 是历史误称——launcher 实际跑 `--order 3`，数据集叫 `trigram_alpha*`。
-改名 `controlled_ngram` 需同步 3 个调用点（`code/run_minimal_matrix.sh`、
-`tasks/l4_synth_powerlaw/cluster/*.sh`、`code/tools/validate_fastgen.py`）与集群 rsync 路径，
-暂缓。
+包名和当前主力 launcher 的数据条件都是 **order=5（5-gram）**。此前 launcher
+误传 `--order 3`，产生的 `trigram_alpha*` 数据与第 7 节的 5-gram condition
+不一致，旧数据和旧报告数值不得继续作为该条件的证据。当前数据目录使用
+`fivegram_alpha*`；包名暂不更名，因为它仍被 `code/run_minimal_matrix.sh`、
+`tasks/l4_synth_powerlaw/cluster/*.sh`、`code/tools/validate_fastgen.py` 和集群
+rsync 路径引用。
 
 ## 7. 依赖图
 

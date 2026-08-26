@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>真实 trigram 频率与 gap · MLP 对照</title>
+<title>历史存档：真实 trigram 频率与 gap · MLP 对照</title>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
 :root{--bg:#fffdf8;--card:#f5f1e8;--bd:#ded6c8;--tx:#2b2b2b;--dm:#686d73;--blue:#3478c9;--red:#c4493d;--orange:#d97932;--green:#3c8d5a}
@@ -12,8 +12,8 @@
 </style>
 </head>
 <body><main class="wrap">
-<h1>真实 trigram 频率与 gap <span>Transformer baseline vs position-wise MLP trunk · matched controlled run · 2000 steps</span></h1>
-<div class="ok"><strong>频率 bug 已修正。</strong>所有主图中的 <code>r(c)</code> 都是原始 train corpus 完整 epoch 中 collision-free exact trigram context count。hash bucket occupancy 不参与 gap 统计；两个 run 的 fixed probe batch hashes 完全相同。</div>
+<h1>历史存档：真实 trigram 频率与 gap <span>Transformer baseline vs position-wise MLP trunk · matched controlled run · 2000 steps</span></h1>
+<div class="ok"><strong>历史口径说明。</strong>本页实际使用 order=3 trigram context；数据生成命令、run_id 与原始产物未能在当前仓库中追溯。它不代表当前第 7 节要求的 order=5 5-gram condition，也不应作为当前结论的证据。</div>
 
 <h2>1 · 实验定义</h2>
 <div class="grid">

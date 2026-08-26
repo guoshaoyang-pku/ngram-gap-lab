@@ -36,7 +36,7 @@
 | `analysis/analyze_scaling_epoch.py` | fixed-step / fixed-epoch 双对齐曲线 + ΔG vs no-ngram |
 | `analysis/analyze_scaling_frequency.py` | token-marginal + context-matched gap(f)，两因素拟合 + manifest |
 | `analysis/analyze_scaling_table.py` | gap vs 2R / collision / occupancy |
-| `analysis/test_scaling_measurement.py` | 11 项正确性单测（epoch 边界、probe 安全、exact key 一致、hash 等价、occupancy 单调、β₂ 生效） |
+| `analysis/test_scaling_measurement.py` | 14 项正确性单测（epoch 边界、probe 安全、exact key 一致、hash 等价、occupancy 单调、β₂ 生效、当前测量契约） |
 
 ## Epoch 长度网格（嵌套前缀）
 
@@ -96,9 +96,11 @@ run。合计 69 个 table run；每个 run 同时输出 `table_occupancy.json`�
    训练流、不推进 epoch 计数器**。顺序 replay 下它会受到 exposure/训练进度
    污染，`first` 和 `uniform` 都不能用来替代 online gap，也不能证伪
    epoch-1 的 online gap 现象。
-3. 原始正式 epoch/table 网格的 validation、table norm 和 online train loss 每
-   10 步触发；frequency 轴 exact-frequency 每 100 步。table 加密取点使用
-   `MONITOR=sparse`，只在最终 step 1000 触发 val/norm，不产生中间曲线。
+3. 当前标准完整曲线的 validation、table norm 和 frequency 观测每 10 步触发；
+   只需曲线的实验可以统一使用每 50 步；只需末端结果的实验使用
+   `--val_steps 1000`，此时 frequency 观测严格跟随这些 validation 步点。
+   table 加密取点使用 `MONITOR=sparse`，只在最终 step 1000 触发 val/norm，
+   不产生中间曲线。
 4. **exact-frequency**：索引 `GlobalFrequencyIndex.build_from_chunks` 与模型 hash
    逐位置一致（有单测）。f=0 novel 只报 val loss，不定义 gap。
 5. 历史 run 可能仍含 `fixed_train_loss.jsonl`；其中的 fixed gap 只作为
@@ -106,11 +108,10 @@ run。合计 69 个 table run；每个 run 同时输出 `table_occupancy.json`�
 
 ## 历史 pilot 与当前标准 basic QC
 
-`pilot_*` / `tbl_pilot_*` 是旧协议的历史 QC。当前已有 7 个
-`basic_*` 锚点，使用 β₂=0.99、table LR×2、bf16（不 compile）；其中旧
-结果仍可能带固定 train probe 和 exact-frequency 日志，但为了快速 gate
-使用 25 步 cadence。
-它们用于判断基础规律是否出现，不替代正式的 10 步 full grid。
+`pilot_*` / `tbl_pilot_*` 是旧协议的历史 QC。`basic_*` 锚点只用于快速
+检查当前代码和数据路径；它们不替代正式的 10 步 full grid，也不自动获得
+canonical 证据身份。已有产物若不满足 no-compile、online gap 和选定 cadence
+契约，只保留作 provenance。
 新的正式 launcher 会写入 `data/runs_scaling/<run_id>_fixed/`，并由完整
 metadata 校验后才能进入 canonical 分析。
 
@@ -169,14 +170,14 @@ launcher 默认从自身位置推导仓库根目录，也可用 `NGLAB_ROOT` 和
 
 ## 当前状态
 
-- [x] 测量基础设施（epoch_batches / online gap / 可选 fixed probe / exact-freq / occupancy）+ 11 单测
-- [x] 当前标准基础 QC（7 run，seed 42）：epoch 4 + table 3
-- [x] Epoch full grid（32/32，seed 42；L4=337）
-- [x] Table full grid + 两轮加密最终取点（69/69，seed 42；23 个 measured table mult；三种 module 各 23 点）
+- [x] 测量基础设施（epoch_batches / online gap / 可选 fixed probe / exact-freq / occupancy）+ 14 单测
+- [ ] 当前标准基础 QC（7 run，seed 42）：需按 no-compile 与当前 cadence 重新确认
+- [ ] Epoch full grid（32/32，seed 42；L4=337）：现有结果属于历史 compile 波次
+- [ ] Table full grid + 两轮加密最终取点（69/69，seed 42；23 个 measured table mult；三种 module 各 23 点）：现有结果属于历史 compile 波次
 - [x] Backbone safety（L1 no-ngram 5000 步）—— final gap +16.66（旧 cadence，仅量级参考）
-- [x] Frequency 轴与探索性拟合（8/8；两因素模型 + manifest）
-- [x] 三轴联合报告回填（seed 42）
-- [x] Seed 43/44 三 seed 复现（epoch 32×2 / table 36×2 / frequency 8×2，全部 QC 通过）与 H1–H4 检验：ΔG 方向 seed-stable；trigram table 幂律无饱和；两因素 β 可辨识（cv 4–13%）、A/c/γ 不可辨识；模块交互不可合并单公式（附录报告 §7）
+- [ ] Frequency 轴与探索性拟合（8/8）：现有结果属于历史 compile 波次
+- [ ] 三轴联合报告回填：当前标准结果尚未产生
+- [ ] Seed 43/44 三 seed 复现与 H1–H4 检验：历史波次仅作探索性数学审计；当前标准待重跑
 - [ ] Frequency 的 epoch-dependent fit（epoch 3/6 截面）与跨 seed profile-likelihood
 
 Table 图默认生成双对数 PNG，并同时生成两个可交互 HTML。HTML 中可点击

@@ -287,19 +287,36 @@ def plot_table_size():
     positive_points = [(row, gap) for row, gap in points if gap > 0]
     if positive_points:
         log_rows, log_gaps = zip(*positive_points)
+        log_x = np.log(np.asarray(log_rows, dtype=float))
+        log_y = np.log(np.asarray(log_gaps, dtype=float))
+        exponent, intercept = np.polyfit(log_x, log_y, 1)
+        fitted_log_y = intercept + exponent * log_x
+        r_squared = 1 - np.sum((log_y - fitted_log_y) ** 2) / np.sum(
+            (log_y - log_y.mean()) ** 2
+        )
         figure, axis = plt.subplots(figsize=(7.8, 4.8))
         axis.plot(log_rows, log_gaps, color="#353d79", marker="o", markersize=3.5,
-                  linewidth=1.0)
+                  linewidth=1.0, label="raw endpoints")
+        fit_x = np.geomspace(min(log_rows), max(log_rows), 240)
+        axis.plot(
+            fit_x,
+            np.exp(intercept) * fit_x ** exponent,
+            color="#b45309",
+            linestyle="--",
+            linewidth=1.35,
+            label=rf"log-log fit: $G\propto R^{{{exponent:.3f}}}$ ($R^2={r_squared:.3f}$)",
+        )
         axis.set_xscale("log")
         axis.set_yscale("log")
         axis.set_xlabel("physical rows R per clean table (log scale)")
         axis.set_ylabel("final online gap at step 1000 (log scale)")
         axis.set_title("V5 clean double-table size scan · positive-gap log–log view")
         axis.grid(alpha=0.25, which="both")
+        axis.legend(frameon=False, fontsize=8, loc="upper left")
         figure.text(
             0.5,
             0.01,
-            "Raw endpoints only. Non-positive gaps are excluded because log(y) is undefined.",
+            "18 positive endpoints · seed 42 · step 1000. Non-positive gaps are excluded because log(y) is undefined.",
             ha="center",
             fontsize=8,
         )
@@ -422,7 +439,7 @@ def exact_frequency_rows_from_shared(record, branch):
     return sorted(rows, key=lambda row: row["f"])
 
 
-def pool_exact_frequency_gap(rows, bins=12):
+def pool_exact_frequency_gap(rows, bins=7):
     usable = [
         row for row in rows
         if np.isfinite(row["gap"]) and row["f"] > 0 and row["contexts"] >= 32
@@ -439,16 +456,32 @@ def pool_exact_frequency_gap(rows, bins=12):
         shared_token_mass = sum(row["shared_token_mass"] for row in members)
         output.append(
             {
-                "f_mid": math.sqrt(low * max(low + 1, high - 1)),
+                "f_mid": math.sqrt(low * max(low, high - 1)),
+                "f_low": low,
+                "f_high": high - 1,
                 "gap": (
                     sum(row["gap"] * row["shared_token_mass"] for row in members)
                     / shared_token_mass
                 ),
                 "contexts": sum(row["contexts"] for row in members),
+                "per_f_count": len(members),
                 "label": f"{low}–{high - 1}",
             }
         )
     return output
+
+
+def power_law_fit(pooled_rows):
+    usable = [row for row in pooled_rows if row["gap"] > 0]
+    if len(usable) < 2:
+        return None
+    log_f = np.log(np.asarray([row["f_mid"] for row in usable], dtype=float))
+    log_gap = np.log(np.asarray([row["gap"] for row in usable], dtype=float))
+    exponent, intercept = np.polyfit(log_f, log_gap, 1)
+    fitted = intercept + exponent * log_f
+    total = np.sum((log_gap - log_gap.mean()) ** 2)
+    r_squared = 1 - np.sum((log_gap - fitted) ** 2) / total if total else float("nan")
+    return exponent, intercept, r_squared
 
 
 def exact_frequency_mass_from_index(index_path, branch, bins=12):
@@ -497,37 +530,68 @@ def plot_s1_frequency():
     summary = read_json(RUNS_SCALING / "s1v5_freq_bigram_fixed" / "summary.json")
     index_path = ROOT / "data" / Path(summary.get("freq_index", "")).name
 
-    figure, axis = plt.subplots(figsize=(8.5, 4.9))
-    for branch, color in (("bigram", BIGRAM_COLOR), ("trigram", TRIGRAM_COLOR)):
+    figure, axes = plt.subplots(1, 2, figsize=(12.4, 4.8), sharey=True)
+    for axis, (branch, color) in zip(
+        axes, (("bigram", BIGRAM_COLOR), ("trigram", TRIGRAM_COLOR))
+    ):
         rows = by_branch[branch]
         if not rows:
             continue
         raw_rows = [row for row in rows if row["contexts"] >= 32]
         axis.scatter([row["f"] for row in raw_rows], [row["gap"] for row in raw_rows],
-                     s=9, alpha=0.30, color=color, label=f"{branch} raw f (≥32 shared)")
-        pooled = pool_exact_frequency_gap(rows)
-        axis.plot([row["f_mid"] for row in pooled], [row["gap"] for row in pooled],
-                  marker="o", markersize=3.6, linewidth=1.0, color=color,
-                  label=f"{branch} shared-token-mass pooled")
-    axis.set_xscale("log")
-    axis.set_xlabel("exact train hit-count per context f (log scale)")
-    axis.set_ylabel("diagnostic context-matched gap = val loss − train loss")
+                     s=7, alpha=0.12, color="#64748b", label="eligible raw exact-f")
+        pooled = pool_exact_frequency_gap(rows, bins=7)
+        positive = [row for row in pooled if row["gap"] > 0]
+        axis.errorbar(
+            [row["f_mid"] for row in positive],
+            [row["gap"] for row in positive],
+            xerr=[
+                [row["f_mid"] - row["f_low"] for row in positive],
+                [row["f_high"] - row["f_mid"] for row in positive],
+            ],
+            fmt="o-",
+            color=color,
+            linewidth=1.4,
+            markersize=4.6,
+            capsize=2.5,
+            label="7 wide geometric bins",
+            zorder=3,
+        )
+        fit = power_law_fit(positive)
+        if fit is not None:
+            exponent, intercept, r_squared = fit
+            fit_x = np.geomspace(min(row["f_low"] for row in positive),
+                                 max(row["f_high"] for row in positive), 240)
+            axis.plot(
+                fit_x,
+                np.exp(intercept) * fit_x ** exponent,
+                color="#b45309",
+                linestyle="--",
+                linewidth=1.35,
+                label=rf"$G\propto f^{{{exponent:.3f}}}$ ($R^2={r_squared:.3f}$)",
+                zorder=2,
+            )
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.set_xlabel("exact train hit-count per context f (log scale)")
+        axis.set_title(branch)
+        axis.grid(alpha=0.25, which="both")
+        axis.legend(frameon=False, fontsize=7.6, loc="upper right")
+    axes[0].set_ylabel("diagnostic context-matched gap = val loss − train loss (log scale)")
     final_steps = sorted({record["step"] for record in records.values() if record is not None})
-    axis.set_title(
-        f"S1 diagnostic exact-frequency gap at final logged step {final_steps[-1]}"
+    figure.suptitle(
+        f"S1 diagnostic exact-frequency gap at final logged step {final_steps[-1]} · coarse log-binned view"
     )
-    axis.grid(alpha=0.25, which="both")
-    axis.legend(frameon=False, fontsize=8, ncol=2)
     figure.text(
         0.5,
         0.01,
-        "Fixed-probe diagnostic: points and pooled bins require ≥32 shared contexts. "
-        "Thin lines pool f intervals by shared-context token mass only. "
+        "Fixed-probe diagnostic: each wide bin pools exact-f entries by shared-context token mass; "
+        "every included exact-f entry has ≥32 shared contexts. Horizontal whiskers show bin range. "
         "Novel f=0 contexts have no train loss, therefore no gap.",
         ha="center",
         fontsize=8,
     )
-    figure.tight_layout(rect=(0, 0.04, 1, 1))
+    figure.tight_layout(rect=(0, 0.06, 1, 0.95))
     save_figure(figure, "fig_v5_s1_frequency_exact_f.png")
 
     figure, axes = plt.subplots(2, 1, figsize=(8.5, 6.8), sharex=True)
@@ -799,9 +863,13 @@ def plot_dose_refresh():
         ("6×", "nglab6x_input_v5_freq10"),
         ("8×", "nglab8x_input_v5_freq10"),
     )
-    curves = [(label, run_id, completed_curve(run_id, 2000)) for label, run_id in doses]
-    if any(rows is None for _, _, rows in curves):
-        print("skip dose-refresh figures: twelve-dose evidence incomplete")
+    curves = [
+        (label, run_id, rows)
+        for label, run_id in doses
+        if (rows := completed_curve(run_id, 2000)) is not None
+    ]
+    if not curves:
+        print("skip dose-refresh figures: no complete 2000-step evidence")
         return
     figure, axes = plt.subplots(3, 1, figsize=(10.1, 8.7), sharex=True)
     colors = plt.get_cmap("viridis", len(curves))(np.arange(len(curves)))
@@ -830,18 +898,19 @@ def plot_dose_refresh():
     axes[0].legend(ncol=4, fontsize=6.8, frameon=False)
     axes[-1].set_xlabel("optimizer step")
     figure.suptitle(
-        "V5 shard-dose refresh · complete 2000-step trajectories\n"
+        f"V5 shard-dose refresh · {len(curves)}/12 complete 2000-step trajectories\n"
         "points = raw online records; thin lines = 3-point visual connector; dotted lines = epoch-2 boundary"
     )
     figure.tight_layout()
     save_figure(figure, "fig_v5_dose_trajectories.png")
 
     frequency_records = {
-        label: completed_frequency_record(run_id, 2000)
+        label: record
         for label, run_id in doses
+        if (record := completed_frequency_record(run_id, 2000)) is not None
     }
-    if any(record is None for record in frequency_records.values()):
-        print("skip dose frequency heatmap: final frequency evidence incomplete")
+    if not frequency_records:
+        print("skip dose frequency heatmap: no complete final frequency evidence")
         return
     figure, axes = plt.subplots(1, 2, figsize=(14.0, 6.1), sharey=True)
     for axis, branch in zip(axes, ("bigram", "trigram")):
@@ -857,12 +926,14 @@ def plot_dose_refresh():
         )
         image = axis.imshow(matrix, aspect="auto", cmap="coolwarm", interpolation="none")
         axis.set_xticks(np.arange(len(bucket_names)), bucket_names, rotation=38, ha="right")
-        axis.set_yticks(np.arange(len(doses)), [label for label, _ in doses])
+        axis.set_yticks(np.arange(len(frequency_records)), list(frequency_records))
         axis.set_xlabel("train context hit-count bucket")
         axis.set_title(branch)
         figure.colorbar(image, ax=axis, label="fixed-val mean loss − current-batch train mean loss")
     axes[0].set_ylabel("train-shard dose")
-    figure.suptitle("V5 dose × frequency-bin gap · final step 2000 · raw bins only")
+    figure.suptitle(
+        f"V5 dose × frequency-bin gap · {len(frequency_records)}/12 complete at step 2000 · raw bins only"
+    )
     figure.tight_layout()
     save_figure(figure, "fig_v5_dose_frequency_heatmap.png")
 

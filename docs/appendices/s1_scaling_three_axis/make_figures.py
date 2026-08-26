@@ -88,8 +88,7 @@ def valid_summary(run_dir, physical_id):
     with open(path) as f:
         summary = json.load(f)
     config = summary.get("config", {})
-    # Accept canonical (old pilot, *_fixed, val_interval=10) and basic
-    # (LRx2 + bf16 + compile, val_interval=25) run contracts.
+    # Accept the historical appendix contracts for provenance figures only.
     is_basic = physical_id.startswith("basic_")
     interval_ok = (
         config.get("val_interval_steps") in (10, 25)

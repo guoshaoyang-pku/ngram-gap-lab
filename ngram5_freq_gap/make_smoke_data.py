@@ -1,4 +1,4 @@
-"""Generate a tiny synthetic trigram dataset on disk for trainer smoke tests.
+"""Generate a tiny synthetic 5-gram dataset on disk for trainer smoke tests.
 
 Writes a dataset into ngram5_freq_gap/data/smoke/ that mirrors what
 data_gen.py would produce from real BPE tokens, but using a synthetic
@@ -29,7 +29,7 @@ DOC_LEN = 128  # small for smoke
 def _synthetic_token_stream():
     """Yield synthetic token docs that exercise several 5-gram buckets."""
     rng = random.Random(0)
-    # 50 distinct trigram contexts, each repeated a controlled number of times.
+    # 50 distinct 5-gram contexts, each repeated a controlled number of times.
     freqs = [2, 5, 10, 50, 200] * 10
     docs = []
     for r in freqs:
@@ -53,7 +53,7 @@ def main():
     # Monkeypatch iter_train_token_streams to yield our synthetic docs.
     data_gen.iter_train_token_streams = lambda tokenizer, max_tokens: iter(docs)
 
-    exact_hist = data_gen.scan_exact_histogram(None, max_tokens=None, order=3)
+    exact_hist = data_gen.scan_exact_histogram(None, max_tokens=None, order=5)
     exact_counts = {
         context: sum(next_hist.values())
         for context, next_hist in exact_hist.items()
@@ -67,11 +67,11 @@ def main():
     train_tokens, train_meta = data_gen.scan_and_emit_exact(
         None, splits, role="train", f_train=0.8, f_val=0.2,
         doc_len=DOC_LEN, sep_token=SEP, max_tokens=None,
-        rng=random.Random(7), order=3)
+        rng=random.Random(7), order=5)
     val_tokens, val_meta = data_gen.scan_and_emit_exact(
         None, splits, role="val", f_train=0.8, f_val=0.2,
         doc_len=DOC_LEN, sep_token=SEP, max_tokens=None,
-        rng=random.Random(8), order=3)
+        rng=random.Random(8), order=5)
 
     (out / "train_tokens.txt").write_text(" ".join(map(str, train_tokens)) + "\n")
     (out / "val_tokens.txt").write_text(" ".join(map(str, val_tokens)) + "\n")
@@ -103,7 +103,7 @@ def main():
     data_gen._write_exact_counts_npz(out, exact_hist, VOCAB)
     (out / "metadata.json").write_text(json.dumps({
         "vocab_size": VOCAB,
-        "order": 3,
+        "order": 5,
         "bucket_count": BUCKET_COUNT,
         "n_contexts": int(sum(exact_counts.values())),
         "n_distinct_contexts": int(len(exact_hist)),
@@ -114,9 +114,9 @@ def main():
     nonempty = sorted(r for r in exact_counts.values() if r > 0)
     meta = {
         "schema_version": 1,
-        "order": 3,
-        "context_len": 3,
-        "block_len": 5,
+        "order": 5,
+        "context_len": 5,
+        "block_len": 7,
         "vocab": VOCAB,
         "sep_token": SEP,
         "doc_len": DOC_LEN,

@@ -399,7 +399,7 @@ def test_launchers_support_multi_seed_and_online_gap():
 def test_train_defaults_match_s1_contract():
     text = _read_text("code", "train.py")
     assert 'parser.add_argument("--dtype", default="bf16"' in text
-    assert 'default=True' in text and '--no_compile' in text
+    assert 'parser.add_argument("--compile", action="store_true"' in text
 
 
 def test_analysis_scripts_accept_multi_seed_online_contract():
@@ -409,16 +409,16 @@ def test_analysis_scripts_accept_multi_seed_online_contract():
 
     assert "SEED_ORDER = (42, 43, 44)" in epoch
     assert "sparse_monitor" in epoch and "dense_monitor" in epoch
-    assert 'torch_compile") is True' in epoch
+    assert 'torch_compile") is False' in epoch
 
     assert "def parse_table_run" in table
-    assert 'torch_compile") is True' in table
+    assert 'torch_compile") is False' in table
     assert '"seed": parsed["seed"]' in table
     assert "SEED_MARKERS" in table
 
     assert "def parse_run_key" in freq
-    assert 'torch_compile") is True' in freq
-    assert "exact_interval in {10, 100}" in freq
+    assert 'torch_compile") is False' in freq
+    assert "exact_interval in {10}" in freq
     assert '"seed": seed' in freq
 
 

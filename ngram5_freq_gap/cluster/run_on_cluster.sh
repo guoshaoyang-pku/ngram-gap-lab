@@ -34,7 +34,7 @@ else
 fi
 RUNTIME_TMP="$CLUSTER_ROOT/.tmp/ngram5"
 DATA_BASE="$CLUSTER_ROOT/data/ngram5_controlled"
-DATA_DIR="${NGRAM5_DATA_DIR_OVERRIDE:-$DATA_BASE/trigram_alpha${ALPHA}}"
+DATA_DIR="${NGRAM5_DATA_DIR_OVERRIDE:-$DATA_BASE/fivegram_alpha${ALPHA}}"
 LOCAL_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # ngram5_freq_gap/
 REPO_ROOT="$(cd "$LOCAL_HERE/.." && pwd)"
 
@@ -69,7 +69,7 @@ ssh "$SSH_HOST" "
         --out-dir '$DATA_DIR' \
         --alpha $ALPHA \
         --bucket-count 5000000 \
-        --order 3 \
+        --order 5 \
         --f-train 0.8 --f-val 0.2 \
         --k-min 0.25 --k-max 8.0 \
         --r-ref-mode median \
@@ -83,7 +83,7 @@ ssh "$SSH_HOST" "
 # ---- 3. launch trainer ----
 echo "=== [3/3] launching trainer ==="
 echo "=== trace: every train batch + 4 fixed validation batches per step; token_loss=float32; norm=sqrt(mean(x^2)); compile=0 ==="
-RUN_ID="ngram5_alpha${ALPHA}_${RUN_LABEL}_$(date +%Y%m%d-%H%M%S)"
+RUN_ID="${NGRAM5_RUN_ID:-ngram5_alpha${ALPHA}_${RUN_LABEL}_$(date +%Y%m%d-%H%M%S)}"
 RESULT_DIR="$CLUSTER_ROOT/data/runs_fixed/${RUN_ID}_fixed"
 ssh "$SSH_HOST" "
   set -e
@@ -103,7 +103,8 @@ ssh "$SSH_HOST" "
     NANOGPT_ATTENTION_IMPL=fused NANOGPT_NGRAM_INJECTION_IMPL=nanogpt \\
     NANOGPT_NGRAM_INJECTION_POSITION=input \\
     NANOGPT_ENABLE_NGRAM_VE=1 ENABLE_UNIGRAM_VE=0 ENABLE_BIGRAM_VE=1 ENABLE_TRIGRAM_VE=1 ENABLE_FOURGRAM_VE=0 \\
-    NANOGPT_ADAM_LR=0.004 NGRAM_TABLE_BETAS=0.0,0.99 NGRAM_TABLE_LR_SCALE=2.0 \\
+    NANOGPT_ADAM_LR=0.0006 NGRAM_TABLE_BETAS=0.0,0.99 NGRAM_TABLE_LR_SCALE=2.0 \\
+    BIGRAM_CLEAN_TABLE=1048576 TRIGRAM_CLEAN_TABLE=1048576 \\
     POSITION_ENCODING=learned_abs CURRENT_NORMALIZATION=layernorm \\
     CURRENT_EMBEDDING_TYING=tied CURRENT_NGRAM_INJECTION_IMPL=none \\
     CURRENT_EMBEDDING_INIT=nanogpt_like CURRENT_BLOCK_INIT=nanogpt_style \\
@@ -114,7 +115,7 @@ ssh "$SSH_HOST" "
     TRAIN_DATA_MODE=ngram5_blocks TRAIN_DATA_SEED=42 \\
     NGRAM5_DATA_DIR='$DATA_DIR' \\
     MAX_TRAINING_STEPS=$MAXSTEPS DEVICE_BATCH_SIZE=72 TOTAL_BATCH_SIZE=147456 \\
-    VAL_LOSS_INTERVAL_STEPS=10 VAL_LOSS_BATCHES=4 LR_SCHEDULE_MODE=baseline \\
+    VAL_LOSS_INTERVAL_STEPS=10 VAL_LOSS_BATCHES=4 LR_SCHEDULE_MODE=warmup_constant WARMUP_STEPS=100 \\
     NGRAM5_PROBE_STEPS=100,200,400,600,800,1000,1500,2000 \\
     NGRAM5_PROBE_FREQUENCY_MODE=exact_context \\
     NGRAM5_BUCKET_EDGES=0,1,2,3,4,5,6,11,21,51,101,201,501,1001,5001 \\

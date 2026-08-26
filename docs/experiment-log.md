@@ -8,6 +8,7 @@
 
 | run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
 |---|---|---|---|---|---|
+| `optv5g_rms_b099_s2p0_constant` | 2026-08-26 | V5 schedule 消融 · zero-warmup constant | 🔄 running（360-2 GPU0） | 待填 | §30 |
 | `vanilla_input_1000_seed42` | 2026-08-23 | 干净 vanilla 复现 · input 注入 · 1000 步 | ✅ done | **+0.858 @1000** | §14 |
 | `vanilla_nogram_1000_seed42` | 2026-08-23 | 干净 vanilla 复现 · 无 n-gram 对照 · 1000 步 | ✅ done | **+0.038 @1000** | §14 |
 | `nglab1x_input_reset_e2` | 2026-08-24 | P1 因果 · e2 边界全 table 回滚 | ✅ done | **+0.054 @1000（−94%）** | §15 |
@@ -68,7 +69,8 @@
 | `optv5d_rms_b0995_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.995，scale=8** | ✅ done | +2.429 @1000 | §24c |
 | `optv5e_rms_b095_s16p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.95，scale=16** | 🔄 running | 待填 | §24c |
 | `optv5e_rms_b099_s16p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.99，scale=16** | 🔄 running | 待填 | §24c |
-| `optv5e_rms_b0995_s16p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.995，scale=16** | 🔄 running | 待填 | §24c |
+| `optv5e_rms_b0995_s16p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.995，scale=16** | ⚠️ failed | GPU3 CUDA peer-memory hardware error @800 | §24c |
+| `optv5e_rms_b0995_s16p0_r1` | 2026-08-26 | **高 table-LR β₂ gate retry · RMSProp β₂=.995，scale=16** | 🔄 running | GPU1 retry；不覆盖 failed partial | §24c |
 | `ngram5_order5_sample285_v5_transformer_s42` | 2026-08-26 | **5-gram condition · sample285 受控样本量 · Transformer · v5** | planned | 待填 | §26 |
 
 状态约定：`planned` 已登记未开跑 / `running` 运行中 / `done` 已回填 / `stalled` 超期未回填。
@@ -1839,13 +1841,13 @@ same-step `fixed val − current-batch online train`。
 | `causalv5c_hash_reseed_e1` | 同上 | 1000 | reseed context→row hash at epoch 2 | state-preserved event step 338 / ✅ done, gap 0.637 |
 | `causalv5c_mask_low_f200_e1` | 同上 | 1000 | mask `f≤200` at epoch 2 | index provenance / ✅ done, gap 0.066 |
 | `causalv5c_mask_high_f200_e1` | 同上 | 1000 | mask `f>200` at epoch 2 | index provenance / ✅ done, gap 1.529 |
-| `nglab0_25x_input_v5_freq10` | `62` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.25x dose | 10-step curves + matching index / planned |
-| `nglab0_5x_input_v5_freq10` | `60` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.5x dose | 10-step curves + matching index / planned |
-| `nglab0_75x_input_v5_freq10` | `63` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.75x dose | 10-step curves + matching index / planned |
-| `nglab1_5x_input_v5_freq10` | `1,61` → `3,4,5,6,7,8,9,10,6542` | 2000 | 1.5x dose | 10-step curves + matching index / planned |
-| `nglab2x_input_v5_freq10` | `1,2` → `3,4,5,6,7,8,9,10,6542` | 2000 | 2x dose | 10-step curves + matching index / planned |
-| `nglab2_5x_input_v5_freq10` | `1,2,64` → `4,5,6,7,8,9,10,6542` | 2000 | 2.5x dose | 10-step curves + matching index / planned |
-| `nglab3x_input_v5_freq10` | `1,2,3` → `4,5,6,7,8,9,10,6542` | 2000 | 3x dose | 10-step curves + matching index / planned |
+| `nglab0_25x_input_v5_freq10` | `62` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.25x dose | 10-step curves + matching index / ✅ done, gap 11.536 |
+| `nglab0_5x_input_v5_freq10` | `60` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.5x dose | 10-step curves + matching index / ✅ done, gap 9.234 |
+| `nglab0_75x_input_v5_freq10` | `63` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.75x dose | 10-step curves + matching index / ✅ done, gap 7.792 |
+| `nglab1_5x_input_v5_freq10` | `1,61` → `3,4,5,6,7,8,9,10,6542` | 2000 | 1.5x dose | 10-step curves + matching index / ✅ done, gap 2.517 |
+| `nglab2x_input_v5_freq10` | `1,2` → `3,4,5,6,7,8,9,10,6542` | 2000 | 2x dose | 10-step curves + matching index / ✅ done, gap 1.192 |
+| `nglab2_5x_input_v5_freq10` | `1,2,64` → `4,5,6,7,8,9,10,6542` | 2000 | 2.5x dose | 10-step curves + matching index / ✅ done, gap 0.843 |
+| `nglab3x_input_v5_freq10` | `1,2,3` → `4,5,6,7,8,9,10,6542` | 2000 | 3x dose | 10-step curves + matching index / ✅ done, gap 0.268 |
 | `nglab4x_input_v5_freq10` | `1,2,3,4` → `5,6,7,8,9,10,6542` | 2000 | 4x dose | 10-step curves + matching index / planned |
 | `nglab5x_input_v5_freq10` | `1,2,3,4,5` → `6,7,8,9,10,6542` | 2000 | 5x dose | 10-step curves + matching index / planned |
 | `nglab6x_input_v5_freq10` | `1,2,3,4,5,6` → `7,8,9,10,6542` | 2000 | 6x dose | 10-step curves + matching index / planned |
@@ -1916,6 +1918,13 @@ optimizer state。正式图 `fig_v5_causal_losses.png` 与
 为每个 dose 单独选取 matching `freq_index_train*.npz`；缺任一专属索引，launcher
 必须失败，不能回落到泛用 `freq_index.npz`。完成后产出 bigram/trigram 两面板的
 step-2000 raw frequency-bin gap heatmap；novel bucket 不定义 gap，不进入热图。
+
+**阶段性回填（2026-08-26，seed 42）**：`0.25×/0.5×/0.75×/1.5×/2×/2.5×/3×`
+七点均有 `summary.json` 和各 200 条 step-10 `train_log.jsonl` /
+`freq_bin_loss.jsonl` / `exact_freq_loss.jsonl` / `table_norm.jsonl`，终值均有限；
+final gap 依次为 `11.535647/9.234025/7.792285/2.517155/1.192452/0.843443/0.267917`。
+正式剂量曲线图先只呈现这 7/12 个已验收点，并在标题注明覆盖范围；4×/5×/6×/8× 仍在
+运行，不能作为缺失值、也不以旧批次补位。
 
 ### Clean double-table occupancy 回填（18 条已完成 run，不重训）✅
 
@@ -1988,12 +1997,20 @@ scale=16 的中心臂及同样的 β₂ gate；不通过则停止把 LR 上探�
 |---|---|---|---|
 | `optv5e_rms_b095_s16p0` | 360-1 GPU1 | β₂=.95，table scale 16 | 🔄 running |
 | `optv5e_rms_b099_s16p0` | 360-1 GPU2 | β₂=.99，table scale 16 | 🔄 running |
-| `optv5e_rms_b0995_s16p0` | 360-1 GPU3 | β₂=.995，table scale 16 | 🔄 running |
+| `optv5e_rms_b0995_s16p0` | 360-1 GPU3 | β₂=.995，table scale 16 | ⚠️ failed @800：CUDA peer-memory hardware error |
+| `optv5e_rms_b0995_s16p0_r1` | 360-1 GPU1 | β₂=.995，table scale 16 | 🔄 running；同一契约、独立结果目录 |
 
 它们与本节固定完整契约完全相同，仅把 table scale 固定为 `16.0`
 （实际 table LR `0.0096`），并仍以 `spread≤0.10` 与无 NaN/Inf 为 gate；
 即使通过，也只说明该范围的 β₂ 敏感性，不能凭 single-seed gap 替代 v5 的
 scale=2 主线。
+
+**失败处理（2026-08-26）**：`optv5e_rms_b0995_s16p0` 在 step 800 的 fixed-val
+计算报 `CUDA error: Invalid access of peer GPU memory over nvlink or a hardware error`，
+此前日志数值均有限，故这是 GPU3 硬件/驱动错误而非实验数值结论。保留 partial 目录
+作运行溯源，不回填结果；以新的 `optv5e_rms_b0995_s16p0_r1` 在 GPU1 全量重跑，
+代码 MD5 与 1x frequency-index SHA256 已再次核对。只有 r1 完整验收后才计算
+scale=16 的 β₂ spread。
 
 ---
 
@@ -2183,3 +2200,168 @@ Rademacher 残差经 linear/sign/cubic 响应的拟合斜率分别为 **−1.000
   `summary.json.status=done`；输出目录 create-only。
 - **产物**：`config.json`、`metrics.csv`（exact gap、理论参考、local slope）、
   `summary.json`（拟合区间与三种响应的斜率）。
+
+---
+
+## §27 · X1 优化器三臂 × seed 复现（2026-08-26 登记）
+
+**科学问题**：配对双差分口径下，table optimizer 的选择（RMSProp vs AdamW(0,.99)
+vs SGD(m=0)）是否稳定地改变 n-gram 模块的 gap 贡献？seed 42 的单点结论
+（rms 1.551 / adamw 1.502 / sgd 0.078）能否在 seed 43/44 复现？
+
+**唯一变量**：table optimizer（含其 betas）；其余全部为 v5 极简契约坐标。
+三臂统一 `--table_lr_scale 2.0`、betas `(0.0,0.99)`（adamw/sgd 臂 β₁=0 即无动量，
+与 optv5c seed-42 波次逐旗标一致）。
+
+### 登记总表
+
+| run_id | 状态 | owner | 变量 |
+|---|---|---|---|
+| `optv5c_rms_b099_s2p0_r1_s43` | planned | Codex | table RMSProp (0,0.99)，seed 43 |
+| `optv5c_rms_b099_s2p0_r1_s44` | planned | Codex | table RMSProp (0,0.99)，seed 44 |
+| `optv5c_adamw_b099_s2p0_s43` | planned | Codex | table AdamW (0,0.99)，seed 43 |
+| `optv5c_adamw_b099_s2p0_s44` | planned | Codex | table AdamW (0,0.99)，seed 44 |
+| `optv5c_sgd_m0_s2p0_s43` | planned | Codex | table SGD m=0，seed 43 |
+| `optv5c_sgd_m0_s2p0_s44` | planned | Codex | table SGD m=0，seed 44 |
+
+### 复用判定（不重跑）
+
+- **seed 42 三臂复用 `optv5c_*` 波次**（§24b，2026-08-26 done）：rms
+  `s2p0_r1` gap 1.551、adamw `b099_s2p0` gap 1.502、sgd `m0_s2p0` gap 0.078。
+  已核对 `optv5c_rms_b099_s2p0_r1_fixed/summary.json` 与本节规格逐项一致
+  （scale 2.0 统一消除了旧波次「仅 RMSProp 带 scale 2.0」的混杂）。
+- **nogram 对照复用 §25**：`nglab1x_nogram_v5_s42/s43/s44` gap
+  0.245/0.253/0.253；nogram 与 optimizer 无交互，无需按臂重跑对照。
+
+### 固定 setting
+
+与 §24b optv5c 完全一致：train shards `1`、val shards
+`2,3,4,5,6,7,8,9,10,6542`、1000 steps、bf16 无 compile、clean 单表
+`R_bigram=R_trigram=2^20`、backbone lr `6e-4` warmup_constant 100 步、
+device_batch 72 / total 147456、val/freq/exact/table_norm interval 全部 10。
+
+### 命令与验收
+
+launcher 直接派生自 `code/cluster/run_v5_optimizer_sweep.sh` 的旗标组合，
+经 `run_v5_clean.sh` 执行（注意其硬编码 `--seed 42`，seed 43/44 必须显式覆盖）：
+
+```bash
+# rmsprop 臂示例（adamw/sgd 臂替换 --table_optimizer 与 run_id）
+NGLAB_PY=.venv/bin/python bash code/cluster/run_v5_clean.sh <gpu> \
+  optv5c_rms_b099_s2p0_r1_s43 1 2,3,4,5,6,7,8,9,10,6542 1000 \
+  --seed 43 --table_optimizer rmsprop --table_betas 0.0,0.99 --table_lr_scale 2.0
+```
+
+验收标准：每条 run 到达 step 1000、`summary.json` + `train_log.jsonl`
+非空；回填字段为 final gap（同一 logged step fixed val − online train）、
+三臂 × 三 seed 的均值与离散度；判定 sgd 低 gap 现象是否跨 seed 稳定。
+GPU 槽位限用空闲的 1/2/4/6，启动前 `nvidia-smi` 复核并登记占卡。
+
+---
+
+## §28 · X2 clean 表行宽扫描 d ∈ {768,192,48,12}（2026-08-26 登记）
+
+**科学问题**：clean 单表行宽 `d=n_embd=768` 是极简 setting 的绑定项。把表行宽
+降到远小于 backbone 宽度（冻结零填充投影升维到 768 后注入），gap 是否保持？
+即检验「per-context 私有自由度」是否是 gap 的必要容量条件。
+
+**唯一变量**：clean 表行宽 `d`（bigram/trigram 同步）；投影矩阵固定随机、
+不训练，d=768 时与基线逐位一致。依赖 `train.py` 新增 `--bigram_table_dim` /
+`--trigram_table_dim` 参数（实现中），零填充投影不影响 RNG 流与优化器分组。
+
+### 登记总表
+
+| run_id | 状态 | owner | 变量 |
+|---|---|---|---|
+| `ctbl_dim768_input_v5` | reused | — | d=768 ≡ v5 基线 `nglab1x_input_v5`（gap 5.741，§25） |
+| `ctbl_dim192_input_v5` | planned | Codex | d=192 |
+| `ctbl_dim48_input_v5` | planned | Codex | d=48 |
+| `ctbl_dim12_input_v5` | planned | Codex | d=12 |
+
+### 固定 setting 与命令
+
+其余坐标 = v5 主线（同 §27 固定 setting；seed 42、1000 steps、input 注入）：
+
+```bash
+NGLAB_PY=.venv/bin/python bash code/cluster/run_v5_clean.sh <gpu> \
+  ctbl_dim192_input_v5 1 2,3,4,5,6,7,8,9,10,6542 1000 \
+  --bigram_table_dim 192 --trigram_table_dim 192
+```
+
+验收标准：d=768 对照点直接引用基线；新增三档在实现 smoke 通过后才启动；
+回填 final gap 随 d 的曲线，判定 gap 是否在 d≪768 时塌缩到 nogram 水平
+（0.245）。create-only，禁止覆盖同名目录。
+
+---
+
+## §29 · X3 语料侧 r̄(f) 支撑宽度统计（2026-08-26 登记）
+
+**科学问题**：exact context frequency f 对应的输出支撑宽度 r̄(f) 在自然语料中
+如何随 f 变化？这决定采样律解析区条件 `f·P(y)≫1` 在多大频率窗口内成立，
+是解读 −1 斜率适用范围的语料侧前置量。
+
+**唯一变量**：无训练变量；纯语料统计。输入为 collision-free exact count
+索引 `data/freq_index.npz`（已验证：bigram keys/counts 各 3,541,098 条、
+trigram 各 19,027,841 条）+ train shard 1 原始 token 流。
+
+### 登记
+
+| run_id | 状态 | owner | compute |
+|---|---|---|---|
+| `corpus_rbar_freq_v1` | planned | Codex | 零 GPU；ophis-gpu 远端 CPU（本地缺 `shard_00001.bin`，远端已确认存在） |
+
+### 命令与验收
+
+脚本待写入 `code/tools/rbar_support_stats.py`（只读 freq_index + shard，
+不触碰训练入口）；在 ophis-gpu 上以 `.venv/bin/python` 运行，产物拷回本地
+`data/runs_fixed/corpus_rbar_freq_v1_fixed/`。
+
+验收标准：输出 per-frequency-bin 的 r̄(f)、support 分布分位数与
+`f·P(y)` 解析区覆盖率；全部数字可由 freq_index.npz + shard_00001.bin
+精确复算；CPU-only，不占 GPU 卡位，不影响并行推进的 X1/X2 训练波次。
+
+---
+
+## §30 · V5 zero-warmup constant schedule 配对消融（2026-08-26）
+
+**科学问题 / 可证伪比较**：当前 v5 的前 100 step warmup 是否实质性改变 clean-table
+input 的 train、fixed-val 或 gap 曲线？将本臂与完整曲线对照
+`optv5c_rms_b099_s2p0_r1` 逐个 logged step 比较。若 constant 臂出现 NaN/Inf、明显
+train/val 失稳，或在 epoch 1 后的曲线系统性分离，则不能把 warmup 当作无关工程细节；
+若两臂均健康且 step 100 后形态近似，则 zero-warmup 是可候选的更简洁 protocol。
+
+**run / owner / 目标**：`optv5g_rms_b099_s2p0_constant`；Codex；360-2 GPU0；
+seed 42；1000 optimizer steps。结果目录为
+`/data/home/guoshaoyang/ngram-gap-lab/data/runs_fixed/optv5g_rms_b099_s2p0_constant_fixed/`。
+已于 2026-08-26 17:19 CST 启动；launcher PID `1942910`，状态为 `running`。
+
+**唯一变化**：相对 §24b 的中心完整曲线
+`optv5c_rms_b099_s2p0_r1`，只覆盖 `--lr_schedule constant`。因此 step 1 就使用
+backbone LR `0.0006` 与 table LR `0.0012`；命令中 launcher 原有的
+`--warmup_steps 100` 对 `constant` 不生效。不得同时改变 table scale、β₂、数据、
+seed、评估 cadence 或模型代码。
+
+**固定契约**：vanilla nanoGPT 8L/6H/768D；input 注入；bigram+trigram clean 单表，
+各 `R=1,048,576`；backbone AdamW `(0.8,.95)`、weight decay `.1`、LR `.0006`；
+table RMSProp 无动量 `(0,.99)`、scale `2.0`；fixed replay train shard `1`、
+non-overlap val shards `2,3,4,5,6,7,8,9,10,6542`；bf16、无 compile；
+val/freq/exact-frequency/table-RMS 均每 10 steps；gap = same-step fixed val −
+current-batch online train。
+
+**代码身份与命令**：使用 360-2 已与对照曲线一致的 source：
+`train.py=f6ab90831ffd24364e3db2c47c83f913`、
+`ngram_freq.py=e4f45f5be1317c33e6b3c39bc6cb4bc5`、
+`run_v5_clean.sh=8c86d03f79cd42d0cd559259bc77224e`。本地未同步的 `train.py`
+不参与此 run。
+
+```bash
+cd /data/home/guoshaoyang/ngram-gap-lab && \
+NGLAB_PY=/usr/bin/python3 bash code/cluster/run_v5_clean.sh 0 \
+  optv5g_rms_b099_s2p0_constant 1 2,3,4,5,6,7,8,9,10,6542 1000 \
+  --lr_schedule constant
+```
+
+**验收**：`summary.json` 有限且到达 step 1000；`train_log.jsonl`、
+`freq_bin_loss.jsonl`、`exact_freq_loss.jsonl`、`table_norm.jsonl` 各恰有 100 个
+step-10 记录；记录的 config 为 `lr_schedule=constant`；无 NaN/Inf。完成后回填
+step-1000 train、fixed val、gap，并和 `optv5c_rms_b099_s2p0_r1` 生成三联曲线比较。

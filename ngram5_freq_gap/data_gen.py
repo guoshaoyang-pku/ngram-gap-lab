@@ -218,7 +218,7 @@ def iter_test_token_streams(tokenizer, max_tokens: int | None):
 
 def scan_histogram(tokenizer, bucket_count: int,
                    max_tokens: int | None,
-                   order: int = 3) -> tuple[dict[int, Counter], list[int]]:
+                   order: int = 5) -> tuple[dict[int, Counter], list[int]]:
     """Scan the train corpus and build the per-bucket next-token histogram.
 
     ``order`` is the n-gram context length (3 = trigram, 5 = 5-gram).
@@ -249,7 +249,7 @@ def scan_histogram(tokenizer, bucket_count: int,
 
 
 def scan_exact_histogram(
-    tokenizer, max_tokens: int | None, order: int = 3
+    tokenizer, max_tokens: int | None, order: int = 5
 ) -> dict[tuple[int, ...], Counter]:
     """Scan the complete train source and count exact context occurrences.
 
@@ -274,26 +274,15 @@ def scan_exact_histogram(
 
 def scan_exact_counts_packed(
     tokenizer, max_tokens: int | None, order: int, vocab: int
-) -> Counter[int]:
-    """Count exact contexts using packed integer keys.
-
-    For the trigram experiment, ``order=3`` and ``vocab=8192`` fit in signed
-    int64.  This avoids the much larger tuple-plus-Counter representation.
-    """
-    counts: Counter[int] = Counter()
+) -> dict:
+    """Count exact contexts with packed keys when the key fits in int64."""
+    counts = Counter()
     total = 0
     for tokens in iter_train_token_streams(tokenizer, max_tokens):
         if len(tokens) < order + 1:
             continue
         for index in range(order, len(tokens)):
-            key = 0
-            for token in tokens[index - order:index]:
-                key = key * vocab + int(token)
-            if key > (1 << 63) - 1:
-                raise ValueError(
-                    "packed exact context key exceeds int64; use a multiword "
-                    "index for this order/vocab combination"
-                )
+            key = _context_key(tokens, index, order, vocab)
             counts[key] += 1
             total += 1
     print(
@@ -304,11 +293,17 @@ def scan_exact_counts_packed(
     return counts
 
 
-def _packed_context(tokens: list[int], end: int, order: int, vocab: int) -> int:
-    key = 0
-    for token in tokens[end - order:end]:
-        key = key * vocab + int(token)
-    return key
+def _context_key(
+    tokens: list[int], end: int, order: int, vocab: int
+) -> int | tuple[int, ...]:
+    context = tuple(int(token) for token in tokens[end - order:end])
+    if order <= 3 and vocab**order <= (1 << 63) - 1:
+        return _encode_context(context, vocab)
+    return context
+
+
+def _packed_context(tokens: list[int], end: int, order: int, vocab: int):
+    return _context_key(tokens, end, order, vocab)
 
 
 def _factor_for_count(
@@ -688,7 +683,7 @@ def sample_splits(hist: dict[int, Counter], bucket_r: list[int],
 def scan_and_emit(tokenizer, splits: dict[int, dict], bucket_count: int,
                   *, role: str, f_train: float, f_val: float,
                   doc_len: int, sep_token: int, max_tokens: int | None,
-                  rng: random.Random, order: int = 3) -> tuple[list[int], list[dict]]:
+                  rng: random.Random, order: int = 5) -> tuple[list[int], list[dict]]:
     """Second pass: re-scan the corpus and emit real n-gram blocks.
 
     For each real occurrence ``(ctx, next)`` with bucket ``b``:
@@ -766,7 +761,7 @@ def scan_and_emit_exact(
     sep_token: int,
     max_tokens: int | None,
     rng: random.Random,
-    order: int = 3,
+    order: int = 5,
 ) -> tuple[list[int], list[dict]]:
     """Emit blocks using exact-context factors and real contexts."""
     block_len = order + 2
@@ -894,6 +889,29 @@ def _write_exact_counts_npz(
 ) -> None:
     import numpy as np
 
+    if exact_hist and len(next(iter(exact_hist))) > 3:
+        contexts = np.asarray(list(exact_hist), dtype=np.int32)
+        counts = np.asarray(
+            [sum(hist.values()) for hist in exact_hist.values()],
+            dtype=np.int64,
+        )
+        np.savez(
+            out_dir / "exact_ngram_counts.npz",
+            contexts=contexts,
+            counts=counts,
+        )
+        np.savez(
+            out_dir / "fivegram_counts.npz",
+            contexts=contexts,
+            counts=counts,
+        )
+        print(
+            f"[exact_counts] wrote {len(contexts):,} context-matrix entries to "
+            f"{out_dir / 'exact_ngram_counts.npz'}",
+            flush=True,
+        )
+        return
+
     rows = sorted(
         (_encode_context(context, vocab), sum(hist.values()), context)
         for context, hist in exact_hist.items()
@@ -925,9 +943,45 @@ def _write_exact_counts_npz(
 
 
 def _write_packed_exact_counts_npz(
-    out_dir: Path, exact_counts: Counter[int]
+    out_dir: Path, exact_counts: dict
 ) -> None:
     import numpy as np
+
+    if exact_counts and isinstance(next(iter(exact_counts)), tuple):
+        contexts = np.asarray(list(exact_counts), dtype=np.int32)
+        counts = np.asarray(
+            [exact_counts[tuple(context)] for context in contexts],
+            dtype=np.int64,
+        )
+        np.savez(
+            out_dir / "exact_ngram_counts.npz",
+            contexts=contexts,
+            counts=counts,
+        )
+        np.savez(
+            out_dir / "fivegram_counts.npz",
+            contexts=contexts,
+            counts=counts,
+        )
+        (out_dir / "exact_ngram_contexts.json").write_text(
+            json.dumps(
+                {
+                    "format": "exact_context_matrix",
+                    "frequency_definition": "exact_train_epoch_context_count",
+                    "source": "exact_ngram_counts.npz",
+                    "n_contexts": len(contexts),
+                    "order": int(contexts.shape[1]),
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        print(
+            f"[exact_counts] wrote {len(contexts):,} context-matrix entries to "
+            f"{out_dir / 'exact_ngram_counts.npz'}",
+            flush=True,
+        )
+        return
 
     keys = np.asarray(sorted(exact_counts), dtype=np.int64)
     counts = np.asarray([exact_counts[key] for key in keys], dtype=np.int64)
@@ -974,7 +1028,7 @@ def build_metadata(*, vocab: int, bucket_count: int, alpha: float, r_ref: float,
                    exact_counts: dict[int, int],
                    splits: dict[int, dict],
                    train_tokens_len: int, val_tokens_len: int,
-                   max_tokens: int | None, order: int = 3) -> dict:
+                   max_tokens: int | None, order: int = 5) -> dict:
     nonempty = [r for r in exact_counts.values() if r > 0]
     nonempty.sort()
     n_buckets = len(nonempty)
@@ -1113,9 +1167,10 @@ def _poisson_cdf(lam: float, max_k: int = 24) -> np.ndarray:
 
 def scan_exact_counts_packed_fast(
     tokenizer, max_tokens: int | None, order: int, vocab: int
-) -> Counter[int]:
+) -> dict:
     """Vectorized exact-context scan (per-shard numpy unique + pair merge)."""
     assert max_tokens is None, "fast scan requires max_tokens=None"
+    use_context_matrix = order > 3 or vocab**order > (1 << 63) - 1
     per_shard_keys: list[np.ndarray] = []
     per_shard_counts: list[np.ndarray] = []
     total = 0
@@ -1128,13 +1183,38 @@ def scan_exact_counts_packed_fast(
         win = np.lib.stride_tricks.sliding_window_view(
             flat[:-1].astype(np.int64), order
         )
-        keys = _pack_context_keys(win[valid], vocab, order)
-        ukeys, ucounts = np.unique(keys, return_counts=True)
-        per_shard_keys.append(ukeys)
+        contexts = win[valid].astype(np.int32, copy=False)
+        if use_context_matrix:
+            ucontexts, ucounts = np.unique(contexts, axis=0, return_counts=True)
+            per_shard_keys.append(ucontexts)
+        else:
+            keys = _pack_context_keys(contexts, vocab, order)
+            ukeys, ucounts = np.unique(keys, return_counts=True)
+            per_shard_keys.append(ukeys)
         per_shard_counts.append(ucounts)
         total += int(valid.sum())
     counts: Counter[int] = Counter()
-    if per_shard_keys:
+    if per_shard_keys and use_context_matrix:
+        contexts_all = np.concatenate(per_shard_keys)
+        counts_all = np.concatenate(per_shard_counts)
+        order_idx = np.lexsort(
+            tuple(contexts_all[:, column] for column in reversed(range(order)))
+        )
+        contexts_sorted = contexts_all[order_idx]
+        counts_sorted = counts_all[order_idx]
+        boundaries = np.concatenate(
+            [[0], np.flatnonzero(np.any(
+                contexts_sorted[1:] != contexts_sorted[:-1], axis=1
+            )) + 1]
+        )
+        unique_contexts = contexts_sorted[boundaries]
+        unique_counts = np.add.reduceat(counts_sorted, boundaries)
+        counts = {
+            tuple(context.tolist()): int(count)
+            for context, count in zip(unique_contexts, unique_counts)
+        }
+        del contexts_all, counts_all, contexts_sorted, counts_sorted
+    elif per_shard_keys:
         keys_all = np.concatenate(per_shard_keys)
         cnts_all = np.concatenate(per_shard_counts)
         order_idx = np.argsort(keys_all, kind="stable")
@@ -1275,7 +1355,7 @@ def generate(out_dir: Path, *, alpha: float, bucket_count: int,
              f_train: float, f_val: float, k_min: float, k_max: float,
              r_ref_mode: str, r_ref_fixed: float | None,
              dataset_seed: int, doc_len: int, max_tokens: int | None,
-             tokenizer_dir: str | None, order: int = 3,
+             tokenizer_dir: str | None, order: int = 5,
              val_source: str = "train", val_frac: float | None = None,
              emit_format: str = "txt",
              token_cache_dir: str | None = None,
@@ -1395,7 +1475,11 @@ def generate(out_dir: Path, *, alpha: float, bucket_count: int,
     _write_packed_exact_counts_npz(out_dir, exact_counts)
     if len(exact_counts) <= 1_000_000:
         contexts_payload = {
-            str(int(key)): {
+            (
+                " ".join(map(str, key))
+                if isinstance(key, tuple)
+                else str(int(key))
+            ): {
                 "r": int(count),
                 "k": float(factors[key]),
                 "n_train_target": round(count * f_train * factors[key]),
@@ -1487,8 +1571,8 @@ def main() -> None:
     ap.add_argument("--alpha", type=float, default=0.0,
                     help="exponent for (r_ref/r)^alpha; 0 => no resampling")
     ap.add_argument("--bucket-count", type=int, default=5_000_000,
-                    help="hash bucket count (default 5M for trigram)")
-    ap.add_argument("--order", type=int, default=3,
+                    help="hash bucket count (default 5M)")
+    ap.add_argument("--order", type=int, default=5,
                     help="n-gram context length (3=trigram, 5=5-gram)")
     ap.add_argument("--f-train", type=float, default=0.8)
     ap.add_argument("--f-val", type=float, default=0.2)

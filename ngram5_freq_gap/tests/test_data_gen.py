@@ -272,6 +272,21 @@ def test_exact_index_npz_matches_bruteforce_counter(tmp_path):
     assert list(zip(keys, counts)) == expected
 
 
+def test_exact_index_npz_uses_context_matrix_for_order5(tmp_path):
+    import numpy as np
+
+    exact = {
+        (1, 2, 3, 4, 5): Counter({6: 2}),
+        (2, 3, 4, 5, 6): Counter({7: 1}),
+    }
+    data_gen._write_exact_counts_npz(tmp_path, exact, vocab=8192)
+    with np.load(tmp_path / "exact_ngram_counts.npz") as data:
+        assert "contexts" in data
+        assert "keys" not in data
+        assert data["contexts"].shape == (2, 5)
+        assert data["counts"].tolist() == [2, 1]
+
+
 # ---------------------------------------------------------------------------
 # Full generate() on synthetic corpus
 # ---------------------------------------------------------------------------
@@ -324,23 +339,22 @@ def test_generate_end_to_end_on_synthetic(monkeypatch, tmp_path):
     assert (out / "metadata.json").exists()
 
     meta = json.loads((out / "meta.json").read_text())
-    assert meta["order"] == 3
+    assert meta["order"] == 5
     assert meta["vocab"] == 8192
-    assert meta["block_len"] == 5
+    assert meta["block_len"] == 7
     assert meta["n_distinct_exact_contexts"] > 0
     assert meta["train_tokens"] > 0
 
     md = json.loads((out / "metadata.json").read_text())
     assert md["vocab_size"] == 8192
-    assert md["order"] == 3
+    assert md["order"] == 5
 
     # exact_ngram_counts.npz loads and is sorted
     import numpy as np
     z = np.load(out / "exact_ngram_counts.npz")
-    keys = z["keys"]
+    contexts = z["contexts"]
     counts = z["counts"]
-    assert len(keys) == len(counts) == meta["n_distinct_exact_contexts"]
-    assert bool(np.all(keys[1:] > keys[:-1]))
+    assert contexts.shape == (meta["n_distinct_exact_contexts"], 5)
     assert counts.sum() == meta["total_contexts"]
 
     # token streams parse as ints and are multiples of doc_len

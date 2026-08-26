@@ -3,8 +3,8 @@
 # ordinary grid runs skip exact-frequency diagnostics; the frequency axis
 # is a SEPARATE small run set, one per module arm at the L4 / 1M table point.
 #
-# Each run computes exact-frequency + freq-bin + fixed-train-probe
-# diagnostics (--freq_index set, --exact_freq_eval_interval 100).
+# Each run computes exact-frequency + freq-bin diagnostics
+# (--freq_index set, every 10 steps, aligned with validation).
 #
 # Arms (L4 = 337 batches/epoch = FULL shard 1, 1M table = table_mult 64):
 #   freq_bigram / freq_trigram / freq_both / freq_nogram

@@ -25,9 +25,10 @@ Env vars (all optional; defaults shown):
   DEVICE_BATCH_SIZE     72
   MAX_SEQ_LEN            2048
   SEED                  42
-  LEARNING_RATE         9e-4  (overridden by NANOGPT_ADAM_LR if set)
-  WARMUP_RATIO          0.0
-  ADAM_WARMDOWN_RATIO   0.65
+  LEARNING_RATE         6e-4  (overridden by NANOGPT_ADAM_LR if set)
+  LR_SCHEDULE_MODE      warmup_constant
+  WARMUP_STEPS          100
+  ADAM_WARMDOWN_RATIO   0.0
   WARMDOWN_RATIO        0.95  (legacy schedule variable; does not alter table beta2)
   FINAL_LR_FRAC         0.05
   WEIGHT_DECAY          0.1
@@ -115,10 +116,12 @@ TOTAL_BATCH_SIZE = int(os.environ.get("TOTAL_BATCH_SIZE",
 
 # LR: prefer NANOGPT_ADAM_LR (cluster convention) if set, else LEARNING_RATE.
 LEARNING_RATE = float(os.environ.get("NANOGPT_ADAM_LR",
-    os.environ.get("LEARNING_RATE", "0.004")))
+    os.environ.get("LEARNING_RATE", "0.0006")))
 WEIGHT_DECAY = float(os.environ.get("WEIGHT_DECAY", "0.1"))
+LR_SCHEDULE_MODE = os.environ.get("LR_SCHEDULE_MODE", "warmup_constant").strip().lower()
+WARMUP_STEPS = int(os.environ.get("WARMUP_STEPS", "100"))
 WARMUP_RATIO = float(os.environ.get("WARMUP_RATIO", "0.0"))
-ADAM_WARMDOWN_RATIO = float(os.environ.get("ADAM_WARMDOWN_RATIO", "0.65"))
+ADAM_WARMDOWN_RATIO = float(os.environ.get("ADAM_WARMDOWN_RATIO", "0.0"))
 MUON_WARMDOWN_RATIO = float(os.environ.get("WARMDOWN_RATIO", "0.95"))
 FINAL_LR_FRAC = float(os.environ.get("FINAL_LR_FRAC", "0.05"))
 ADAM_BETAS = (0.8, 0.95)
@@ -337,7 +340,14 @@ class ExactNgramIndex:
 # ---------------------------------------------------------------------------
 
 def lr_multiplier(step: int, max_steps: int, warmup_ratio: float,
-                  warmdown_ratio: float, final_lr_fraction: float) -> float:
+                  warmdown_ratio: float, final_lr_fraction: float,
+                  schedule_mode: str = "warmdown",
+                  warmup_steps: int = 100) -> float:
+    if schedule_mode == "warmup_constant":
+        if warmup_steps <= 0:
+            return 1.0
+        progress = min(max(step - 1, 0) / max(warmup_steps - 1, 1), 1.0)
+        return 0.25 + 0.75 * progress
     progress = min(step / max_steps, 1.0)
     if progress < warmup_ratio:
         return progress / warmup_ratio if warmup_ratio > 0 else 1.0
@@ -916,6 +926,8 @@ def main() -> None:
         enable_bigram_ve=env_bool("ENABLE_BIGRAM_VE", True),
         enable_trigram_ve=env_bool("ENABLE_TRIGRAM_VE", True),
         enable_fourgram_ve=env_bool("ENABLE_FOURGRAM_VE", False),
+        bigram_clean_table=int(os.environ.get("BIGRAM_CLEAN_TABLE", "1048576")),
+        trigram_clean_table=int(os.environ.get("TRIGRAM_CLEAN_TABLE", "1048576")),
         current_ngram_injection_impl=os.environ.get(
             "CURRENT_NGRAM_INJECTION_IMPL", "none"),
         enable_nanogpt_ngram_ve=env_bool("NANOGPT_ENABLE_NGRAM_VE", True),
@@ -1120,7 +1132,16 @@ def main() -> None:
             "matrix_optimizer": os.environ.get("NANOGPT_MATRIX_OPTIMIZER", "adamw"),
             "grouping": os.environ.get("NANOGPT_OPTIMIZER_GROUPING", "nanogpt"),
         },
+        "table": {
+            "architecture": "clean_single_table",
+            "bigram_rows": int(filtered.get("bigram_clean_table", 0)),
+            "trigram_rows": int(filtered.get("trigram_clean_table", 0)),
+            "hashes_per_branch": 1,
+            "layers_per_branch": 1,
+        },
         "schedule": {
+            "mode": LR_SCHEDULE_MODE,
+            "warmup_steps": WARMUP_STEPS,
             "warmup_ratio": WARMUP_RATIO,
             "adam_warmdown_ratio": ADAM_WARMDOWN_RATIO,
             "ngram_lr_schedule": "constant",
@@ -1227,15 +1248,22 @@ def main() -> None:
         loss.backward()
         x, y, epoch = batch_to_device(next(training_stream), device)
 
-        progress = min(step / MAX_TRAINING_STEPS, 1.0)
-        lrm = lr_multiplier(step, MAX_TRAINING_STEPS, WARMUP_RATIO,
-                            ADAM_WARMDOWN_RATIO, FINAL_LR_FRAC)
+        progress = min(completed / MAX_TRAINING_STEPS, 1.0)
+        lrm = lr_multiplier(
+            completed,
+            MAX_TRAINING_STEPS,
+            WARMUP_RATIO,
+            ADAM_WARMDOWN_RATIO,
+            FINAL_LR_FRAC,
+            LR_SCHEDULE_MODE,
+            WARMUP_STEPS,
+        )
         current_lr = LEARNING_RATE * lrm
         if optimizer_groups:
             for group in adam_groups:
                 group["lr"] = group["initial_lr"] * lrm
             adam_warmdown_start = 1.0 - ADAM_WARMDOWN_RATIO
-            if progress >= adam_warmdown_start:
+            if ADAM_WARMDOWN_RATIO > 0 and progress >= adam_warmdown_start:
                 adam_frac = (progress - adam_warmdown_start) / ADAM_WARMDOWN_RATIO
                 beta1 = ADAM_BETAS[0] + (DEMON_FINAL_BETA1 - ADAM_BETAS[0]) * adam_frac
                 for group in adam_demon_groups:

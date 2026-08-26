@@ -93,10 +93,9 @@ def canonical_run_dirs(runs_dir):
 def is_current_scaling_summary(summary, physical_id):
     config = summary.get("config", {})
     exact_interval = config.get("exact_freq_eval_interval")
-    # New runs record exact_freq_eval_interval (10 for the dense curve mode, 100
-    # for legacy). Older seed-42 frequency runs predate the config key but still
-    # produced valid exact-frequency outputs, so a missing key is accepted.
-    exact_ok = exact_interval is None or exact_interval in {10, 100}
+    # Older frequency runs may predate the config key, but current runs must
+    # align exact-frequency evaluation with the standard 10-step cadence.
+    exact_ok = exact_interval is None or exact_interval in {10}
     return (
         summary.get("run_id") == physical_id
         and config.get("table_optimizer") == "rmsprop"
@@ -106,7 +105,7 @@ def is_current_scaling_summary(summary, physical_id):
         and config.get("table_norm_interval_steps") == 10
         and exact_ok
         and summary.get("compute_dtype") == "bf16"
-        and summary.get("torch_compile") is True
+        and summary.get("torch_compile") is False
     )
 
 

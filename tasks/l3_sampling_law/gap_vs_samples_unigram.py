@@ -21,22 +21,22 @@ Answer (two regimes, both derivable):
       E[L_val]   = H + (K-1)/(2 r) + O(r^-2)    (KL bias, Miller-Madow)
       E[L_train] = H - (K-1)/(2 r) + O(r^-2)    (entropy bias)
       E[gap]     = (K-1)/r + O(r^-2)            (H cancels exactly)
-      -> log-log slope of E[gap] vs r is exactly -1.
+      -> log-log slope of E[gap] vs r tends to -1 asymptotically.
       Constant = support-1 = K-1, NOT exp(H)-1 in general
       (they coincide only for uniform P).
 
   (ii) UNRESOLVED REGIME (r P_c ~< 1 for some cells; many symbols unseen):
       the gap is dominated by the unseen-symbol penalty
           -sum_{c: n_c=0} P_c log q_c
-      For the pure MLE table (q = phat) this is +inf.  With smoothing a:
-          E[gap] ~= (unseen mass) * log(r/(a K)) + (resolved part),
-      which can be much LARGER than (K-1)/r and depends on the model's
-      smoothing, not purely on r.  This is the low-r bucket regime of the
-      real n-gram-gap experiments.
+      For the pure MLE table (q = phat) this is +inf.  With smoothing a, an
+      unseen cell has raw validation penalty P_c * log((r + a K) / a).
+      A centered unseen-mass approximation can be useful empirically, but is
+      not an exact total-gap formula.  The result also depends on the seen-cell
+      remainder, not purely on r.
 
 Pure numpy + matplotlib, deterministic, no torch, no external data.
 
-Outputs: docs/figs/fig_gap_vs_samples_{bc11,exact,unresolved,longtail,realgen}.svg/.png
+Outputs: docs/figs/theory/fig_gap_vs_samples_{bc11,exact,unresolved,longtail,realgen}.svg/.png
 """
 from __future__ import annotations
 
@@ -71,9 +71,8 @@ def exact_k2(r: int, P=(0.5, 0.5), a: float = 1e-3):
         n = np.array([n0, r - n0], float)
         ph = n / r
         q = (n + a) / (r + 2 * a)
-        safe = np.where(ph > 0, ph, 1.0)
         lv = -float(np.sum(P * np.log(q)))
-        lt = -float(np.sum(safe * np.log(q)))
+        lt = -float(np.sum(np.where(ph > 0, ph * np.log(q), 0.0)))
         E_lv += w * lv; E_lt += w * lt
     return H, E_lv, E_lt, E_lv - E_lt
 
@@ -144,8 +143,23 @@ for r in [1, 2, 4, 8, 16, 32]:
     print(f"       {r:4d}  {vals[0]:8.4f}  {vals[1]:8.4f}  {vals[2]:8.4f}  {1/r:.4f}")
 
 # ---------------------------------------------------------------- figures
-plt.rcParams.update({"font.size": 9.5})
-C_BLUE, C_RED, C_TH = "#4c72b0", "#c44e52", "#222222"
+PAPER, PANEL, INK, MUTED, BORDER = "#f7f5ef", "#fffdf8", "#232426", "#686d73", "#c8c1b6"
+plt.rcParams.update({
+    "font.size": 9.5,
+    "figure.facecolor": PAPER,
+    "axes.facecolor": PANEL,
+    "axes.edgecolor": BORDER,
+    "axes.labelcolor": INK,
+    "axes.titlecolor": INK,
+    "axes.titlelocation": "left",
+    "axes.titleweight": "bold",
+    "xtick.color": MUTED,
+    "ytick.color": MUTED,
+    "grid.color": BORDER,
+    "grid.alpha": 0.35,
+    "axes.grid": True,
+})
+C_BLUE, C_RED, C_TH = "#2d6f9f", "#c4493d", INK
 
 # fig 1: user example B:C = 1:1 (K=2)
 fig, axes = plt.subplots(1, 2, figsize=(13.0, 4.4))
@@ -213,8 +227,8 @@ for a, c, mk in ((1e-6, C_BLUE, "o"), (1e-3, C_RED, "s"), (0.1, "#55a868", "^"))
 ax.semilogx(rr3, 1.0 / rr3, "--", color=C_TH, lw=1.4, label=r"$(K-1)/r$")
 ax.set_xlabel(r"training draws $r$ (log)")
 ax.set_ylabel(r"$E[\mathrm{gap}]$ (nats)")
-ax.set_title(r"Unresolved regime: gap = unseen-mass $\cdot\log(r/(\alpha K))$ + $1/r$"
-             "\n" + r"(depends on smoothing $\alpha$, not just $r$)")
+ax.set_title(r"Unresolved regime: exact gap depends on smoothing $\alpha$"
+             "\n" + r"(the unseen-cell term is not a universal total-gap law)")
 ax.legend(fontsize=8, frameon=False)
 fig.tight_layout()
 fig.savefig(OUT / "fig_gap_vs_samples_unresolved.svg")
@@ -254,7 +268,7 @@ fig.savefig(OUT / "fig_gap_vs_samples_longtail.png", dpi=150)
 
 # ---------------------------------------------------------------- section G
 print("\n[G] REAL generator (vocab 8192, 8 private tokens + Zipf-1.05 tail over ~7900):")
-print("    E[gap] is NOT (K-1)/r; it follows the unseen-mass penalty U(r)*log(r/(aK)).")
+print("    E[gap] is NOT (K-1)/r; compare it with a centered unseen-mass heuristic.")
 VOCAB = 8192; HUB = 256; SEP = VOCAB - 1
 _idc = np.arange(1, SEP - HUB, dtype=float)
 _base = _idc ** -1.05
@@ -294,7 +308,7 @@ pred_rows = []
 for r in real_rs:
     U = float(np.mean([np.sum(Pi * (1 - Pi) ** r) for Pi in real_ctx]))
     pred_rows.append((r, U, U * math.log(r / (a_ref * VOCAB))))
-print("  verify gap ~= U(r)*log(r/(aK))  [a=1e-6]  (U = expected unseen mass):")
+print("  compare gap with U(r)*log(r/(aK)) heuristic  [a=1e-6]:")
 g_ref = real_rows[0][1]
 for i, r in enumerate(real_rs):
     U, pred = pred_rows[i][1], pred_rows[i][2]
@@ -319,12 +333,12 @@ rrG = np.array(real_rs)
 ax.loglog(rrG, [pred_rows[i][1] for i in range(len(rrG))], "o-", color=C_BLUE,
           lw=1.6, ms=5, label=r"$U(r)=\mathbb{E}\sum_c P_c(1-P_c)^r$")
 ax.loglog(rrG, [pred_rows[i][2] for i in range(len(rrG))], "s--", color=C_RED,
-          lw=1.5, ms=4, label=r"$U(r)\log(r/(\alpha K))$ (prediction)")
+          lw=1.5, ms=4, label=r"$U(r)\log(r/(\alpha K))$ (centered heuristic)")
 ax.loglog(rrG, real_rows[0][1], "^-", color="0.4", lw=1.4, ms=4,
           label=r"$E[\mathrm{gap}]$ ($\alpha=10^{-6}$)")
 ax.set_xlabel(r"training draws $r$ (log)")
 ax.set_ylabel(r"(nats, log)")
-ax.set_title(r"(b) unseen-mass mechanism: gap $\approx U(r)\log(r/(\alpha K))$")
+ax.set_title(r"(b) unseen-mass heuristic tracks this finite synthetic range")
 ax.legend(fontsize=8, frameon=False)
 fig.suptitle("Real sparse distribution (vocab 8192, 8 private + long tail): "
              "unresolved tail dominates, slope ~ -0.2 not -1", y=1.0)

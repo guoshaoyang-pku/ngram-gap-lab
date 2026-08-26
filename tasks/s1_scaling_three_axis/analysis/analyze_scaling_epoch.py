@@ -92,7 +92,7 @@ def is_current_scaling_summary(summary, physical_id):
         and config.get("table_betas") == [0.0, 0.99]
         and (dense_monitor or sparse_monitor)
         and summary.get("compute_dtype") == "bf16"
-        and summary.get("torch_compile") is True
+        and summary.get("torch_compile") is False
     )
 
 

@@ -13,22 +13,45 @@ figure{margin:2.2em 0;padding:1em;background:#fafafa;border:1px solid #eee}
 img{display:block;max-width:100%;height:auto;margin:auto}
 figcaption{text-align:center;color:#555;margin-top:.6em;font-size:.95em}
 code{background:#f3f3f3;padding:.08em .25em;border-radius:3px}
+.takeaway-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:1.2em 0 2em}
+.takeaway{padding:18px 20px;border:1px solid #d7d0c5;border-top:5px solid #9b5d30;background:#fffcf8}
+.takeaway h3{margin:.1em 0 .55em;font-size:1.12em}
+.takeaway p{margin:.45em 0}.formula{font-size:1.35em;font-weight:700;color:#6c3717}.tag{font-size:.78em;letter-spacing:.04em;font-weight:700;color:#7a4a28}
+.scope{padding:.8em 1em;background:#f3f7fb;border-left:4px solid #4f7897}.archive{margin:2.5em 0;padding:0 1.2em 1.2em;border:1px solid #ddd;background:#fafafa}.archive summary{cursor:pointer;padding:1em 0;font-weight:700}
 </style></head><body><p><a href="../../report/index.html">返回主报告</a></p><h1>附录 · S1 三轴 scaling 验证</h1>
 <blockquote>
-<p><strong>实验线</strong>：T-scaling（极简 setting 下的 epoch length / exact frequency /
-table size）</p>
-<p><strong>状态</strong>：⚠️ seed 42 及 seed 43/44 的 261 个 S1 run 已完成，但它们属于
-<strong>旧计算契约 <code>bf16 + torch.compile</code></strong> 的历史波次。最新 <code>agents.md</code> 已将标准
-修正为 <strong>bf16 autocast、默认不 compile</strong>；因此本报告保留这 261 个 run
-用于数学审计和 provenance，但不把它们当作当前标准下已验证的三轴结论。
-多 seed 分析与 H1–H4 猜想检验仅作为旧波次的探索性结果；无 compile
-标准下的 S1 重跑尚未完成。</p>
-<p><strong>数据源</strong>：<code>data/runs_scaling/</code>。本报告的历史结果只读取
-<code>data/runs_scaling/&lt;run_id&gt;_fixed/</code>；历史 <code>pilot_*</code>、<code>basic_*</code> 和 safety
-目录不混入三轴汇总。目录名带 <code>_fixed</code> 只说明产物命名契约，不等于已经
-满足最新的 no-compile 计算契约。</p>
-<p><strong>代码</strong>：<code>tasks/s1_scaling_three_axis/</code>。</p>
+<p><strong>这页只回答三个关系</strong>：真实 context 的训练频率 <code>f</code>、clean 双表大小 <code>R</code>，以及 replay exposure <code>L</code> 如何对应 gap。当前可展示的 v5 结果位于页首；旧 <code>torch.compile</code> 波次完整保留在下方折叠区，只作溯源。</p>
+<p><strong>当前口径</strong>：bf16 autocast、默认不 compile；主 gap = 同一 logged step 的 <code>fixed val loss − current-batch train loss</code>。除特别标注外，不把诊断 probe 或旧波次拟合升级成普适定律。</p>
 </blockquote>
+<h2>先看关系：v5 主线 + 早期 clean 单表</h2>
+<div class="takeaway-grid">
+<section class="takeaway"><div class="tag">主关系 1 · 频率</div><h3>真实 context 频率 <code>f</code> → gap</h3><p class="formula">G<sub>bi</sub>∝f<sup>−0.357</sup> · G<sub>tri</sub>∝f<sup>−0.259</sup></p><p>7 个宽几何 bin 的单 seed 诊断摘要（R²=0.997 / 0.990）。<strong><code>hit count</code> = 同一真实 n-gram context 在训练语料中出现的次数</strong>，在 hash 前计数；它不是 table 的物理 row load，也不是碰撞后的 table hit count。</p></section>
+<section class="takeaway"><div class="tag">主关系 2 · 表大小</div><h3>clean 双表大小 <code>R</code> → gap</h3><p class="formula">G<sub>both</sub>(R) ∝ R<sup>0.652</sup></p><p>v5 paired bigram+trigram 表同步增大，18 个正终点、seed 42、step 1000 的双对数线性摘要；它<strong>不是</strong>分别属于 bigram 和 trigram 的两个指数。</p></section>
+<section class="takeaway"><div class="tag">保留关系 · 早期 clean 单表</div><h3>分支分别扫 <code>R</code> → gap</h3><p class="formula">G<sub>bi</sub>∝R<sup>0.33</sup> · G<sub>tri</sub>∝R<sup>0.67</sup></p><p>bigram 主体与 trigram 首扫的单 seed 形状摘要；它们是分支单表扫描，<strong>不等于</strong> v5 paired double-table 的 <code>+0.652</code>。</p></section>
+<section class="takeaway"><div class="tag">相邻关系 · 数据剂量</div><h3>fixed-step dose <code>D</code> → gap</h3><p class="formula">强 dilution / crossover，不是一条幂律</p><p>v5 seed 42：<code>.25×</code> 为 11.589，<code>5×</code> 为 0.088，<code>6×</code> 后接近/穿过 0；局部拟合指数随窗口漂移。</p></section>
+<section class="takeaway"><div class="tag">伴随关系 · exposure</div><h3>epoch prefix <code>L</code> → gap</h3><p class="formula">只展示曲线，不拟合幂律</p><p>该轴用于检查 replay/exposure 的变化；当前单 seed v5 不把它写成幂律或因果律。</p></section>
+</div>
+<p class="scope"><strong>读图规则。</strong> 频率图的横轴是 exact context frequency；table 图的横轴是每个 clean table 的行数 <code>R</code>。table occupancy / collision 是解释 <code>R</code> 效应的另一条观测轴，不能替代 <code>f</code>。</p>
+<h2>1. 频率分 bin：先看真实 context frequency，不看 table hit count</h2>
+<p>主展示采用 v5 M2 的<strong>当前训练 batch</strong>频率分 bin（step 2000；每 10 步记录）。因此这里的 gap 符合当前主口径。它回答的是：在自然语料中，不同出现次数的真实 context 对应怎样的 token-level gap；不是 hash row 被写入多少次。</p>
+<figure><img src="../../figs/main/fig_v5_injection_frequency_bigram.png" alt="v5 bigram current-batch frequency bins"><figcaption><strong>Bigram：</strong>v5 当前 batch 的 frequency-bin gap。横轴为真实 bigram context 的训练频率。</figcaption></figure>
+<figure><img src="../../figs/main/fig_v5_injection_frequency_trigram.png" alt="v5 trigram current-batch frequency bins"><figcaption><strong>Trigram：</strong>v5 当前 batch 的 frequency-bin gap。与 bigram 使用同一“hash 前真实 context”口径。</figcaption></figure>
+<p>作为更细的 <em>exact-f</em> 形状诊断，S1 v5 把 eligible exact-f 条目按对数范围合并为 <strong>7 个宽几何 bin</strong>；每个 bin 内按 shared-context token mass 加权，高频尾部不再由少数 exact-f 点主导。seed 42、step 1000 的双对数摘要为：<strong>bigram <code>G(f)∝f^-0.357</code>（R²=0.997），trigram <code>G(f)∝f^-0.259</code>（R²=0.990）</strong>。这两个数使用 fixed train probe，且只有单 seed；它们是当前诊断图中很清楚的<strong>局部形状摘要</strong>，仍不是普适幂律指数的结论。</p>
+<figure><img src="../../figs/main/fig_v5_s1_frequency_exact_f.png" alt="v5 exact context frequency diagnostic"><figcaption>v5 S1 exact-frequency 诊断：7 个宽几何 bin、横向 whisker 为 bin 范围；图例直接标出 branch-wise log-log 摘要。不以 fixed-probe gap 替代上方主口径。</figcaption></figure>
+<h2>2. 表大小：clean 双表的 R → gap 双对数关系</h2>
+<p>这里 <code>R</code> 是每个 clean 单表的物理行数；bigram 与 trigram 两张表在每个 run 中取相同 R 并同步改变。故图中只有一个 paired-table 关系：<strong><code>G_both(R) ∝ R^0.652</code></strong>（18 个正终点，seed 42，step 1000）。它说明当前扫描窗口内 gap 随 paired table size 增大而上升；不支持从这张图读出单独 bigram 或 trigram 的斜率。</p>
+<figure><img src="../../figs/main/fig_v5_s1_table_size_loglog.png" alt="v5 clean double-table size log-log"><figcaption><strong>v5 clean 双表：</strong>R 与 final online gap 的双对数端点图；页内 log-log 拟合摘要为 <code>+0.652</code>。</figcaption></figure>
+<figure><img src="../../figs/main/fig_v5_s1_table_load_collision.png" alt="v5 clean double-table load and collision"><figcaption>同一 R 扫描的 occupancy / collision 记账：它解释碰撞状态如何随 R 变化，但不是 frequency-bin 的 hit count。</figcaption></figure>
+<h3>2.1 不能漏掉的早期 clean 单表：bigram <code>+0.33</code>、trigram <code>+0.67</code></h3>
+<p>这是一条<strong>分支分别改变 R</strong>的早期 clean 单表扫描：bigram 有 29 个 R 点和 perfect-map 锚点，主体区 <code>G_bi(R)∝R^0.33</code>；trigram 首扫 6 个 R 点，<code>G_tri(R)∝R^0.67</code>。原图以 <code>R/N</code> 为横轴；每个 branch 的 distinct-context 总数 N 固定，所以换成 R 后指数不变。它和上方的 v5 paired double-table <code>R^0.652</code> 是三条不同关系，不能互相替代或合并拟合。</p>
+<figure><img src="figs/fig_clean_gap_vs_KN_loglog.png" alt="early clean single-table branch-wise size scan"><figcaption>早期 clean 单表分支扫描：bigram 主体约 <code>+0.33</code>，但 <code>K/N&gt;1.5</code> 后有断点/波动；trigram 的 6 点首扫约 <code>+0.67</code>。均为 seed 42、step 1000，单 seed 形状摘要。</figcaption></figure>
+<h3>2.2 数据剂量：强单调 dilution，但不是单一幂律</h3>
+<p>这里 <code>D</code> 是训练 shard dose；总训练步数固定为 2000，因此 D 越大，每个样本在该预算内被 replay 的次数越少。v5 fixed-step 扫描（seed 42）从 <code>D=.25×</code> 的 gap 11.589 下降到 <code>D=5×</code> 的 0.088，<code>D=6×/8×</code> 为 −0.082/−0.077。它是很强的剂量/重复暴露关系，但不宜命名为一条全区间 <code>G(D)∝D^{-α}</code>：只拟合 <code>.25×–.75×</code> 三点时 <code>α≈0.359</code>（R²=0.979），逐步扩展窗口到 <code>5×</code> 时拟合会漂到 <code>α≈1.718</code>（R²=0.888），随后 gap 过零而 log(y) 不再定义。这说明当前曲线是 crossover 到 near-zero floor，而不是常数指数。</p>
+<figure><img src="../../figs/main/fig_v5_dose_fixedstep.png" alt="v5 fixed-step data-dose scan"><figcaption>v5 fixed-step dose response：横轴为 D 的对数；这是 online gap 的 endpoint 曲线，而非全区间 log-log 幂律图。</figcaption></figure>
+<h2>3. Replay exposure：保留为相邻关系，不宣称幂律</h2>
+<p>v5 的 nested epoch-prefix 扫描只有单 seed。它用于把“频率效应”和“训练流重复暴露”并列观察；当前证据不足以写出稳定的 <code>G(L)</code> 幂律或独立因果关系。</p>
+<figure><img src="../../figs/main/fig_v5_s1_epoch_prefix.png" alt="v5 nested epoch-prefix gap"><figcaption>v5 epoch-prefix：L1–L4 的 both / nogram 对照。仅作 exposure 曲线展示。</figcaption></figure>
+<details class="archive"><summary>展开历史 S1 审计（261 个 compile run、旧表架构与旧拟合；保留，不作为页首结论）</summary>
 <h2>0. 研究问题与 claim boundary</h2>
 <p>在唯一极简 setting（vanilla nanoGPT 8L·6H·768D、learned absolute
 position、LayerNorm、tied embedding、input/wte n-gram 注入、自然语料）下，
@@ -1163,4 +1186,6 @@ Plotly HTML（<code>rel_gap_vs_2R_multiseed.html</code>、<code>rel_gap_vs_frequ
 </tbody>
 </table>
 <p><code>figs/epoch3000_deltaG_both_minus_nogram.png</code> 是已有的独立 3000-step 诊断图，
+</details>
+<details class="archive"><summary>展开历史静态图集（旧 compile 波次；仅供溯源）</summary>
 不属于本轮三 seed canonical 关系图集，保留作 provenance。</p><h2>图集：关系展示</h2><p>静态图遵循 warm paper 调色板；颜色表示 module，marker 表示 seed。静态图中的 log 轴只显示正 gap；可隐藏曲线、切换坐标轴的版本见交互图。</p><figure><img src="figs/rel_relationship_map.png" alt="S1 three-axis relationship map"><figcaption>总览：table size、collision complement、exposure 与 exact frequency 对 online gap 的关系。</figcaption></figure><figure><img src="figs/rel_gap_vs_2R_multiseed.png" alt="Table logical addresses versus online gap"><figcaption>Table size → gap：logical addresses 2R 与最终 online gap，双对数；虚线为逐组 log-log guide。</figcaption></figure><p><a href="figs/rel_gap_vs_2R_multiseed.html">打开交互版 table 图（可隐藏 module/seed、切换 x/y 对数轴）</a></p><figure><img src="figs/rel_gap_vs_physical.png" alt="Collision complement versus online gap"><figcaption>Physical hash state → gap：使用对应 module 的 layer-0/hash-0 collision complement。</figcaption></figure><figure><img src="figs/rel_deltaG_vs_epoch.png" alt="Epoch length versus delta gap"><figcaption>Exposure → ΔG：fixed-step 与 fixed-epoch 并列，ΔG 相对同 L no-ngram。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_bigram.png" alt="Bigram exact frequency versus gap"><figcaption>Bigram branch：exact frequency → token-marginal gap，带 bin 内 SEM 误差棒。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_trigram.png" alt="Trigram exact frequency versus gap"><figcaption>Trigram branch：exact frequency → token-marginal gap，带 bin 内 SEM 误差棒。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_epoch_bigram.png" alt="Bigram frequency across epochs"><figcaption>Bigram branch：epoch 1/3/6 的 frequency-gap 关系。</figcaption></figure><figure><img src="figs/rel_gap_vs_frequency_epoch_trigram.png" alt="Trigram frequency across epochs"><figcaption>Trigram branch：epoch 1/3/6 的 frequency-gap 关系。</figcaption></figure><p><a href="figs/rel_gap_vs_frequency_multiseed.html">打开交互版 frequency 图（可隐藏 branch/module/seed、切换 x/y 对数轴）</a></p><p><strong>Debug 原图：</strong><a href="figs/freq_gap_bigram_final_raw.png">bigram raw per-f</a> · <a href="figs/freq_gap_trigram_final_raw.png">trigram raw per-f</a>。这些图保留所有 eligible per-f 点和 SEM，故较拥挤，不作为主结论图。</p></body></html>

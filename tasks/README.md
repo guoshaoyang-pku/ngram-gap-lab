@@ -41,12 +41,13 @@
 
 ---
 
-## L3 · 单 context 采样律 gap(r) ≈ (K−1)/r
+## L3 · resolved count table 的采样渐近律
 
 **问题**：一个 context、真分布 P、r 个 iid 样本，gap 与 r 是什么关系？
 
-结论：**解析区** log-log 斜率精确 −1，常数是**支撑 K−1 而非 exp(H)−1**；
-**未解析区**（长尾）由未见符号惩罚 `U(r)·log(r/αK)` 主导，斜率漂到 ≈ −0.2 且依赖平滑 α。
+结论：**解析区** log-log 斜率渐近趋于 −1，常数是**支撑 K−1 而非 exp(H)−1**；
+这只适用于 count table 的 repeated-dataset 期望。未解析长尾区没有固定 −1，
+unseen mass 只能作组织直觉，不能当成完整 gap 的无参数公式。
 
 | | |
 |---|---|
@@ -95,6 +96,20 @@
 | 输入 | `tasks/l5_optimizer_artifact/results/inputs/exact_frequency_distribution.json`（真实频率直方图 fixture） |
 | 结果 | `tasks/l5_optimizer_artifact/results/rmsprop_v_sawtooth/`（5 臂 JSON + `_arms.{png,svg}`） |
 | 理论 | `docs/notes/method/loss-curve-sawtooth-audit.md`（**重要踩坑**：移动窗 val + 50 步间隔曾造出纯显示伪影的锯齿） |
+
+---
+
+## L6 · 残差—响应精确模型
+
+**问题**：为什么有时是 `f⁻¹`，有时可能是 `f⁻¹ᐟ²` 或其他矩？
+
+| | |
+|---|---|
+| run | `l6_counttable_freq_exact_v1`；`l6_response_moments_exact_v1` |
+| 数据 | 二项/Rademacher 分布精确枚举，无随机 seed；每个 run 含 `config.json`、`metrics.csv`、`summary.json` |
+| 结果 | count table 在大 f 才趋于 −1；linear/sign/cubic 响应分别拟合 −1.0000/−0.4995/−1.9986 |
+| 目录 | `l6_residual_response/` |
+| 图 | `docs/figs/theory/fig_l6_residual_response.*` |
 
 ---
 

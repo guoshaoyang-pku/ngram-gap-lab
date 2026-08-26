@@ -70,7 +70,7 @@ run_one() {  # run_one <gpu> <run_id> <extra args...>
 run_sparse_mult() {  # large-mult sparse arm + occupancy (formal-grid产物) <mult> <gpu>
   local TM="$1" GPU="$2"
   run_one "$GPU" "tbl_${TM}_bigram" \
-    --table_mult "$TM" --val_steps 1000 --exact_freq_eval_interval 1000
+    --table_mult "$TM" --val_steps 1000 --exact_freq_eval_interval 10
   "$PY" -u "$ROOT/code/table_occupancy.py" \
     --data_dir "$DATA_DIR" --train_shards 1 \
     --vocab_size 8192 --sequence_len 2048 \
@@ -84,12 +84,12 @@ run_sparse_mult() {  # large-mult sparse arm + occupancy (formal-grid产物) <mu
 run_l1_pair_perfect() {
   run_one "$1" "tbl_perfect_bigram_l1" \
     --bigram_perfect_map "$PERFECT_MAP" \
-    --val_interval 50 --freq_eval_interval 50 --exact_freq_eval_interval 100
+    --val_interval 50 --freq_eval_interval 50 --exact_freq_eval_interval 50
 }
 run_l1_pair_control() {
   run_one "$1" "tbl_64_bigram_l1" \
     --table_mult 64 --bigram_single_layer \
-    --val_interval 50 --freq_eval_interval 50 --exact_freq_eval_interval 100
+    --val_interval 50 --freq_eval_interval 50 --exact_freq_eval_interval 50
 }
 
 NGPU=${#GPUS[@]}

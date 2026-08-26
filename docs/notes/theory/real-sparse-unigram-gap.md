@@ -4,14 +4,15 @@
 
 `E[gap] ≈ (K−1)/r`（斜率 −1）只在**解析区**成立：每个支撑符号都被
 `r·P_c ≫ 1` 解析到。真实任务（vocab 大、长尾、每 context 稀疏）几乎永远在
-**未解析区**——大部分 token 在 r 个样本里从未出现，gap 由**未见符号惩罚**主导：
+**未解析区**——大部分 token 在 r 个样本里从未出现，未见符号项会很大，但不能
+单独等同于完整 gap：
 
 ```
-E[gap] ≈ U(r) · log( r / (α·K) )          ★ 真实分布的主公式
+centered unseen contribution ≈ U(r) · log( r / (α·K) )
 U(r) = E[Σ_c P_c · 1{n_c = 0}] = Σ_c P_c (1 − P_c)^r   （期望未见过质量）
 ```
 
-- log-log 斜率**不是 −1**，而是 ≈ **−0.2**（本生成器，r=128..32768）。
+- 本生成器在 `r=128..32768` 的有限区间斜率约 **−0.2**；这不是通用指数。
 - 斜率由 `U(r)` 的衰减决定：`U(r)` 在长尾下的衰减远慢于 `1/r`，且**随 r 漂移**
   （越大的 r 扫过越陡的尾部段，局部斜率从 −0.25 变到 −0.75）。
 - 斜率/幅度都**依赖模型的平滑 α**（`q = p̂` 纯 MLE 时直接发散，α 越大曲线越低）。
@@ -43,14 +44,19 @@ U(r) = E[Σ_c P_c · 1{n_c = 0}] = Σ_c P_c (1 − P_c)^r   （期望未见过�
   不可忽略。对一个未见的 c，`q_c = α/(r+αK)`（极小），val 侧惩罚 `−P_c log q_c`
   巨大；train 侧该项为 0（p̂_c = 0），**不抵消**。
 
-### 3.3 主公式推导
+### 3.3 未见项与 centered heuristic
 
 对未解析区求和，用 `n_c ~ Binomial(r, P_c)`：
 
 ```
-E[gap] ≈ Σ_c P(n_c=0) · [ −P_c log(α/(r+αK)) ]     （未解析部分）
-       ≈ [ Σ_c P_c (1−P_c)^r ] · log( r/(αK) )
-       =  U(r) · log( r/(αK) )
+raw unseen val term
+       = Σ_c P(n_c=0) · [ −P_c log(α/(r+αK)) ]
+       = U(r) · log((r+αK)/α)
+
+after centering logits by log K and retaining a separate seen-cell remainder:
+centered unseen contribution
+       = U(r) · log((r+αK)/(αK))
+       ≈ U(r) · log(r/(αK))                 (r≫αK)
 ```
 
 这里 `U(r)` 是**期望未见过质量**——r 个样本后仍然「没被看见」的真分布总质量。
@@ -73,7 +79,7 @@ U(r) ~ ∫ p·f(p)·e^{−rp} dp ~ r^{−(1−1/s)}
   因为 `r·P_c ≳ 1` 的前沿不断扫过更陡的尾部段——真实长尾没有干净的幂律指数；
 - 所以实验里 log-log 斜率 ≈ −0.2 是**有效指数**，不是 −1。
 
-## 4. 数值验证（`tasks/l1_lookup_replay/gap_vs_samples_unigram.py` §G，300 contexts MC）
+## 4. 数值验证（`tasks/l3_sampling_law/gap_vs_samples_unigram.py` §G，300 contexts MC）
 
 | r | 128 | 512 | 2048 | 8192 | 32768 |
 |---|---|---|---|---|---|
@@ -82,8 +88,8 @@ U(r) ~ ∫ p·f(p)·e^{−rp} dp ~ r^{−(1−1/s)}
 | U·log(r/(αK)) | 0.779 | 0.714 | 0.623 | 0.505 | 0.364 |
 | ratio | 1.52 | 1.29 | 1.13 | 1.02 | 0.94 |
 
-- 大 r 时 `U·log(r/(αK))` 精确逼近 E[gap]（ratio→1）；小 r 的偏差来自私有
-  token 仍在解析中的贡献（KL 偏置部分，公式未计入）。
+- 大 r 时该 centered heuristic 在这个生成器和有限区间内接近 E[gap]；它仍遗漏
+  seen-cell remainder，不能升级为精确恒等式或自然语料定律。
 - 平滑 α 的影响：`α=1e-6→0.34`，`α=1e-3→0.18`，`α=0.1→0.07`（r=32768），
   log-log 斜率 ≈ −0.22~−0.24，**与 α 几乎无关但幅度强依赖 α**。
 - 对照：`(K_priv−1)/r = 7/r`（若只看私有 8 token）和 `12/r`（exp(H)−1）都
@@ -91,7 +97,7 @@ U(r) ~ ∫ p·f(p)·e^{−rp} dp ~ r^{−(1−1/s)}
 
 ## 5. 对实验的含义
 
-1. **表开的真实 gap 曲线不应该是斜率 −1**。在低 r 桶，未解析尾部惩罚主导，
+1. **未解析长尾没有必须为 −1 的理由**。在低 r 桶，未解析尾部项可能主导，
    幅度大、斜率浅（≈−0.2）；只有 r 大到把整个尾部解析（`r·P_min ≫ 1`，
    这里需 r ≳ 10^6）才趋近 `(K−1)/r`。
 2. **平滑 α 是 gap 的放大器/衰减器**：α 越大，未见符号惩罚越小，gap 越小。
@@ -99,12 +105,11 @@ U(r) ~ ∫ p·f(p)·e^{−rp} dp ~ r^{−(1−1/s)}
 3. **K_eff = exp(H) 的旧表述应改为「解析支撑」**：真正决定常数的不是 exp(H)，
    而是当前 r 下被解析的符号数 `K_r = #{c : r·P_c ≳ 1}`（低频桶 K_r 小，
    高频桶 K_r 大），gap 的 per-bucket 形状是分布的指纹。
-4. **`U(r)` 是可算的**：给定每 context 的经验 P̂（从大语料估计），
-   `U(r) = Σ_c P̂_c (1−P̂_c)^r` 可直接数值计算，给出 gap 的**无参数预测**，
-   不需要训练模型。
+4. **`U(r)` 是可算的描述量，不是无参数 gap 预测**：给定每 context 的经验 P̂，
+   可计算 `Σ_c P̂_c(1−P̂_c)^r`，但仍需模型的平滑、learned response 与 seen remainder。
 
 ## 6. 文件
 
-- `tasks/l1_lookup_replay/gap_vs_samples_unigram.py` §G + `docs/figs/theory/fig_gap_vs_samples_realgen.svg/.png`
+- `tasks/l3_sampling_law/gap_vs_samples_unigram.py` §G + `docs/figs/theory/fig_gap_vs_samples_realgen.svg/.png`
 - 本笔记：`docs/notes/theory/unigram-gap-vs-samples.md`（最基础版 1/r 定律，
   见 `unigram-gap-vs-samples.md`）

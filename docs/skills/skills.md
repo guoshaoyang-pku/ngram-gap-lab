@@ -113,9 +113,9 @@ seed 数和 `docs/claims-ledger.md` 的 evidence 状态。
 
 ## 相关入口
 
-- 项目规则与 setting SSOT：[`agents.md`](../agents.md)
-- 实验线全景：[`experiment-lines.md`](experiment-lines.md)
-- 实验登记簿：[`experiment-log.md`](experiment-log.md)
-- 断言台账：[`claims-ledger.md`](claims-ledger.md)
-- 作图规范：[`plot_scripts/README.md`](plot_scripts/README.md)
-- 技能源码目录：[`../.agents/skills/`](../.agents/skills/)
+- 项目规则与 setting SSOT：[`agents.md`](../../agents.md)
+- 实验线全景：[`experiment-lines.md`](../experiment-lines.md)
+- 实验登记簿：[`experiment-log.md`](../experiment-log.md)
+- 断言台账：[`claims-ledger.md`](../claims-ledger.md)
+- 作图规范：[`plot_scripts/README.md`](../plot_scripts/README.md)
+- 技能源码目录：[`../.agents/skills/`](../../.agents/skills/)

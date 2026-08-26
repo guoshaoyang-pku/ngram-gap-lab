@@ -43,8 +43,8 @@ run_arm() {  # run_arm <gpu> <run_id> <epoch_batches> <steps> <bigram> <trigram>
     --val_interval 10 --val_batches 4 --table_norm_interval 10 --lr 0.004 \
     --enable_unigram 0 --enable_bigram "$BI" --enable_trigram "$TRI" \
     --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
-    --freq_eval_interval 100 --freq_eval_batches 4 \
-    --exact_freq_eval_interval 100 \
+    --freq_eval_interval 10 --freq_eval_batches 4 \
+    --exact_freq_eval_interval 10 \
     --train_shards 1 --val_shards 2,3,4,5,6,7,8,9,10,6542 \
     --freq_index "$FREQ_IDX" \
     --epoch_batches "$EPB" \
