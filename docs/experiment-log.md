@@ -1758,7 +1758,7 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 
 | family | run_id 模式 | 数量 | steps | 唯一变量 | 状态 |
 |---|---|---:|---:|---|---|
-| optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | 🟡 running on 360-2 |
+| optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | ✅ done (2026-08-26) |
 | causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | 🟡 running on ophis-gpu |
 | M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | ✅ done (2026-08-26) |
 | dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | 🟡 running on ophis-gpu + 360-2 |
@@ -1799,6 +1799,12 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
   `5.754749/3.465313/2.011368/0.248242`。绘图只读取这四条 final freq-bin
   记录，图中 train 侧是该 logged step 的当前训练 batch pre-update per-token loss，
   val 侧是 fixed validation batches；bigram/trigram 图已生成并嵌入 registry。
+- Optimizer full curves 已在 360-2 完成并回传小型证据。11 条正式
+  `optv5c_*` run 全部到达 step 1000，每条均有 100 条 `train_log.jsonl`、
+  `freq_bin_loss.jsonl`、`exact_freq_loss.jsonl` 与 `table_norm.jsonl` 记录；
+  `summary.json` 的 train、val 与 gap 均为有限值。正式图
+  `fig_v5_optimizer_full_curves.png` 与
+  `fig_v5_optimizer_frequency.png` 已只从这些完整产物生成并嵌入 registry。
 
 所有新训练 run 的 owner 为 local v5-refresh queue，seed 42，结果目录为
 `data/runs_fixed/<run_id>_fixed/`；训练/验证 shard 均由下表和 launcher
@@ -1809,17 +1815,17 @@ same-step `fixed val − current-batch online train`。
 
 | run_id | train → val shards | steps | 单一变化 | 预期产物 / 状态 |
 |---|---|---:|---|---|
-| `optv5c_rms_b099_s0p5` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | table LR scale 0.5 | 10-step curves / planned |
-| `optv5c_rms_b099_s1p0` | 同上 | 1000 | table LR scale 1.0 | 10-step curves / planned |
-| `optv5c_rms_b099_s2p0_r1` | 同上 | 1000 | table LR scale 2.0；`r1` 避开 100-step smoke | 10-step curves / planned |
-| `optv5c_rms_b099_s3p0` | 同上 | 1000 | table LR scale 3.0 | 10-step curves / planned |
-| `optv5c_rms_b099_s4p0` | 同上 | 1000 | table LR scale 4.0 | 10-step curves / planned |
-| `optv5c_rms_b095_s2p0` | 同上 | 1000 | RMSProp β₂=.95 | 10-step curves / planned |
-| `optv5c_rms_b098_s2p0` | 同上 | 1000 | RMSProp β₂=.98 | 10-step curves / planned |
-| `optv5c_rms_b0995_s2p0` | 同上 | 1000 | RMSProp β₂=.995 | 10-step curves / planned |
-| `optv5c_rms_b0999_s2p0` | 同上 | 1000 | RMSProp β₂=.999 | 10-step curves / planned |
-| `optv5c_adamw_b099_s2p0` | 同上 | 1000 | table AdamW `(0,.99)` | 10-step curves / planned |
-| `optv5c_sgd_m0_s2p0` | 同上 | 1000 | table SGD momentum 0 | 10-step curves / planned |
+| `optv5c_rms_b099_s0p5` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | table LR scale 0.5 | 10-step curves / ✅ done, gap 0.465 |
+| `optv5c_rms_b099_s1p0` | 同上 | 1000 | table LR scale 1.0 | 10-step curves / ✅ done, gap 0.858 |
+| `optv5c_rms_b099_s2p0_r1` | 同上 | 1000 | table LR scale 2.0；`r1` 避开 100-step smoke | 10-step curves / ✅ done, gap 1.551 |
+| `optv5c_rms_b099_s3p0` | 同上 | 1000 | table LR scale 3.0 | 10-step curves / ✅ done, gap 1.886 |
+| `optv5c_rms_b099_s4p0` | 同上 | 1000 | table LR scale 4.0 | 10-step curves / ✅ done, gap 2.072 |
+| `optv5c_rms_b095_s2p0` | 同上 | 1000 | RMSProp β₂=.95 | 10-step curves / ✅ done, gap 1.239 |
+| `optv5c_rms_b098_s2p0` | 同上 | 1000 | RMSProp β₂=.98 | 10-step curves / ✅ done, gap 1.460 |
+| `optv5c_rms_b0995_s2p0` | 同上 | 1000 | RMSProp β₂=.995 | 10-step curves / ✅ done, gap 1.594 |
+| `optv5c_rms_b0999_s2p0` | 同上 | 1000 | RMSProp β₂=.999 | 10-step curves / ✅ done, gap 1.669 |
+| `optv5c_adamw_b099_s2p0` | 同上 | 1000 | table AdamW `(0,.99)` | 10-step curves / ✅ done, gap 1.502 |
+| `optv5c_sgd_m0_s2p0` | 同上 | 1000 | table SGD momentum 0 | 10-step curves / ✅ done, gap 0.078 |
 | `causalv5c_none` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | no intervention | curves + intervention event / planned |
 | `causalv5c_reset_table_e1` | 同上 | 1000 | reset table at epoch 2 | curves + intervention event / planned |
 | `causalv5c_reset_table_e2` | 同上 | 1000 | reset table at epoch 3 | curves + intervention event / planned |
@@ -1861,6 +1867,15 @@ frequency bins、exact frequency 与 table RMS，不能用 §24 的 sparse endpo
 `optv5_rms_b098_s2p0_curve`、`optv5_rms_b099_s1p0_curve`、
 `optv5_rms_b099_s3p0_curve` 有完整曲线。它们可用于质量审计，不能替代新 11 臂
 的正式比较。
+
+**回填结果（2026-08-26，seed 42，step 1000）**：scale
+`0.5/1.0/2.0/3.0/4.0` 的 final gap 依次为
+`0.464630/0.858302/1.550698/1.886087/2.072434`；β₂
+`.95/.98/.995/.999`（均 scale 2，`.99` 复用中心臂）依次为
+`1.239104/1.459937/1.594211/1.669014`；table AdamW `(0,.99)` 为
+`1.502218`，table SGD momentum 0 为 `0.077974`。这是一批完整曲线和健康性
+证据，不能仅凭最大 gap 更改 v5 的预注册中心点；scale 2、β₂ .99 仍作为主线，
+其他臂仅承担消融比较。
 
 ### Causal refresh（9 臂）
 

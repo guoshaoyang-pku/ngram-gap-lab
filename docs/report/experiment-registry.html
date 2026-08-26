@@ -218,14 +218,14 @@
   <tr id="registry-m3b">
     <td>M3b-v5 表学习率 × β₂ gate</td>
     <td>clean 双表、input、1000 步；RMSProp/AdamW/SGD；scale 0.5–4；β₂ 0.95–0.999；2000 步 seed 43/44 gate</td>
-    <td class="visual">已有三条完整 precursor 曲线；新 11 臂 clean grid 将统一为 1000 步、每 10 步 val/frequency/table-RMS，比较 train、val 与 gap，不只看端点。
+    <td class="visual">11 臂 clean grid 的完整 1000-step online train / fixed val / online gap 曲线，以及 table-LR 相邻健康点的末步频率诊断。点为原始记录，细线仅为 3 点视觉连接。
       <div class="inline-figures">
-        <figure class="inline-figure"><a href="../../docs/figs/main/fig_lrscan_clean_input.png"><img src="../../docs/figs/main/fig_lrscan_clean_input.png" alt="clean-table input 学习率筛选"></a><figcaption>v5 LR 筛选：seed 42、1000 步</figcaption></figure>
-        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_optimizer_existing_curves.png"><img src="../../docs/figs/main/fig_v5_optimizer_existing_curves.png" alt="v5 优化器 precursor 曲线"></a><figcaption>已有 3 条完整 precursor 曲线</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_optimizer_full_curves.png"><img src="../../docs/figs/main/fig_v5_optimizer_full_curves.png" alt="v5 表优化器完整曲线"></a><figcaption>11 臂：train / val / gap</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_optimizer_frequency.png"><img src="../../docs/figs/main/fig_v5_optimizer_frequency.png" alt="v5 table LR 频率诊断"></a><figcaption>scale 1 / 2 / 3：末步频率 gap</figcaption></figure>
       </div>
-      <span class="note">已有图源：<code>optv5_rms_b{098_s2,099_s1,099_s3}p0_curve_fixed/train_log.jsonl</code>。新批：<code>optv5c_*</code>，RMSProp scale={0.5,1,2,3,4}、β₂={.95,.98,.99,.995,.999} 与 AdamW/SGD 对照，合并去重共 11 臂。</span>
+      <span class="note">图源严格限定为 11 个 <code>optv5c_*_fixed</code> run 的 step-1000 <code>train_log.jsonl</code>、<code>freq_bin_loss.jsonl</code> 与 <code>table_norm.jsonl</code>；每类日志均 100 条，无 NaN/Inf。频率图只比较 scale 1 / 2 / 3，novel 没有 train loss，故不定义 gap。旧 <code>optv5_rms_*</code> precursor 保留作历史质量参照，但不替代本图。</span>
     </td>
-    <td class="st-run">🟡 已有 sparse/3 条曲线 precursor；11 臂统一全曲线 batch 在 360-2 运行中，整批到 step 1000 后才替换 precursor 图</td>
+    <td class="st-done">✅ 11/11 完成（seed 42、step 1000）：scale 0.5/1/2/3/4=0.465/0.858/1.551/1.886/2.072；β₂ .95/.98/.995/.999=1.239/1.460/1.594/1.669；AdamW=1.502，SGD=0.078</td>
     <td class="com"><input type="text"></td>
   </tr>
   <tr id="registry-m7">
