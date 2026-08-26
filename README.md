@@ -5,6 +5,8 @@ Minimal clean reproduction of **n-gram value memory induced replay-specific trai
 > **Agents / contributors start here: [`agents.md`](agents.md).** Codex workflows
 > for settings, experiment registration, and plotting are versioned with the
 > repository in [`.agents/skills/`](.agents/skills/).
+> A concise in-repository skill registry is available in
+> [`docs/skills.md`](docs/skills.md).
 > It holds the working principles, the single source of truth for the minimal setting,
 > cluster + storage coordinates, and the deprecation list.
 
