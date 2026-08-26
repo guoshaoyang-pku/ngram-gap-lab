@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a V5 optimizer/LR specification set on supplied GPU slots.
+# Run the clean V5 optimizer/LR curve grid on supplied GPU slots.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,42 +32,37 @@ run_one() {
 
 launch_slot() {
   while [[ "$ACTIVE" -ge "$NGPU" ]]; do
-    wait -n
+    wait "${PIDS[0]}"
+    PIDS=("${PIDS[@]:1}")
     ACTIVE=$((ACTIVE - 1))
   done
   local gpu="${GPUS[$SLOT]}"
   SLOT=$(( (SLOT + 1) % NGPU ))
   ACTIVE=$((ACTIVE + 1))
   run_one "$gpu" "$@" &
-}
-
-endpoint() {
-  local run_id="$1"
-  shift
-  launch_slot "$run_id" --val_steps 1000 --exact_freq_eval_interval 1000 "$@"
+  PIDS+=("$!")
 }
 
 NGPU="${#GPUS[@]}"
 ACTIVE=0
 SLOT=0
+PIDS=()
 
-endpoint optv5_rms_b099_s0p5 --table_lr_scale 0.5
-endpoint optv5_rms_b099_s1p0 --table_lr_scale 1.0
-endpoint optv5_rms_b099_s3p0 --table_lr_scale 3.0
-endpoint optv5_rms_b099_s4p0 --table_lr_scale 4.0
-endpoint optv5_rms_b095_s2p0 --table_betas 0.0,0.95
-endpoint optv5_rms_b098_s2p0 --table_betas 0.0,0.98
-endpoint optv5_rms_b0995_s2p0 --table_betas 0.0,0.995
-endpoint optv5_rms_b0999_s2p0 --table_betas 0.0,0.999
-endpoint optv5_adamw_b099_s2p0 --table_optimizer adamw --table_betas 0.0,0.99
-endpoint optv5_sgd_m0_s2p0 --table_optimizer sgd --table_betas 0.0,0.99
-endpoint optv5_rms_b098_s1p0 --table_betas 0.0,0.98 --table_lr_scale 1.0
-endpoint optv5_rms_b098_s3p0 --table_betas 0.0,0.98 --table_lr_scale 3.0
-endpoint optv5_rms_b0995_s1p0 --table_betas 0.0,0.995 --table_lr_scale 1.0
-endpoint optv5_rms_b0995_s3p0 --table_betas 0.0,0.995 --table_lr_scale 3.0
-launch_slot optv5_rms_b098_s2p0_curve --table_betas 0.0,0.98
-launch_slot optv5_rms_b099_s1p0_curve --table_lr_scale 1.0
-launch_slot optv5_rms_b099_s3p0_curve --table_lr_scale 3.0
+launch_slot optv5c_rms_b099_s0p5 --table_lr_scale 0.5
+launch_slot optv5c_rms_b099_s1p0 --table_lr_scale 1.0
+launch_slot optv5c_rms_b099_s2p0 --table_lr_scale 2.0
+launch_slot optv5c_rms_b099_s3p0 --table_lr_scale 3.0
+launch_slot optv5c_rms_b099_s4p0 --table_lr_scale 4.0
+launch_slot optv5c_rms_b095_s2p0 --table_betas 0.0,0.95
+launch_slot optv5c_rms_b098_s2p0 --table_betas 0.0,0.98
+launch_slot optv5c_rms_b0995_s2p0 --table_betas 0.0,0.995
+launch_slot optv5c_rms_b0999_s2p0 --table_betas 0.0,0.999
+launch_slot optv5c_adamw_b099_s2p0 --table_optimizer adamw --table_betas 0.0,0.99
+launch_slot optv5c_sgd_m0_s2p0 --table_optimizer sgd --table_betas 0.0,0.99
 
-wait
+while [[ "$ACTIVE" -gt 0 ]]; do
+  wait "${PIDS[0]}"
+  PIDS=("${PIDS[@]:1}")
+  ACTIVE=$((ACTIVE - 1))
+done
 echo "[optv5] sweep complete"

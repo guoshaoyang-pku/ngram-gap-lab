@@ -1,7 +1,8 @@
 # n-gram Gap Plotting Guide
 
-本目录是 `ngram-gap-lab` 的唯一 canonical 作图代码区。所有图都从
-`data/runs_fixed/<run_id>_fixed/` 的 JSONL 统计读取，不在 HTML 中手写实验数值；
+本目录是 `ngram-gap-lab` 的唯一 canonical 作图代码区。训练图从
+`data/runs_fixed/<run_id>_fixed/` 的 JSONL 统计读取；解析/toy 图从已登记的
+`tasks/<task>/results/<run_id>/` artifacts 读取。任何图都不在 HTML/SVG 中手写实验数值；
 源码留在 `docs/plot_scripts/`，生成的 HTML/SVG 写入 `docs/figs/`，
 不写回 `code/` 或本目录。
 
@@ -59,6 +60,8 @@ log 图只使用 train 和 validation 都有 token 且 gap 为正的 bucket。
 | `gen_epoch_scale_figs.py` | 0.5x/1x/2x epoch length 的 train/val/gap 对比 |
 | `gen_all_figures_v10.py` | v10/fixed-val 实验的独立版本，使用环境变量指定图目录 |
 | `gen_s1_relationship_figs.py` | S1 三轴关系图：table size / collision / epoch exposure / exact frequency；生成静态多 seed 图、epoch 截面图与可切换 log/linear 轴的 Plotly HTML |
+| `plot_v5_registry_figures.py` | v5 registry 图：注入点、M2 current-batch frequency、剂量、S1 epoch/table/frequency，以及 causal/optimizer precursor 曲线；M2 频率图要求四臂 `*_v5_freq10/freq_bin_loss.jsonl` 齐全，缺任一臂时拒绝生成 |
+| `plot_l6_residual_response.py` | 读取两个 L6 exact-enumeration run 的 `metrics.csv` / `summary.json`，生成 count-table 渐近与 residual-response 矩对照图 |
 
 ## 生成流程
 

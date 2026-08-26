@@ -51,6 +51,7 @@
 | **M5** | shard 大小扫描 | 「epoch shard 越大 gap 越小」是否成立 | `nglab{0_25x…8x}_input_fv*_fixed` | `run_shard_sweep{,_v2,_360}.sh` | `gen_shard_sweep_figs.py` | `figs/epoch_scale/` | §4 §6 §7 §10 | ✅ 完成（12 点齐） |
 | **M6** | epoch 对齐批（e5，实际 5 epoch） | 对齐 epoch 数后 M5 的单调关系是否消失 | `nglab*_e6_fixed` | `launch_360_*.sh` | `gen_epoch_aligned_figs.py`<br>`gen_nogram_vs_epochaligned_figs.py` | `figs/epoch_scale/` | §12 | ❌ **不完整**：仅 0.25x–3x，缺 4x/5x/6x/8x。⚠️ 命名 `_e6` 但实际 5 epoch、无 LR schedule（`lr_schedule_epochs=0`），见 §12 勘误 |
 | **M7** | 短 epoch × β₂ | β₂ 是否改变 per-epoch 台阶清晰度 | `nglab{025x,05x}_b2_099` | `run_epoch_short_b2.sh` | `gen_short_epoch_b2_figs.py` | `figs/short_epoch_b2/` | §11(B) | ⚠️ 完成但图未按 `_fixed` 重生成 |
+| **V5-refresh** | 完整曲线证据刷新 | 把 M2、optimizer、causal、dose × frequency 统一到 current-batch / freq=10 口径 | `nglab1x_{input,y,v,nogram}_v5_freq10`；`optv5c_*`；`causalv5c_*`；`nglab*_input_v5_freq10` | `run_v5_optimizer_sweep.sh`；`V5_GROUP={inj_freq10,causal_refresh,dose_freq10} run_v5_main_manifest.sh` | `plot_v5_registry_figures.py` | `figs/main/` | §24b | 🟡 35 个新训练 run 已逐条登记：4 M2 frequency + 11 optimizer + 9 causal + 11 non-1x dose；旧端点/precursor 不冒充此批 |
 
 **M6 的缺口值得单独提**：§12 结论「对齐 epoch 后单调关系消失」目前只有 8/12 个点支撑，
 而缺失的恰是最能证伪的大 shard 端（4x/5x/6x/8x）。要么补跑，要么在结论里显式限定覆盖范围。
@@ -66,6 +67,7 @@
 | L3 | 单 context 采样律 gap(r) | `tasks/l3_sampling_law/` | 直接出图 |
 | L4 | 幂律合成数据 × 真 harness | `tasks/l4_synth_powerlaw/` | 360-2 远端 + 本地汇总 JSON |
 | L5 | 优化器伪影（RMSProp v 锯齿 / 表容量） | `tasks/l5_optimizer_artifact/` | `tasks/l5_optimizer_artifact/results/` |
+| L6 | 残差—learned-response 精确模型 | `tasks/l6_residual_response/` | `tasks/l6_residual_response/results/` |
 
 另有两条**历史真 harness toy 线**。图仍保留在 `docs/figs/theory/`，但所需
 run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有显式提供已审核的
@@ -79,14 +81,16 @@ run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有�
 ## S1 三轴 scaling（T-scaling，极简 setting）
 
 > 完整计划：`docs/plans/plan-5-s1-three-axis-handoff.md`；专题报告：
-> `docs/appendices/s1_scaling_three_axis/report.md`；任务代码：
+> `docs/appendices/s1_scaling_three_axis/report.md`；独立数学报告：
+> `docs/report/theory.html`；任务代码：
 > `tasks/s1_scaling_three_axis/`。结果目录 `data/runs_scaling/`（新 namespace）。
 
 | 轴 | 科学问题 | run_id 前缀 | launcher | 状态 |
 |---|---|---|---|---|
 | epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs[_s{43,44}]`（L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | 🟡 历史 compile 波次 48/48；当前 no-compile 待重跑 |
 | epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe[_s{43,44}]`（L1=252/L2=504/L3=1008/L4=2022 步） | `run_scaling_epoch_full.sh` | 🟡 历史 compile 波次 48/48；当前 no-compile 待重跑 |
-| table size | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（seed 42：23 sizes；seed 43/44：12 sizes × 3 module，L4） | `run_scaling_table_full.sh`（dense + sparse） | 🟡 历史 compile 波次 141/141；当前 no-compile 待重跑。⚠️ **2026-08-25：旧 4 层求和 + 2-hash 架构废弃，改为 clean 单表重扫**（见 `docs/notes/method/clean-table-rework.md`） |
+| table size · historical | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（seed 42：23 sizes；seed 43/44：12 sizes × 3 module，L4） | `run_scaling_table_full.sh`（dense + sparse） | 🟡 历史 compile 波次 141/141；仅作 table-size 局部 slope 审计，见注册表 `#registry-s1-table`；当前 no-compile 待重跑 |
+| table size · clean | 物理行数 R、collision 与 gap 的 clean 单表关系 | `ctbl_{R}_{bigram,trigram}` + perfect | `tasks/s1_scaling_three_axis/analysis/plot_clean_figures.py` | 🟡 clean seed 42 网格；trigram/both 与多 seed 待补，见注册表 `#registry-s1-table-clean` |
 | frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `freq_{arm}_{fs/fe}[_s{43,44}]`（L4 + 1M × 4 arms） | `run_scaling_frequency_axis.sh` | 🟡 历史 compile 波次 24/24；当前 no-compile 待重跑 |
 | backbone safety | 长训 no-ngram backbone 是否产生 gap | `bb_safety_L1_nogram_5000` | 手工（旧 cadence 50 步 + fp32） | ✅ done（旧口径；final +16.66 @5000，仅量级参考） |
 
@@ -131,8 +135,8 @@ run 只保留为历史数学审计，不能标记为当前标准完成。当前 
 −0.0090；其余 seed 42 消融臂 −0.0092 到 +0.0054），与合成 markov 完全不同——43M
 distinct 5gram contexts 挤 1M 行表，collision 可能稀释 gap。表仍有效降低 train loss
 （seed 42 的 ×2/×4≈0.71 < ×1≈0.77 < 无表≈0.83；seed 43 主臂 train≈0.695）。
-trigram 主臂的 per-bucket gap 在中频段出现较大值（[51,101)≈+1.00、
-[1001,5001)≈+1.82），但这些高频桶的 token fraction 很小，且高频端只有少数频次类，
+trigram 主臂的 per-bucket gap 在中频段出现较大值（[21,51)≈+1.00、
+[501,1001)≈+1.82），但这些较高频桶的 token fraction 很小，且高频端只有少数频次类，
 因此暂不把“中频峰”写成稳健定律；seed 43 的频次图已加入同一脚本，但 LR 消融仍只有
 seed 42。
 

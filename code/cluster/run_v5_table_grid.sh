@@ -18,8 +18,24 @@ run_one() {
   local run_id="$2"
   local rows="$3"
   local result_dir="$ROOT/data/runs_scaling/${run_id}_fixed"
-  if [[ -f "$result_dir/summary.json" ]]; then
+  if [[ -f "$result_dir/summary.json" && -f "$result_dir/table_occupancy.json" ]]; then
     echo "[v5-table] skip complete $run_id"
+    return 0
+  fi
+  if [[ -f "$result_dir/summary.json" ]]; then
+    echo "[v5-table] backfill occupancy $run_id"
+    "$PY" -u "$ROOT/code/table_occupancy.py" \
+      --data_dir "$ROOT/data/tokenized" \
+      --train_shards 1 \
+      --vocab_size 8192 \
+      --sequence_len 2048 \
+      --device_batch_size 72 \
+      --epoch_batches 337 \
+      --bigram_clean_table "$rows" \
+      --trigram_clean_table "$rows" \
+      --out "$result_dir/table_occupancy.json" \
+      > "$result_dir/occupancy.log" 2>&1
+    test -s "$result_dir/table_occupancy.json"
     return 0
   fi
   [[ ! -e "$result_dir" ]] || {
@@ -55,6 +71,18 @@ run_one() {
     --fixed_train_probe 0 \
     > "$result_dir/train.log" 2>&1
   test -s "$result_dir/summary.json"
+  "$PY" -u "$ROOT/code/table_occupancy.py" \
+    --data_dir "$ROOT/data/tokenized" \
+    --train_shards 1 \
+    --vocab_size 8192 \
+    --sequence_len 2048 \
+    --device_batch_size 72 \
+    --epoch_batches 337 \
+    --bigram_clean_table "$rows" \
+    --trigram_clean_table "$rows" \
+    --out "$result_dir/table_occupancy.json" \
+    > "$result_dir/occupancy.log" 2>&1
+  test -s "$result_dir/table_occupancy.json"
 }
 
 SPECS=()
@@ -65,22 +93,26 @@ done
 active=0
 slot=0
 gpu_count="${#GPUS[@]}"
+pids=()
 for spec in "${SPECS[@]}"; do
   while [[ "$active" -ge "$gpu_count" ]]; do
-    if ! wait -n; then
+    if ! wait "${pids[0]}"; then
       echo "[v5-table] a run failed; continuing remaining queue" >&2
     fi
+    pids=("${pids[@]:1}")
     active=$((active - 1))
   done
   IFS='|' read -r run_id rows <<< "$spec"
   run_one "${GPUS[$slot]}" "$run_id" "$rows" &
+  pids+=("$!")
   active=$((active + 1))
   slot=$(( (slot + 1) % gpu_count ))
 done
 while [[ "$active" -gt 0 ]]; do
-  if ! wait -n; then
+  if ! wait "${pids[0]}"; then
     echo "[v5-table] a run failed; continuing remaining queue" >&2
   fi
+  pids=("${pids[@]:1}")
   active=$((active - 1))
 done
 echo "[v5-table] complete"

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 OUT_DIR="${NGLAB_OUT_DIR:-$ROOT/data/runs_fixed}"
-GROUP="${V5_GROUP:?set V5_GROUP to inj, dose, epoch, causal, rho, or long}"
+GROUP="${V5_GROUP:?set V5_GROUP to inj, inj_freq10, dose, dose_freq10, epoch, causal, causal_refresh, rho, long, s1_epoch, or s1_frequency}"
 GPUS=("$@")
 
 if [[ "${#GPUS[@]}" -eq 0 ]]; then
@@ -38,6 +38,14 @@ case "$GROUP" in
       "nglab1x_nogram_v5_s44|1|2,3,4,5,6,7,8,9,10,6542|2000|--seed 44 --enable_bigram 0 --enable_trigram 0"
     )
     ;;
+  inj_freq10)
+    SPECS=(
+      "nglab1x_input_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab1x_y_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|--injection_position y"
+      "nglab1x_v_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|--injection_position v"
+      "nglab1x_nogram_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|--enable_bigram 0 --enable_trigram 0"
+    )
+    ;;
   dose)
     SPECS=(
       "nglab0_25x_input_v5|62|2,3,4,5,6,7,8,9,10,6542|2000|"
@@ -51,6 +59,21 @@ case "$GROUP" in
       "nglab5x_input_v5|1,2,3,4,5|6,7,8,9,10,6542|2000|"
       "nglab6x_input_v5|1,2,3,4,5,6|7,8,9,10,6542|2000|"
       "nglab8x_input_v5|1,2,3,4,5,6,7,8|9,10,6542|2000|"
+    )
+    ;;
+  dose_freq10)
+    SPECS=(
+      "nglab0_25x_input_v5_freq10|62|2,3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab0_5x_input_v5_freq10|60|2,3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab0_75x_input_v5_freq10|63|2,3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab1_5x_input_v5_freq10|1,61|3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab2x_input_v5_freq10|1,2|3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab2_5x_input_v5_freq10|1,2,64|4,5,6,7,8,9,10,6542|2000|"
+      "nglab3x_input_v5_freq10|1,2,3|4,5,6,7,8,9,10,6542|2000|"
+      "nglab4x_input_v5_freq10|1,2,3,4|5,6,7,8,9,10,6542|2000|"
+      "nglab5x_input_v5_freq10|1,2,3,4,5|6,7,8,9,10,6542|2000|"
+      "nglab6x_input_v5_freq10|1,2,3,4,5,6|7,8,9,10,6542|2000|"
+      "nglab8x_input_v5_freq10|1,2,3,4,5,6,7,8|9,10,6542|2000|"
     )
     ;;
   epoch)
@@ -73,6 +96,19 @@ case "$GROUP" in
       "nglab1x_mask_e1_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_readout --intervention_epoch 1"
       "nglab1x_freeze_table_e1_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_table --intervention_epoch 1"
       "nglab1x_freeze_backbone_e1_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_backbone --intervention_epoch 1"
+    )
+    ;;
+  causal_refresh)
+    SPECS=(
+      "causalv5c_none|1|2,3,4,5,6,7,8,9,10,6542|1000|"
+      "causalv5c_reset_table_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention reset_table --intervention_epoch 1"
+      "causalv5c_reset_table_e2|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention reset_table --intervention_epoch 2"
+      "causalv5c_mask_readout_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_readout --intervention_epoch 1"
+      "causalv5c_freeze_table_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_table --intervention_epoch 1"
+      "causalv5c_freeze_backbone_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_backbone --intervention_epoch 1"
+      "causalv5c_hash_reseed_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention hash_reseed --intervention_epoch 1"
+      "causalv5c_mask_low_f200_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 200"
+      "causalv5c_mask_high_f200_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_high_freq --intervention_epoch 1 --intervention_freq_threshold 200"
     )
     ;;
   rho)
@@ -134,21 +170,25 @@ run_one() {
 active=0
 slot=0
 gpu_count="${#GPUS[@]}"
+pids=()
 for spec in "${SPECS[@]}"; do
   while [[ "$active" -ge "$gpu_count" ]]; do
-    if ! wait -n; then
+    if ! wait "${pids[0]}"; then
       echo "[v5-$GROUP] a run failed; continuing remaining queue" >&2
     fi
+    pids=("${pids[@]:1}")
     active=$((active - 1))
   done
   run_one "${GPUS[$slot]}" "$spec" &
+  pids+=("$!")
   active=$((active + 1))
   slot=$(( (slot + 1) % gpu_count ))
 done
 while [[ "$active" -gt 0 ]]; do
-  if ! wait -n; then
+  if ! wait "${pids[0]}"; then
     echo "[v5-$GROUP] a run failed; continuing remaining queue" >&2
   fi
+  pids=("${pids[@]:1}")
   active=$((active - 1))
 done
 echo "[v5-$GROUP] complete"

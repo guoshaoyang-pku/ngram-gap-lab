@@ -82,8 +82,9 @@ class Config:
     trigram_clean_table: int = 0      # clean single-table rows R for trigram (0=off); same SSOT
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
-    intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
+    intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone | hash_reseed | mask_low_freq | mask_high_freq
     intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
+    intervention_freq_threshold: int = 200
     adam_betas: tuple = (0.8, 0.95)
     weight_decay: float = 0.1
     # training
@@ -412,6 +413,10 @@ class NanoGPT(nn.Module):
                     nn.Embedding(self.trigram_table_size, config.n_embd - half_dim),
                 ])
             self.trigram_hash_primes_per_layer[li] = _tp[j]
+        self._freq_mask_index = None
+        self._freq_mask_mode = "none"
+        self._freq_mask_threshold = 0
+        self._hash_reseed_count = 0
 
     @torch.no_grad()
     def init_weights(self):
@@ -463,14 +468,104 @@ class NanoGPT(nn.Module):
                 torch.cuda.set_rng_state(self._ngram_init_cuda_rng_state, device)
             self._initialize_ngram_tables()
 
-    def apply_intervention(self, epoch0: int):
+    @staticmethod
+    def _reseed_constants(constants, salt):
+        used = set()
+        reseeded = []
+        for index, value in enumerate(constants):
+            seed = (int(value) ^ (salt + 0x9E3779B9 * (index + 1))) & 0xFFFFFFFF
+            reseeded.append(_next_odd_hash_constant(seed, used))
+            used.add(reseeded[-1])
+        return tuple(reseeded)
+
+    def hash_identity(self):
+        return {
+            "bigram_primes_per_layer": {
+                str(layer): [list(pair) for pair in primes]
+                for layer, primes in sorted(self.bigram_hash_primes_per_layer.items())
+            },
+            "trigram_primes_per_layer": {
+                str(layer): list(primes)
+                for layer, primes in sorted(self.trigram_hash_primes_per_layer.items())
+            },
+            "reseed_count": self._hash_reseed_count,
+        }
+
+    @torch.no_grad()
+    def reseed_ngram_hashes(self):
+        if self.bigram_perfect:
+            raise RuntimeError("hash_reseed is undefined for --bigram_perfect_map")
+        salt = 0xA5A5A5A5 + self._hash_reseed_count * 0x6D2B79F5
+        self.bigram_hash_primes_per_layer = {
+            layer: [self._reseed_constants(pair, salt + layer * 0x10001)
+                    for pair in primes]
+            for layer, primes in self.bigram_hash_primes_per_layer.items()
+        }
+        self.trigram_hash_primes_per_layer = {
+            layer: self._reseed_constants(primes, salt + layer * 0x20003)
+            for layer, primes in self.trigram_hash_primes_per_layer.items()
+        }
+        self._hash_reseed_count += 1
+
+    def set_frequency_mask(self, freq_index, mode: str, threshold: int):
+        if mode not in {"low", "high"}:
+            raise ValueError(f"unsupported frequency mask mode: {mode}")
+        if threshold < 0:
+            raise ValueError("frequency mask threshold must be non-negative")
+        freq_index._ensure_sorted()
+        device = next(self.parameters()).device
+        self._freq_mask_index = {}
+        high_context_counts = {}
+        for branch, keys, counts in (
+            ("bigram", freq_index._bigram_keys_sorted, freq_index._bigram_counts_sorted),
+            ("trigram", freq_index._trigram_keys_sorted, freq_index._trigram_counts_sorted),
+        ):
+            high_keys = keys[counts > threshold]
+            high_context_counts[branch] = int(high_keys.size)
+            self._freq_mask_index[branch] = torch.from_numpy(
+                np.ascontiguousarray(high_keys, dtype=np.int64)
+            ).to(device)
+        self._freq_mask_mode = mode
+        self._freq_mask_threshold = int(threshold)
+        return {
+            "mode": mode,
+            "threshold": int(threshold),
+            "high_context_counts": high_context_counts,
+        }
+
+    def _frequency_mask(self, branch, context_keys):
+        if self._freq_mask_index is None:
+            return None
+        high_keys = self._freq_mask_index[branch]
+        flat_keys = context_keys.reshape(-1)
+        if high_keys.numel() == 0:
+            high_match = torch.zeros_like(flat_keys, dtype=torch.bool)
+        else:
+            positions = torch.searchsorted(high_keys, flat_keys)
+            in_range = positions < high_keys.numel()
+            high_match = torch.zeros_like(flat_keys, dtype=torch.bool)
+            high_match[in_range] = high_keys[positions[in_range]] == flat_keys[in_range]
+        high_match = high_match.view_as(context_keys)
+        if self._freq_mask_mode == "low":
+            return ~high_match
+        return high_match
+
+    def apply_intervention(self, epoch0: int, freq_index=None):
         """Fire intervention when 0-indexed epoch reaches `intervention_epoch`."""
         if self.config.intervention == "none":
-            return
+            return {"kind": "none"}
         if epoch0 != self.config.intervention_epoch:
-            return
+            return {"kind": "not_due"}
+        event = {
+            "epoch0": epoch0,
+            "intervention": self.config.intervention,
+            "table_parameters_preserved": True,
+            "optimizer_state_preserved": True,
+            "hash_identity_before": self.hash_identity(),
+        }
         if self.config.intervention == "reset_table":
             self.reset_ngram_tables()
+            event["table_parameters_preserved"] = False
         elif self.config.intervention == "mask_readout":
             self.config.enable_bigram_ve = False
             self.config.enable_trigram_ve = False
@@ -480,6 +575,21 @@ class NanoGPT(nn.Module):
         elif self.config.intervention == "freeze_backbone":
             for p in self._backbone_params():
                 p.requires_grad_(False)
+        elif self.config.intervention == "hash_reseed":
+            self.reseed_ngram_hashes()
+        elif self.config.intervention in {"mask_low_freq", "mask_high_freq"}:
+            if freq_index is None:
+                raise RuntimeError(
+                    f"{self.config.intervention} requires --freq_index at the intervention boundary"
+                )
+            mode = "low" if self.config.intervention == "mask_low_freq" else "high"
+            event["frequency_mask"] = self.set_frequency_mask(
+                freq_index,
+                mode,
+                self.config.intervention_freq_threshold,
+            )
+        event["hash_identity_after"] = self.hash_identity()
+        return event
 
     def _ngram_params(self):
         markers = ("value_embeds", "bigram_ves", "trigram_ves",
@@ -534,12 +644,25 @@ class NanoGPT(nn.Module):
                 lvs = self.bigram_ves[str(li)]
                 idxs = self._bigram_row_indices(li, prev_idx, idx)
                 bgve = torch.cat([lvs[k](idxs[k]) for k in range(self.bigram_K)], dim=-1)
+                mask = self._frequency_mask(
+                    "bigram",
+                    prev_idx.long() * self.config.vocab_size + idx.long(),
+                )
+                if mask is not None:
+                    bgve = bgve.masked_fill(mask.unsqueeze(-1), 0)
                 residual = bgve if residual is None else residual + bgve
         if self.config.enable_trigram_ve:
             for li in sorted(self.trigram_ve_layers):
                 ti = self._trigram_row_indices(li, prev2_idx, prev_idx, idx)
                 lvs = self.trigram_ves[str(li)]
                 tgve = torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1)
+                mask = self._frequency_mask(
+                    "trigram",
+                    prev2_idx.long() * (self.config.vocab_size * self.config.vocab_size)
+                    + prev_idx.long() * self.config.vocab_size + idx.long(),
+                )
+                if mask is not None:
+                    tgve = tgve.masked_fill(mask.unsqueeze(-1), 0)
                 residual = tgve if residual is None else residual + tgve
         if residual is None:
             residual = torch.zeros(idx.size(0), T, self.config.n_embd,
@@ -1051,6 +1174,14 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
+def file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _autocast_ctx(dtype: str):
     """Return the autocast context for a compute dtype spec.
 
@@ -1274,10 +1405,13 @@ def main():
                              "(control arm for the collision-free perfect-map run)")
     parser.add_argument("--intervention", default="none",
                         choices=["none", "reset_table", "mask_readout",
-                                 "freeze_table", "freeze_backbone"],
+                                 "freeze_table", "freeze_backbone", "hash_reseed",
+                                 "mask_low_freq", "mask_high_freq"],
                         help="causal intervention fired at intervention_epoch boundary")
     parser.add_argument("--intervention_epoch", type=int, default=1,
                         help="0-indexed epoch at which the intervention fires (1 = start of epoch 2)")
+    parser.add_argument("--intervention_freq_threshold", type=int, default=200,
+                        help="mask_low/high_freq threshold; low includes f <= threshold")
     parser.add_argument("--enable_unigram", type=int, default=0)
     parser.add_argument("--enable_bigram", type=int, default=1)
     parser.add_argument("--enable_trigram", type=int, default=1)
@@ -1338,6 +1472,14 @@ def main():
         parser.error("--warmup_start_lr_mult must be in [0, 1]")
     if not 0.0 <= args.cosine_min_lr_mult <= 1.0:
         parser.error("--cosine_min_lr_mult must be in [0, 1]")
+    if args.intervention_freq_threshold < 0:
+        parser.error("--intervention_freq_threshold must be non-negative")
+    if args.intervention in {"mask_low_freq", "mask_high_freq"} and (
+        not args.freq_index or not os.path.isfile(args.freq_index)
+    ):
+        parser.error(f"--intervention {args.intervention} requires an existing --freq_index")
+    if args.intervention in {"mask_low_freq", "mask_high_freq"} and args.injection_position != "input":
+        parser.error(f"--intervention {args.intervention} currently requires --injection_position input")
 
     cfg = Config(
         vocab_size=args.vocab_size,
@@ -1372,6 +1514,7 @@ def main():
         bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
         intervention_epoch=args.intervention_epoch,
+        intervention_freq_threshold=args.intervention_freq_threshold,
         data_dir=args.data_dir,
         train_shards=[int(x) for x in args.train_shards.split(",") if x.strip()],
         val_shards=[int(x) for x in args.val_shards.split(",") if x.strip()],
@@ -1521,7 +1664,8 @@ def main():
 
     model.train()
     t0 = time.time()
-    intervention_fired = False
+    intervention_fired = cfg.intervention == "none"
+    intervention_events = []
     amp_ctx = _autocast_ctx(args.dtype)
     cur_inp = cur_tgt = cur_ptl = None
     for step in range(cfg.max_steps):
@@ -1535,8 +1679,12 @@ def main():
                 train_iter = train_ds.iter_batches(device)
                 inp, tgt = next(train_iter)
             if not intervention_fired and train_ds._epoch >= cfg.intervention_epoch:
-                model.apply_intervention(train_ds._epoch)
+                event = model.apply_intervention(train_ds._epoch, freq_index_obj)
+                event["step"] = step + 1
+                intervention_events.append(event)
                 intervention_fired = True
+                print(f"[nglab] intervention={cfg.intervention} at step={step + 1} "
+                      f"epoch={train_ds._epoch + 1}")
             with amp_ctx:
                 if freq_bin_log is not None and micro == grad_accum - 1:
                     loss, ptl = model(inp, targets=tgt, return_token_losses=True)
@@ -1771,6 +1919,16 @@ def main():
             "exact_freq_loss.jsonl" if exact_freq_log is not None else None
         ),
         "freq_index": args.freq_index if args.freq_index else None,
+        "freq_index_sha256": (
+            file_sha256(args.freq_index)
+            if args.freq_index and os.path.isfile(args.freq_index) else None
+        ),
+        "intervention": {
+            "kind": cfg.intervention,
+            "epoch0": cfg.intervention_epoch,
+            "frequency_threshold": cfg.intervention_freq_threshold,
+            "events": intervention_events,
+        },
         "compute_dtype": args.dtype,
         "torch_compile": args.compile,
         "final_train_loss": last_train_loss,

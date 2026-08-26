@@ -28,21 +28,25 @@ fi
 pick_freq_index() {
   local compact="${TRAIN_SHARDS// /}"
   local name="freq_index"
+  local dose_index=0
   case "$compact" in
-    62) name="freq_index_train0_25x" ;;
-    60) name="freq_index_train0_5x" ;;
-    63) name="freq_index_train0_75x" ;;
-    1,61) name="freq_index_train1_5x" ;;
-    1,2) name="freq_index_train2x_fine" ;;
-    1,2,64) name="freq_index_train2_5x" ;;
-    1,2,3) name="freq_index_train3x" ;;
-    1,2,3,4) name="freq_index_train4x" ;;
-    1,2,3,4,5) name="freq_index_train5x" ;;
-    1,2,3,4,5,6) name="freq_index_train6x" ;;
-    1,2,3,4,5,6,7,8) name="freq_index_train8x" ;;
+    62) name="freq_index_train0_25x"; dose_index=1 ;;
+    60) name="freq_index_train0_5x"; dose_index=1 ;;
+    63) name="freq_index_train0_75x"; dose_index=1 ;;
+    1,61) name="freq_index_train1_5x"; dose_index=1 ;;
+    1,2) name="freq_index_train2x_fine"; dose_index=1 ;;
+    1,2,64) name="freq_index_train2_5x"; dose_index=1 ;;
+    1,2,3) name="freq_index_train3x"; dose_index=1 ;;
+    1,2,3,4) name="freq_index_train4x"; dose_index=1 ;;
+    1,2,3,4,5) name="freq_index_train5x"; dose_index=1 ;;
+    1,2,3,4,5,6) name="freq_index_train6x"; dose_index=1 ;;
+    1,2,3,4,5,6,7,8) name="freq_index_train8x"; dose_index=1 ;;
   esac
   if [[ -f "$ROOT/data/${name}.npz" ]]; then
     printf '%s\n' "$ROOT/data/${name}.npz"
+  elif [[ "$dose_index" -eq 1 ]]; then
+    echo "missing dose-specific frequency index: $ROOT/data/${name}.npz" >&2
+    return 2
   else
     printf '%s\n' "$ROOT/data/freq_index.npz"
   fi
@@ -57,7 +61,7 @@ FREQ_INDEX="${NGLAB_FREQ_INDEX:-$(pick_freq_index)}"
 mkdir -p "$RESULT_DIR"
 echo "[v5] run=$RUN_ID gpu=$GPU steps=$STEPS train=$TRAIN_SHARDS"
 
-CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
+  CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --run_id "${RUN_ID}_fixed" \
   --out_dir "$OUT_DIR" \
   --data_dir "$DATA_DIR" \

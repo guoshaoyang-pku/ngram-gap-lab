@@ -1505,8 +1505,8 @@ v2 波次 freq-bin 的 train 侧是「每次评估从独立诊断迭代器新取
 - 与 `--bigram_perfect_map` 组合 = 零碰撞锚点（K=1 单表 + map 行号，
   R = n_distinct+1，不再需要 single_layer 开关）。
 - 默认 0（关闭），旧 4 层路径与已有 run 口径不变；四路径本地冒烟通过。
-- `table_occupancy.py --bigram_clean_table R`：clean 模式 occupancy
-  （layer-1 primes 第一组 hash、R 行）。
+- `table_occupancy.py --bigram_clean_table R --trigram_clean_table R`：clean
+  模式 occupancy（每个 branch 均为 layer-1 primes 的第一组 hash、R 行）。
 - run_id namespace `ctbl_*`，产物仍入 `data/runs_scaling/`（与旧框架并列）。
 - launcher `tasks/s1_scaling_three_axis/launchers/run_clean_table_grid.sh`
   （wave 调度；rolling-slot 曾把 786K/65K 发到被 perfect/1M 占用的卡上 OOM，
@@ -1585,7 +1585,8 @@ launcher `run_clean_table_dense2.sh`。
 - [ ] clean 版 trigram 加密 + both module（SSOT §3.2 要求三 module）
 - [ ] clean 版 row-level（--save_final_model + probe，复用 §20 管线）
 - [ ] jamming 区更密取点（R 1M-3M 间插 6-8 点）刻画 1.5M≈2M 平台结构
-- [ ] trigram clean occupancy 模式（table_occupancy.py 尚不支持）
+- [x] trigram clean occupancy 模式已实现；18 点 v5 双表产物的 occupancy
+  回填待执行，见 §24b。
 
 ---
 
@@ -1736,6 +1737,127 @@ online gap 与频率统计；关键曲线臂每 10 step 记录完整轨迹。最
 增量伴随两 seed 都更高的 validation loss（`+0.208/+0.156`），不作为更好的
 机制 setting。按预注册健康规则，v5 固定 **RMSProp `(0,0.99)`、scale `2.0`**；
 `.995` 保留为优化器消融结果。
+
+---
+
+## §24b · V5 证据刷新：完整曲线 optimizer、causal 与剂量频率（2026-08-26）
+
+### 固定契约
+
+本节新增 run 不覆盖 §24/§25 的 completed run。全部使用当前极简基线：
+vanilla nanoGPT 8L/6H/768D，input 注入，bigram + trigram clean 单表且
+`R=2^20`，backbone AdamW `(0.8,0.95)`、wd `0.1`、`lr=0.0006`，
+table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂中
+改变登记变量），`warmup_constant(100)`，bf16、不 compile。评估固定为
+`val_interval=10`、`freq_eval_interval=10`、`exact_freq_eval_interval=10`、
+`table_norm_interval=10`。gap 只能由同一 logged step 的 fixed validation loss
+减当前训练 batch online loss 得到。
+
+| family | run_id 模式 | 数量 | steps | 唯一变量 | 状态 |
+|---|---|---:|---:|---|---|
+| optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | planned |
+| causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | planned |
+| M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | planned |
+| dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | planned |
+| table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | clean bigram/trigram physical-row diagnostics | planned |
+
+所有新训练 run 的 owner 为 local v5-refresh queue，seed 42，结果目录为
+`data/runs_fixed/<run_id>_fixed/`；训练/验证 shard 均由下表和 launcher
+explicitly 固定。每个训练 run 的验收条件均为：`summary.json` 完整、
+`train_log.jsonl` 到达目标 step、`freq_bin_loss.jsonl`/`exact_freq_loss.jsonl`/
+`table_norm.jsonl` 每 10 steps 覆盖、无 NaN/Inf；scalar gap 只读取
+same-step `fixed val − current-batch online train`。
+
+| run_id | train → val shards | steps | 单一变化 | 预期产物 / 状态 |
+|---|---|---:|---|---|
+| `optv5c_rms_b099_s0p5` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | table LR scale 0.5 | 10-step curves / planned |
+| `optv5c_rms_b099_s1p0` | 同上 | 1000 | table LR scale 1.0 | 10-step curves / planned |
+| `optv5c_rms_b099_s2p0` | 同上 | 1000 | table LR scale 2.0 | 10-step curves / planned |
+| `optv5c_rms_b099_s3p0` | 同上 | 1000 | table LR scale 3.0 | 10-step curves / planned |
+| `optv5c_rms_b099_s4p0` | 同上 | 1000 | table LR scale 4.0 | 10-step curves / planned |
+| `optv5c_rms_b095_s2p0` | 同上 | 1000 | RMSProp β₂=.95 | 10-step curves / planned |
+| `optv5c_rms_b098_s2p0` | 同上 | 1000 | RMSProp β₂=.98 | 10-step curves / planned |
+| `optv5c_rms_b0995_s2p0` | 同上 | 1000 | RMSProp β₂=.995 | 10-step curves / planned |
+| `optv5c_rms_b0999_s2p0` | 同上 | 1000 | RMSProp β₂=.999 | 10-step curves / planned |
+| `optv5c_adamw_b099_s2p0` | 同上 | 1000 | table AdamW `(0,.99)` | 10-step curves / planned |
+| `optv5c_sgd_m0_s2p0` | 同上 | 1000 | table SGD momentum 0 | 10-step curves / planned |
+| `causalv5c_none` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | no intervention | curves + intervention event / planned |
+| `causalv5c_reset_table_e1` | 同上 | 1000 | reset table at epoch 2 | curves + intervention event / planned |
+| `causalv5c_reset_table_e2` | 同上 | 1000 | reset table at epoch 3 | curves + intervention event / planned |
+| `causalv5c_mask_readout_e1` | 同上 | 1000 | no-gram benchmark at epoch 2 | curves + intervention event / planned |
+| `causalv5c_freeze_table_e1` | 同上 | 1000 | freeze table at epoch 2 | curves + intervention event / planned |
+| `causalv5c_freeze_backbone_e1` | 同上 | 1000 | freeze backbone at epoch 2 | curves + intervention event / planned |
+| `causalv5c_hash_reseed_e1` | 同上 | 1000 | reseed context→row hash at epoch 2 | curves + preserved-state event / planned |
+| `causalv5c_mask_low_f200_e1` | 同上 | 1000 | mask `f≤200` at epoch 2 | curves + index provenance / planned |
+| `causalv5c_mask_high_f200_e1` | 同上 | 1000 | mask `f>200` at epoch 2 | curves + index provenance / planned |
+| `nglab0_25x_input_v5_freq10` | `62` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.25x dose | 10-step curves + matching index / planned |
+| `nglab0_5x_input_v5_freq10` | `60` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.5x dose | 10-step curves + matching index / planned |
+| `nglab0_75x_input_v5_freq10` | `63` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.75x dose | 10-step curves + matching index / planned |
+| `nglab1_5x_input_v5_freq10` | `1,61` → `3,4,5,6,7,8,9,10,6542` | 2000 | 1.5x dose | 10-step curves + matching index / planned |
+| `nglab2x_input_v5_freq10` | `1,2` → `3,4,5,6,7,8,9,10,6542` | 2000 | 2x dose | 10-step curves + matching index / planned |
+| `nglab2_5x_input_v5_freq10` | `1,2,64` → `4,5,6,7,8,9,10,6542` | 2000 | 2.5x dose | 10-step curves + matching index / planned |
+| `nglab3x_input_v5_freq10` | `1,2,3` → `4,5,6,7,8,9,10,6542` | 2000 | 3x dose | 10-step curves + matching index / planned |
+| `nglab4x_input_v5_freq10` | `1,2,3,4` → `5,6,7,8,9,10,6542` | 2000 | 4x dose | 10-step curves + matching index / planned |
+| `nglab5x_input_v5_freq10` | `1,2,3,4,5` → `6,7,8,9,10,6542` | 2000 | 5x dose | 10-step curves + matching index / planned |
+| `nglab6x_input_v5_freq10` | `1,2,3,4,5,6` → `7,8,9,10,6542` | 2000 | 6x dose | 10-step curves + matching index / planned |
+| `nglab8x_input_v5_freq10` | `1,2,3,4,5,6,7,8` → `9,10,6542` | 2000 | 8x dose | 10-step curves + matching index / planned |
+| `nglab1x_input_v5_freq10` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | M2 input current-batch frequency | 10-step curves + matching index / planned |
+| `nglab1x_y_v5_freq10` | 同上 | 2000 | M2 y current-batch frequency | 10-step curves + matching index / planned |
+| `nglab1x_v_v5_freq10` | 同上 | 2000 | M2 v current-batch frequency | 10-step curves + matching index / planned |
+| `nglab1x_nogram_v5_freq10` | 同上 | 2000 | M2 no-gram current-batch frequency | 10-step curves + matching index / planned |
+
+### Optimizer full curves（11 臂）
+
+所有 arm 完整记录 online train、fixed val、online gap、current-batch
+frequency bins、exact frequency 与 table RMS，不能用 §24 的 sparse endpoint
+取代曲线。
+
+| 组 | run_id | 变化 |
+|---|---|---|
+| scale | `optv5c_rms_b099_s{0p5,1p0,2p0,3p0,4p0}` | table LR scale |
+| β₂ | `optv5c_rms_b{095,098,0995,0999}_s2p0` | RMSProp β₂；`.99/s2` 与 scale 组中心点共用 |
+| optimizer | `optv5c_{adamw_b099,sgd_m0}_s2p0` | AdamW `(0,.99)` / SGD momentum 0 |
+
+`optv5_rms_*` 是早期 completed precursor：多数只在末端评估，仅
+`optv5_rms_b098_s2p0_curve`、`optv5_rms_b099_s1p0_curve`、
+`optv5_rms_b099_s3p0_curve` 有完整曲线。它们可用于质量审计，不能替代新 11 臂
+的正式比较。
+
+### Causal refresh（9 臂）
+
+干预统一在 `intervention_epoch=1`（epoch 2 开始）触发，另保留 `reset_table`
+at epoch 2 的时点比较。所有事件必须写入 `summary.json.intervention.events`：
+step、epoch、干预类型、hash identity 前后、频率阈值和索引 SHA256。
+
+| run_id | 干预语义 |
+|---|---|
+| `causalv5c_none` | 无边界干预 control |
+| `causalv5c_reset_table_e1` / `causalv5c_reset_table_e2` | 重新初始化 n-gram 表参数；hash 不变；检验已写入表内容 |
+| `causalv5c_mask_readout_e1` | 边界后关闭所有 n-gram residual；time-local no-gram 破坏性基准，不单列为 readout 机制证据 |
+| `causalv5c_freeze_table_e1` / `causalv5c_freeze_backbone_e1` | 停止表写入 / backbone 更新 |
+| `causalv5c_hash_reseed_e1` | 只替换 context→row hash identity；保留表权重与 RMSProp state |
+| `causalv5c_mask_low_f200_e1` / `causalv5c_mask_high_f200_e1` | 按 train-shard static frequency index 屏蔽互补集合 `f≤200` / `f>200` 的 n-gram residual |
+
+频率 mask 的静态 index 是测量与 intervention 的共同 provenance，但不可消费
+训练迭代器；训练仍只从主训练流取 batch。low/high mask 使用同一阈值且必须在单元测试中
+逐位置互补。
+
+### Dose frequency refresh（12 臂）
+
+为每个 dose 单独选取 matching `freq_index_train*.npz`；缺任一专属索引，launcher
+必须失败，不能回落到泛用 `freq_index.npz`。完成后产出 bigram/trigram 两面板的
+step-2000 raw frequency-bin gap heatmap；novel bucket 不定义 gap，不进入热图。
+
+### Clean double-table occupancy 回填（18 条已完成 run，不重训）
+
+`ctbl_v5_both_{R}` 的训练已经完成，但本地已回传证据没有
+`table_occupancy.json`。新增 `code/table_occupancy.py` 的 trigram clean-table
+模式与 `code/cluster/run_v5_table_grid.sh` 的 backfill 分支：检测到既有
+`summary.json` 而缺 occupancy 时，只读取 shard 1 的同一训练前缀并写入
+`table_occupancy.json`；不创建新 run_id、不改模型参数、optimizer state 或训练
+日志。输出需同时含 bigram 与 trigram 的 `K`、`R`、occupied、`K/R`、occupancy
+与 `(K−occupied)/K`；clean 单表的 logical addresses 必须等于 `R`，不是历史
+two-hash 路径的 `2R`。完成后才允许把 K/R / collision 图嵌入 registry。
 
 ---
 
