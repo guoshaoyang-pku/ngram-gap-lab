@@ -1780,6 +1780,11 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
   `optv5c_rms_b099_s2p0_fixed`（360-2）误使用了正式 ID，均明确作废且保留为
   smoke。正式完整 run 改为 `nglab1x_input_v5_freq10_r1` 与
   `optv5c_rms_b099_s2p0_r1`，不覆盖、不删除 smoke 目录。
+- 360-2 上误以 `run_v5_table_grid.sh` 对无 summary 的目录启动了 5 条 table-size
+  重训；4 条已有正常 summary 的重复结果与 5 条未完成 partial 都不作为权威证据，
+  队列已停止且产物保留。为杜绝此类重训，18 条权威 summary 位于 360-1 时只允许运行
+  `code/cluster/backfill_v5_table_occupancy.sh`：它拒绝缺 summary 的目录、绝不调用
+  `train.py`，只产生 occupancy JSON。
 
 所有新训练 run 的 owner 为 local v5-refresh queue，seed 42，结果目录为
 `data/runs_fixed/<run_id>_fixed/`；训练/验证 shard 均由下表和 launcher
@@ -1871,9 +1876,9 @@ step-2000 raw frequency-bin gap heatmap；novel bucket 不定义 gap，不进入
 ### Clean double-table occupancy 回填（18 条已完成 run，不重训）
 
 `ctbl_v5_both_{R}` 的训练已经完成，但本地已回传证据没有
-`table_occupancy.json`。新增 `code/table_occupancy.py` 的 trigram clean-table
-模式与 `code/cluster/run_v5_table_grid.sh` 的 backfill 分支：检测到既有
-`summary.json` 而缺 occupancy 时，只读取 shard 1 的同一训练前缀并写入
+`table_occupancy.json`。`code/table_occupancy.py` 现支持 trigram clean-table，
+并由 `code/cluster/backfill_v5_table_occupancy.sh` 在确认既有 `summary.json` 后
+只读取 shard 1 的同一训练前缀并写入
 `table_occupancy.json`；不创建新 run_id、不改模型参数、optimizer state 或训练
 日志。输出需同时含 bigram 与 trigram 的 `K`、`R`、occupied、`K/R`、occupancy
 与 `(K−occupied)/K`；clean 单表的 logical addresses 必须等于 `R`，不是历史
