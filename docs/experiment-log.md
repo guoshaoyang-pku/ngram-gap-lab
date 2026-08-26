@@ -1846,10 +1846,10 @@ same-step `fixed val − current-batch online train`。
 | `nglab5x_input_v5_freq10` | `1,2,3,4,5` → `6,7,8,9,10,6542` | 2000 | 5x dose | 10-step curves + matching index / planned |
 | `nglab6x_input_v5_freq10` | `1,2,3,4,5,6` → `7,8,9,10,6542` | 2000 | 6x dose | 10-step curves + matching index / planned |
 | `nglab8x_input_v5_freq10` | `1,2,3,4,5,6,7,8` → `9,10,6542` | 2000 | 8x dose | 10-step curves + matching index / planned |
-| `nglab1x_input_v5_freq10_r1` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | M2 input current-batch frequency；`r1` 避开 100-step smoke | 10-step curves + matching index / planned |
-| `nglab1x_y_v5_freq10` | 同上 | 2000 | M2 y current-batch frequency | 10-step curves + matching index / planned |
-| `nglab1x_v_v5_freq10` | 同上 | 2000 | M2 v current-batch frequency | 10-step curves + matching index / planned |
-| `nglab1x_nogram_v5_freq10` | 同上 | 2000 | M2 no-gram current-batch frequency | 10-step curves + matching index / planned |
+| `nglab1x_input_v5_freq10_r1` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | M2 input current-batch frequency；`r1` 避开 100-step smoke | 10-step curves + matching index / ✅ done, gap 5.755 |
+| `nglab1x_y_v5_freq10` | 同上 | 2000 | M2 y current-batch frequency | 10-step curves + matching index / ✅ done, gap 3.465 |
+| `nglab1x_v_v5_freq10` | 同上 | 2000 | M2 v current-batch frequency | 10-step curves + matching index / ✅ done, gap 2.011 |
+| `nglab1x_nogram_v5_freq10` | 同上 | 2000 | M2 no-gram current-batch frequency | 10-step curves + matching index / ✅ done, gap 0.248 |
 
 ### Optimizer full curves（11 臂）
 
