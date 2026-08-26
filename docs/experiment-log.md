@@ -1761,6 +1761,20 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 | dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | planned |
 | table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | clean bigram/trigram physical-row diagnostics | planned |
 
+### Preflight 记录（2026-08-26）
+
+- source commit：`b976c71`（`feat(v5): add current-batch evidence refresh`）；该 commit
+  已定向同步至 `ophis-gpu`、`360-1`、`360-2`。三机的
+  `train.py`、`ngram_freq.py`、`run_v5_clean.sh`、主 manifest、optimizer sweep
+  与 table grid 的 MD5 已逐文件核对一致。
+- 三机均通过 `bash -n` 与 Python compile；可用解释器分别为 ophis torch
+  `2.9.1+cu128`、360 torch `2.13.0+cu130`。
+- `360-1` 缺 5x / 6x / 8x 的专属 `freq_index_train*.npz`，故不接受
+  `dose_freq10` 的整批调度；所有 11 个剂量索引已在 ophis 与 360-2 存在。
+- `nglab_smoke_v3_fixed` / `nglab_smoke_v2_fixed` 为非主线 smoke，不能回填为
+  实验结果。v5-refresh 的产物目录必须 create-only；已有 partial 目录应先报告，
+  不得覆盖。
+
 所有新训练 run 的 owner 为 local v5-refresh queue，seed 42，结果目录为
 `data/runs_fixed/<run_id>_fixed/`；训练/验证 shard 均由下表和 launcher
 explicitly 固定。每个训练 run 的验收条件均为：`summary.json` 完整、
