@@ -138,7 +138,7 @@
     <td>M2-v5 current-batch frequency refresh</td>
     <td>input / y / v / nogram；seed 42、2000 步；clean R=2²⁰；<code>lr=6e-4</code>、<code>warmup_constant(100)</code>；bf16、不 compile；val / frequency / exact-frequency / table RMS 每 10 步</td>
     <td class="visual">四臂完成后，每个 branch 画 input train / fixed-val token fraction 双柱，以及 final per-bin gap 原始点与细 3 点视觉连线；后续补 loss-gap-table-RMS 对齐。
-      <span class="note">图源将严格限定为 <code>nglab1x_{input,y,v,nogram}_v5_freq10_fixed/freq_bin_loss.jsonl</code> 最后 step；train 侧直接复用该 step 当前训练 batch 的 pre-update per-token loss，不另取诊断 batch。图仅在四臂齐全后生成并嵌入。</span>
+      <span class="note">图源将严格限定为 <code>nglab1x_input_v5_freq10_r1_fixed</code> 与 <code>nglab1x_{y,v,nogram}_v5_freq10_fixed/freq_bin_loss.jsonl</code> 最后 step；原 input ID 已被 100-step smoke 占用，完整证据新起 <code>r1</code>。train 侧直接复用该 step 当前训练 batch 的 pre-update per-token loss，不另取诊断 batch。图仅在四臂齐全后生成并嵌入。</span>
     </td>
     <td class="st-run">🟡 4/4 已登记待跑；缺任一臂时作图脚本拒绝产图</td>
     <td class="com"><input type="text"></td>

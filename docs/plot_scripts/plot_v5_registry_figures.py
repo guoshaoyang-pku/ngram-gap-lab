@@ -128,7 +128,8 @@ def plot_injection_frequency():
     finals = {}
     for arm, _ in arms:
         record = final_record(
-            RUNS_FIXED / f"nglab1x_{arm}_v5_freq10_fixed" / "freq_bin_loss.jsonl"
+            RUNS_FIXED / f"nglab1x_{arm}_v5_freq10{'_r1' if arm == 'input' else ''}_fixed"
+            / "freq_bin_loss.jsonl"
         )
         if record is None:
             print("skip M2 current-batch frequency figures: four-arm freq10 batch incomplete")

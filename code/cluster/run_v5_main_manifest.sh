@@ -40,7 +40,7 @@ case "$GROUP" in
     ;;
   inj_freq10)
     SPECS=(
-      "nglab1x_input_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab1x_input_v5_freq10_r1|1|2,3,4,5,6,7,8,9,10,6542|2000|"
       "nglab1x_y_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|--injection_position y"
       "nglab1x_v_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|--injection_position v"
       "nglab1x_nogram_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|--enable_bigram 0 --enable_trigram 0"

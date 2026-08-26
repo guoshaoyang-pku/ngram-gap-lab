@@ -1774,6 +1774,12 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 - `nglab_smoke_v3_fixed` / `nglab_smoke_v2_fixed` 为非主线 smoke，不能回填为
   实验结果。v5-refresh 的产物目录必须 create-only；已有 partial 目录应先报告，
   不得覆盖。
+- 2026-08-26 的 100-step 端到端 smoke 通过（当前 batch `freq_bin_loss`、
+  exact-frequency、table RMS 与 hash-reseed event 均写出），但其中
+  `nglab1x_input_v5_freq10_fixed`（360-1）和
+  `optv5c_rms_b099_s2p0_fixed`（360-2）误使用了正式 ID，均明确作废且保留为
+  smoke。正式完整 run 改为 `nglab1x_input_v5_freq10_r1` 与
+  `optv5c_rms_b099_s2p0_r1`，不覆盖、不删除 smoke 目录。
 
 所有新训练 run 的 owner 为 local v5-refresh queue，seed 42，结果目录为
 `data/runs_fixed/<run_id>_fixed/`；训练/验证 shard 均由下表和 launcher
@@ -1786,7 +1792,7 @@ same-step `fixed val − current-batch online train`。
 |---|---|---:|---|---|
 | `optv5c_rms_b099_s0p5` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | table LR scale 0.5 | 10-step curves / planned |
 | `optv5c_rms_b099_s1p0` | 同上 | 1000 | table LR scale 1.0 | 10-step curves / planned |
-| `optv5c_rms_b099_s2p0` | 同上 | 1000 | table LR scale 2.0 | 10-step curves / planned |
+| `optv5c_rms_b099_s2p0_r1` | 同上 | 1000 | table LR scale 2.0；`r1` 避开 100-step smoke | 10-step curves / planned |
 | `optv5c_rms_b099_s3p0` | 同上 | 1000 | table LR scale 3.0 | 10-step curves / planned |
 | `optv5c_rms_b099_s4p0` | 同上 | 1000 | table LR scale 4.0 | 10-step curves / planned |
 | `optv5c_rms_b095_s2p0` | 同上 | 1000 | RMSProp β₂=.95 | 10-step curves / planned |
@@ -1815,7 +1821,7 @@ same-step `fixed val − current-batch online train`。
 | `nglab5x_input_v5_freq10` | `1,2,3,4,5` → `6,7,8,9,10,6542` | 2000 | 5x dose | 10-step curves + matching index / planned |
 | `nglab6x_input_v5_freq10` | `1,2,3,4,5,6` → `7,8,9,10,6542` | 2000 | 6x dose | 10-step curves + matching index / planned |
 | `nglab8x_input_v5_freq10` | `1,2,3,4,5,6,7,8` → `9,10,6542` | 2000 | 8x dose | 10-step curves + matching index / planned |
-| `nglab1x_input_v5_freq10` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | M2 input current-batch frequency | 10-step curves + matching index / planned |
+| `nglab1x_input_v5_freq10_r1` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | M2 input current-batch frequency；`r1` 避开 100-step smoke | 10-step curves + matching index / planned |
 | `nglab1x_y_v5_freq10` | 同上 | 2000 | M2 y current-batch frequency | 10-step curves + matching index / planned |
 | `nglab1x_v_v5_freq10` | 同上 | 2000 | M2 v current-batch frequency | 10-step curves + matching index / planned |
 | `nglab1x_nogram_v5_freq10` | 同上 | 2000 | M2 no-gram current-batch frequency | 10-step curves + matching index / planned |

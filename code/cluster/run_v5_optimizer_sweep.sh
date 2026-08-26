@@ -50,7 +50,7 @@ PIDS=()
 
 launch_slot optv5c_rms_b099_s0p5 --table_lr_scale 0.5
 launch_slot optv5c_rms_b099_s1p0 --table_lr_scale 1.0
-launch_slot optv5c_rms_b099_s2p0 --table_lr_scale 2.0
+launch_slot optv5c_rms_b099_s2p0_r1 --table_lr_scale 2.0
 launch_slot optv5c_rms_b099_s3p0 --table_lr_scale 3.0
 launch_slot optv5c_rms_b099_s4p0 --table_lr_scale 4.0
 launch_slot optv5c_rms_b095_s2p0 --table_betas 0.0,0.95
