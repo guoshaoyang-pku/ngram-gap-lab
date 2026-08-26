@@ -83,7 +83,7 @@ Agent 在本仓库工作时，按以下顺序遵守。冲突时，**编号小的
 | table optimizer | RMSProp，无动量，`--table_betas 0.0,0.99` |
 | table LR | `--table_lr_scale 2.0`，实际 LR `0.0012` |
 | LR schedule | `--lr_schedule warmup_constant --warmup_steps 100`；step 1–100 从 0.25×LR（`0.00015`）线性 warmup 至 `0.0006`，之后固定 LR；所有新实验禁止 warmdown |
-| 默认预算 | seed 42，1000 steps，bf16，不 `torch.compile` |
+| 默认预算 | seed 42，1000 steps，bf16，不 `torch.compile`（H200 实测 bf16+compile 反而慢 3.5x，因 `bigram_ves/trigram_ves` 字典逻辑触发 graph break；详见 `docs/experiment-log.md` §18） |
 | scalar 口径 | 当前训练 batch 的 online train loss；固定 validation batches 的 val loss；`gap = val − train` |
 
 非 table-size 实验固定 `R_bigram = R_trigram = 2^20 = 1,048,576`；table-size
@@ -139,7 +139,7 @@ setting 仍须写明 train/val shards、frequency index 和 eval 节奏。R 控�
 | total batch | 147,456 tokens |
 | seed | 42（多 seed 用 43 / 44） |
 | steps | 1000（标准）/ 2000（延长） |
-| compute dtype | **bf16（`torch.autocast`），不 `torch.compile`**（默认标准；见 §16/§17）|
+| compute dtype | **bf16（`torch.autocast`），不 `torch.compile`**（默认标准；不 compile 的根因：见 §1.4 注释 + `docs/experiment-log.md` §18，H200 bf16+compile 因 n-gram 字典 graph break 反慢 3.5x） |
 | 评估节奏 | **三层默认（用户 2026-08-24 拍板）**：① 主实验 `freq=10`（freq-bin + val 每 10 步，完整曲线）；② 只需看曲线的实验 `freq=50`；③ 只要末端结果（gap/数值）用 `--val_steps 1000`（只做末端 val+freq，训练全程不打断）。freq 必须跟随 val_steps 对齐（§17 实测 freq eval 每次 ~13s，是 wall-time 主要瓶颈）|
 
 **时间点说明**：当前实现记录的 online train loss 来自该优化 step 的当前 batch、
