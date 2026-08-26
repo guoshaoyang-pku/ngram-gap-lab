@@ -48,7 +48,7 @@
 <div class="wrap">
 
 <h1>实验注册表 · ngram-gap-lab</h1>
-<p class="note">维护时间：2026-08-26 · 主线权威数据源 <code>data/runs_fixed/*_fixed/</code>；scaling 专属数据源 <code>data/runs_scaling/*_fixed/</code> · 口径见 <code>agents.md</code> §1 · 数值细节见 <code>experiment-log.md</code> 与 <code>experiment-lines.md</code>。</p>
+<p class="note"><b>唯一权威登记表</b> · 维护时间：2026-08-26 · 主线权威数据源 <code>data/runs_fixed/*_fixed/</code>；scaling 专属数据源 <code>data/runs_scaling/*_fixed/</code> · 口径见 <code>agents.md</code> §1 · 数值细节见 <code>experiment-log.md</code> 与 <code>experiment-lines.md</code>。</p>
 
 <h2>① 命名法 Jargon（先读这个）</h2>
 <details open>
@@ -160,7 +160,7 @@
 
   <!-- ============ 表优化器 ============ -->
   <tr id="registry-m3">
-    <td rowspan="4" class="center"><b>表<br>优化器</b></td>
+    <td rowspan="5" class="center"><b>表<br>优化器</b></td>
     <td>M3 Table 优化器 · 1x epoch</td>
     <td rowspan="2">RMSProp/AdamW/SGD；LR 剂量（×1/×2/×4）；β₂（0.98/0.99）；1x / 2x epoch</td>
     <td class="visual">优化器对比 loss/gap；LR 剂量曲线；β₂ 曲线；1x vs 2x 对比
@@ -187,7 +187,12 @@
   <tr id="registry-m3b">
     <td>M3b-v5 表学习率 × β₂ gate</td>
     <td>clean 双表、input、1000 步；RMSProp/AdamW/SGD；scale 0.5–4；β₂ 0.95–0.999；2000 步 seed 43/44 gate</td>
-    <td class="visual">末端 loss/gap、完整曲线与健康区筛选；只以健康中心点锁定默认值。v5 专属图在完整端点回传后生成。</td>
+    <td class="visual">末端 loss/gap、完整曲线与健康区筛选；只以健康中心点锁定默认值。
+      <div class="inline-figures">
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_lrscan_clean_input.png"><img src="../../docs/figs/main/fig_lrscan_clean_input.png" alt="clean-table input 学习率筛选"></a><figcaption>v5 LR 筛选：seed 42、1000 步</figcaption></figure>
+      </div>
+      <span class="note">图源：<code>lrscan_input_lr{0p004,0p0006,0p0004}_wc_fixed</code>；clean 双表 R=2²⁰、current-batch online loss、<code>warmup_constant(100)</code>、bf16、no-compile。点为原始记录，线为 3 点均值，仅作视觉连接。</span>
+    </td>
     <td class="st-done">✅ 完成：RMSProp <code>(0,0.99)</code>、表 LR ×2</td>
     <td class="com"><input type="text"></td>
   </tr>
@@ -198,6 +203,22 @@
       <div class="inline-figures"><figure class="inline-figure"><a href="../../docs/figs/short_epoch_b2/short_epoch_b2_gap_v11.svg"><img src="../../docs/figs/short_epoch_b2/short_epoch_b2_gap_v11.svg" alt="短 epoch beta2"></a><figcaption>短 epoch×β₂</figcaption></figure></div>
     </td>
     <td class="st-warn">⚠️ 图未按 _fixed 重生成</td>
+    <td class="com"><input type="text"></td>
+  </tr>
+  <tr id="registry-lrdiag">
+    <td>LR schedule 诊断<br><span class="note">（历史混合 setting，非 v5 证据）</span></td>
+    <td>no-gram 纯 backbone；warmdown / warmup-constant / warmup-cosine / constant；不同 base LR；1000 或 2000 步</td>
+    <td class="visual">检查不同 schedule 是否造成纯 backbone 的训练、验证与 gap 形态变化；不与 v5 主线数值混画。
+      <div class="inline-figures">
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_lrdiag_nogram_train.png"><img src="../../docs/figs/main/fig_lrdiag_nogram_train.png" alt="nogram 学习率诊断训练损失"></a><figcaption>online train loss</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_lrdiag_nogram_val.png"><img src="../../docs/figs/main/fig_lrdiag_nogram_val.png" alt="nogram 学习率诊断验证损失"></a><figcaption>fixed validation loss</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_lrdiag_nogram_gap.png"><img src="../../docs/figs/main/fig_lrdiag_nogram_gap.png" alt="nogram 学习率诊断 gap"></a><figcaption>online gap</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_lrdiag_nogram_lrmult.png"><img src="../../docs/figs/main/fig_lrdiag_nogram_lrmult.png" alt="nogram 学习率乘数轨迹"></a><figcaption>LR multiplier</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_lrdiag_nogram_train_loglog.png"><img src="../../docs/figs/main/fig_lrdiag_nogram_train_loglog.png" alt="nogram 训练损失双对数"></a><figcaption>train loss log–log</figcaption></figure>
+      </div>
+      <span class="note">图源：<code>docs/plot_scripts/plot_lrdiag_nogram.py</code>；仅作为 schedule 诊断档案，不能推导 v5 主线比较或结论。</span>
+    </td>
+    <td class="st-warn">⚠️ 已登记为历史诊断，不纳入当前 setting</td>
     <td class="com"><input type="text"></td>
   </tr>
 
