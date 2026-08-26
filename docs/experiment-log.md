@@ -1765,7 +1765,7 @@ partial 目录则拒绝覆盖。
 | causal | `nglab1x_{reset,mask,freeze}_*_v5` | 5 | 1000；唯一变量为登记的 intervention | ✅ 5/5 done；reset e1/e2、mask、freeze-table/backbone 均有 summary |
 | fixed probe | `nglab{1,2}x_input_rho_v5` | 2 | 2000；唯一新增诊断为 fixed probe | ✅ 2/2 done；1x gap 5.583、2x gap 1.249（以 ophis 权威 run 为准） |
 | backbone safety | `nglab1x_nogram_long_v5` | 1 | 8000；无 n-gram 的长训练保险对照 | ✅ 8000/8000 done；gap 1.102 |
-| table size | `ctbl_v5_both_{R}` | 18 | 1000 末端；唯一变量为 bigram/trigram 同步的 clean R | ✅ 18/18 done（权威目录在 360-1 `runs_fixed`） |
+| table size | `ctbl_v5_both_{R}` | 18 | 1000 末端；唯一变量为 bigram/trigram 同步的 clean R | ✅ 18/18 done（权威目录在 360-1 `runs_scaling`） |
 | S1 epoch-prefix | `s1v5_L{1..4}_{both,nogram}_fs` | 8 | 1000；唯一变量为 `epoch_batches=42/84/168/337` 与既定 no-gram control | ✅ 8/8 done；both gap 为 10.683/7.726/5.251/1.530，nogram 为 3.002/0.793/0.133/0.035 |
 | S1 frequency | `s1v5_freq_{bigram,trigram,both,nogram}` | 4 | 1000；L4 `epoch_batches=337`，唯一变量为既定 module arm | ✅ 4/4 done；bigram/trigram/both/nogram=0.586/1.099/1.529/0.031（`runs_scaling`） |
 
