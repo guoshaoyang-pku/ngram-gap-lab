@@ -1759,7 +1759,7 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 | causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | planned |
 | M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | planned |
 | dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | planned |
-| table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | clean bigram/trigram physical-row diagnostics | planned |
+| table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | clean bigram/trigram physical-row diagnostics | ✅ done (2026-08-26) |
 
 ### Preflight 记录（2026-08-26）
 
@@ -1873,16 +1873,17 @@ step、epoch、干预类型、hash identity 前后、频率阈值和索引 SHA25
 必须失败，不能回落到泛用 `freq_index.npz`。完成后产出 bigram/trigram 两面板的
 step-2000 raw frequency-bin gap heatmap；novel bucket 不定义 gap，不进入热图。
 
-### Clean double-table occupancy 回填（18 条已完成 run，不重训）
+### Clean double-table occupancy 回填（18 条已完成 run，不重训）✅
 
-`ctbl_v5_both_{R}` 的训练已经完成，但本地已回传证据没有
-`table_occupancy.json`。`code/table_occupancy.py` 现支持 trigram clean-table，
-并由 `code/cluster/backfill_v5_table_occupancy.sh` 在确认既有 `summary.json` 后
-只读取 shard 1 的同一训练前缀并写入
-`table_occupancy.json`；不创建新 run_id、不改模型参数、optimizer state 或训练
-日志。输出需同时含 bigram 与 trigram 的 `K`、`R`、occupied、`K/R`、occupancy
-与 `(K−occupied)/K`；clean 单表的 logical addresses 必须等于 `R`，不是历史
-two-hash 路径的 `2R`。完成后才允许把 K/R / collision 图嵌入 registry。
+`ctbl_v5_both_{R}` 的训练已经完成。2026-08-26 已在 360-1 的
+`data/runs_scaling/` 对全部 18 条既有权威产物完成 `table_occupancy.json`
+无重训回填，并同步回本地小型证据副本。`code/table_occupancy.py` 对
+bigram/trigram clean-table 都只使用各自第一组完整 hash；专用
+`code/cluster/backfill_v5_table_occupancy.sh` 先确认既有 `summary.json`，
+绝不调用 `train.py`。每个 branch 都验收 `logical_addresses=R`（不是历史 two-hash
+路径的 `2R`）、`occupied≤R`、collision ∈ [0,1]；随后才生成并嵌入
+`fig_v5_s1_table_load_collision.png`。该 JSON 的字段包括 `K`、`R`、occupied、
+`K/R`、occupancy 与 `(K−occupied)/K`，其中 `K/R` 是负载比，不是 collision。
 
 ---
 
