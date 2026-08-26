@@ -127,10 +127,8 @@ def plot_injection_frequency():
     ]
     finals = {}
     for arm, _ in arms:
-        record = final_record(
-            RUNS_FIXED / f"nglab1x_{arm}_v5_freq10{'_r1' if arm == 'input' else ''}_fixed"
-            / "freq_bin_loss.jsonl"
-        )
+        run_id = f"nglab1x_{arm}_v5_freq10{'_r1' if arm == 'input' else ''}"
+        record = completed_frequency_record(run_id, 2000)
         if record is None:
             print("skip M2 current-batch frequency figures: four-arm freq10 batch incomplete")
             return
@@ -349,6 +347,40 @@ def final_record(path):
     return max(records, key=lambda row: int(row.get("step", -1))) if records else None
 
 
+def completed_curve(run_id, expected_step):
+    summary_path = RUNS_FIXED / f"{run_id}_fixed" / "summary.json"
+    rows = read_curve(run_id)
+    if not summary_path.exists() or not rows:
+        return None
+    if max(int(row["step"]) for row in rows) != expected_step:
+        return None
+    return rows
+
+
+def completed_frequency_record(run_id, expected_step):
+    run_dir = RUNS_FIXED / f"{run_id}_fixed"
+    if not (run_dir / "summary.json").exists():
+        return None
+    record = final_record(run_dir / "freq_bin_loss.jsonl")
+    if record is None or int(record.get("step", -1)) != expected_step:
+        return None
+    return record
+
+
+def frequency_gaps(record, branch):
+    train = record["train"][branch]
+    val = record["val"][branch]
+    return {
+        bucket: (
+            float(val[bucket]["mean_loss"]) - float(train[bucket]["mean_loss"])
+            if train[bucket]["token_count"] > 0
+            else np.nan
+        )
+        for bucket in train
+        if bucket in val
+    }
+
+
 def exact_frequency_rows_from_shared(record, branch):
     per_frequency = record.get("shared", {}).get(branch, {}).get("per_f", {})
     rows = []
@@ -551,6 +583,274 @@ def plot_curve_grid(run_ids, filename, title, boundary_runs=()):
     save_figure(figure, filename)
 
 
+def plot_causal_refresh():
+    run_ids = (
+        "causalv5c_none",
+        "causalv5c_reset_table_e1",
+        "causalv5c_reset_table_e2",
+        "causalv5c_mask_readout_e1",
+        "causalv5c_freeze_table_e1",
+        "causalv5c_freeze_backbone_e1",
+        "causalv5c_hash_reseed_e1",
+        "causalv5c_mask_low_f200_e1",
+        "causalv5c_mask_high_f200_e1",
+    )
+    curves = [(run_id, completed_curve(run_id, 1000)) for run_id in run_ids]
+    if any(rows is None for _, rows in curves):
+        print("skip causal-refresh figures: nine-arm batch incomplete")
+        return
+    colors = plt.get_cmap("tab10")(np.arange(len(curves)))
+    figure, axes = plt.subplots(3, 1, figsize=(10.4, 8.8), sharex=True)
+    metrics = (
+        ("train_loss", "online train loss"),
+        ("val_loss", "fixed validation loss"),
+        ("gap", "online gap = fixed val − online train"),
+    )
+    for color, (run_id, rows) in zip(colors, curves):
+        steps = np.asarray([row["step"] for row in rows])
+        label = run_id.replace("causalv5c_", "")
+        boundary = next(
+            (row["step"] for row in rows if int(row.get("epoch", 0)) >= 2),
+            None,
+        )
+        for axis, (metric, ylabel) in zip(axes, metrics):
+            values = np.asarray(
+                [row.get(metric, row["val_loss"] - row["train_loss"]) for row in rows]
+            )
+            axis.scatter(steps, values, color=color, s=3.2, alpha=0.28)
+            averaged, offsets = smooth(values)
+            axis.plot(steps[offsets], averaged, color=color, linewidth=0.75, label=label)
+            if boundary is not None:
+                axis.axvline(boundary, color=color, linewidth=0.45, linestyle=":", alpha=0.55)
+            axis.set_ylabel(ylabel)
+            axis.grid(alpha=0.20)
+    axes[0].legend(ncol=3, fontsize=7, frameon=False)
+    axes[-1].set_xlabel("optimizer step")
+    figure.suptitle(
+        "V5 causal-refresh · nine matched intervention arms\n"
+        "points = raw online records; thin lines = 3-point visual connector; dotted lines = epoch-2 boundary"
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_causal_losses.png")
+
+    frequency_records = {
+        run_id: completed_frequency_record(run_id, 1000)
+        for run_id in ("causalv5c_none", "causalv5c_mask_low_f200_e1", "causalv5c_mask_high_f200_e1")
+    }
+    if any(record is None for record in frequency_records.values()):
+        print("skip causal frequency figure: final frequency evidence incomplete")
+        return
+    figure, axes = plt.subplots(1, 2, figsize=(12.8, 4.7), sharey=True)
+    for axis, branch in zip(axes, ("bigram", "trigram")):
+        for run_id, color in zip(frequency_records, ("#374151", "#0f766e", "#d97706")):
+            gaps = frequency_gaps(frequency_records[run_id], branch)
+            buckets = ordered_frequency_buckets(gaps)
+            x = np.arange(len(buckets))
+            values = [gaps[bucket] for bucket in buckets]
+            axis.scatter(x, values, color=color, s=20, alpha=0.75)
+            add_finite_smoothed_segments(axis, x, values, color, run_id.replace("causalv5c_", ""))
+        axis.axhline(0, color="#686d73", linewidth=0.7, linestyle=":")
+        axis.set_xticks(x, buckets, rotation=38, ha="right")
+        axis.set_xlabel("train context hit-count bucket")
+        axis.set_title(branch)
+        axis.grid(alpha=0.22)
+    axes[0].set_ylabel("fixed-val mean loss − current-batch train mean loss")
+    axes[0].legend(fontsize=8, frameon=False)
+    figure.suptitle(
+        "V5 causal frequency contribution · final step 1000\n"
+        "low mask = f≤200; high mask = f>200; points = raw bins; thin line = 3-point connector"
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_causal_frequency_effect.png")
+
+
+def plot_optimizer_refresh():
+    groups = (
+        (
+            "table LR scale",
+            (
+                "optv5c_rms_b099_s0p5",
+                "optv5c_rms_b099_s1p0",
+                "optv5c_rms_b099_s2p0_r1",
+                "optv5c_rms_b099_s3p0",
+                "optv5c_rms_b099_s4p0",
+            ),
+        ),
+        (
+            "RMSProp β₂",
+            (
+                "optv5c_rms_b095_s2p0",
+                "optv5c_rms_b098_s2p0",
+                "optv5c_rms_b099_s2p0_r1",
+                "optv5c_rms_b0995_s2p0",
+                "optv5c_rms_b0999_s2p0",
+            ),
+        ),
+        (
+            "table optimizer",
+            (
+                "optv5c_rms_b099_s2p0_r1",
+                "optv5c_adamw_b099_s2p0",
+                "optv5c_sgd_m0_s2p0",
+            ),
+        ),
+    )
+    all_run_ids = tuple(dict.fromkeys(run_id for _, run_ids in groups for run_id in run_ids))
+    curves = {run_id: completed_curve(run_id, 1000) for run_id in all_run_ids}
+    if any(rows is None for rows in curves.values()):
+        print("skip optimizer-refresh figures: eleven-arm batch incomplete")
+        return
+    figure, axes = plt.subplots(3, 3, figsize=(13.8, 8.6), sharex="col")
+    metrics = (
+        ("train_loss", "online train loss"),
+        ("val_loss", "fixed validation loss"),
+        ("gap", "online gap"),
+    )
+    for column, (title, run_ids) in enumerate(groups):
+        colors = plt.get_cmap("tab10")(np.arange(len(run_ids)))
+        for color, run_id in zip(colors, run_ids):
+            rows = curves[run_id]
+            steps = np.asarray([row["step"] for row in rows])
+            label = run_id.replace("optv5c_", "")
+            for row_index, (metric, ylabel) in enumerate(metrics):
+                axis = axes[row_index, column]
+                values = np.asarray(
+                    [row.get(metric, row["val_loss"] - row["train_loss"]) for row in rows]
+                )
+                axis.scatter(steps, values, color=color, s=2.8, alpha=0.22)
+                averaged, offsets = smooth(values)
+                axis.plot(steps[offsets], averaged, color=color, linewidth=0.75, label=label)
+                axis.set_ylabel(ylabel)
+                axis.grid(alpha=0.20)
+        axes[0, column].set_title(title)
+        axes[0, column].legend(fontsize=6.6, frameon=False)
+        axes[-1, column].set_xlabel("optimizer step")
+    figure.suptitle(
+        "V5 clean table optimizer refresh · full 1000-step curves\n"
+        "points = raw online records; thin lines = 3-point visual connector"
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_optimizer_full_curves.png")
+
+    candidate_ids = (
+        "optv5c_rms_b099_s1p0",
+        "optv5c_rms_b099_s2p0_r1",
+        "optv5c_rms_b099_s3p0",
+    )
+    records = {
+        run_id: completed_frequency_record(run_id, 1000)
+        for run_id in candidate_ids
+    }
+    if any(record is None for record in records.values()):
+        print("skip optimizer frequency figure: final frequency evidence incomplete")
+        return
+    figure, axes = plt.subplots(1, 2, figsize=(12.8, 4.7), sharey=True)
+    for axis, branch in zip(axes, ("bigram", "trigram")):
+        for run_id, color in zip(records, ("#2d6f9f", "#0f766e", "#c4493d")):
+            gaps = frequency_gaps(records[run_id], branch)
+            buckets = ordered_frequency_buckets(gaps)
+            x = np.arange(len(buckets))
+            values = [gaps[bucket] for bucket in buckets]
+            axis.scatter(x, values, color=color, s=20, alpha=0.75)
+            add_finite_smoothed_segments(axis, x, values, color, run_id.replace("optv5c_", ""))
+        axis.axhline(0, color="#686d73", linewidth=0.7, linestyle=":")
+        axis.set_xticks(x, buckets, rotation=38, ha="right")
+        axis.set_xlabel("train context hit-count bucket")
+        axis.set_title(branch)
+        axis.grid(alpha=0.22)
+    axes[0].set_ylabel("fixed-val mean loss − current-batch train mean loss")
+    axes[0].legend(fontsize=8, frameon=False)
+    figure.suptitle(
+        "V5 table-LR frequency diagnostic · final step 1000\n"
+        "points = raw bins; thin line = 3-point visual connector"
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_optimizer_frequency.png")
+
+
+def plot_dose_refresh():
+    doses = (
+        ("0.25×", "nglab0_25x_input_v5_freq10"),
+        ("0.5×", "nglab0_5x_input_v5_freq10"),
+        ("0.75×", "nglab0_75x_input_v5_freq10"),
+        ("1×", "nglab1x_input_v5_freq10_r1"),
+        ("1.5×", "nglab1_5x_input_v5_freq10"),
+        ("2×", "nglab2x_input_v5_freq10"),
+        ("2.5×", "nglab2_5x_input_v5_freq10"),
+        ("3×", "nglab3x_input_v5_freq10"),
+        ("4×", "nglab4x_input_v5_freq10"),
+        ("5×", "nglab5x_input_v5_freq10"),
+        ("6×", "nglab6x_input_v5_freq10"),
+        ("8×", "nglab8x_input_v5_freq10"),
+    )
+    curves = [(label, run_id, completed_curve(run_id, 2000)) for label, run_id in doses]
+    if any(rows is None for _, _, rows in curves):
+        print("skip dose-refresh figures: twelve-dose evidence incomplete")
+        return
+    figure, axes = plt.subplots(3, 1, figsize=(10.1, 8.7), sharex=True)
+    colors = plt.get_cmap("viridis", len(curves))(np.arange(len(curves)))
+    metrics = (
+        ("train_loss", "online train loss"),
+        ("val_loss", "fixed validation loss"),
+        ("gap", "online gap"),
+    )
+    for color, (label, _, rows) in zip(colors, curves):
+        steps = np.asarray([row["step"] for row in rows])
+        boundary = next(
+            (row["step"] for row in rows if int(row.get("epoch", 0)) >= 2),
+            None,
+        )
+        for axis, (metric, ylabel) in zip(axes, metrics):
+            values = np.asarray(
+                [row.get(metric, row["val_loss"] - row["train_loss"]) for row in rows]
+            )
+            axis.scatter(steps, values, color=color, s=2.5, alpha=0.20)
+            averaged, offsets = smooth(values)
+            axis.plot(steps[offsets], averaged, color=color, linewidth=0.70, label=label)
+            if boundary is not None:
+                axis.axvline(boundary, color=color, linewidth=0.35, linestyle=":", alpha=0.45)
+            axis.set_ylabel(ylabel)
+            axis.grid(alpha=0.20)
+    axes[0].legend(ncol=4, fontsize=6.8, frameon=False)
+    axes[-1].set_xlabel("optimizer step")
+    figure.suptitle(
+        "V5 shard-dose refresh · complete 2000-step trajectories\n"
+        "points = raw online records; thin lines = 3-point visual connector; dotted lines = epoch-2 boundary"
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_dose_trajectories.png")
+
+    frequency_records = {
+        label: completed_frequency_record(run_id, 2000)
+        for label, run_id in doses
+    }
+    if any(record is None for record in frequency_records.values()):
+        print("skip dose frequency heatmap: final frequency evidence incomplete")
+        return
+    figure, axes = plt.subplots(1, 2, figsize=(14.0, 6.1), sharey=True)
+    for axis, branch in zip(axes, ("bigram", "trigram")):
+        bucket_names = ordered_frequency_buckets(
+            frequency_gaps(next(iter(frequency_records.values())), branch)
+        )
+        matrix = np.asarray(
+            [
+                [frequency_gaps(record, branch).get(bucket, np.nan) for bucket in bucket_names]
+                for record in frequency_records.values()
+            ],
+            dtype=float,
+        )
+        image = axis.imshow(matrix, aspect="auto", cmap="coolwarm", interpolation="none")
+        axis.set_xticks(np.arange(len(bucket_names)), bucket_names, rotation=38, ha="right")
+        axis.set_yticks(np.arange(len(doses)), [label for label, _ in doses])
+        axis.set_xlabel("train context hit-count bucket")
+        axis.set_title(branch)
+        figure.colorbar(image, ax=axis, label="fixed-val mean loss − current-batch train mean loss")
+    axes[0].set_ylabel("train-shard dose")
+    figure.suptitle("V5 dose × frequency-bin gap · final step 2000 · raw bins only")
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_dose_frequency_heatmap.png")
+
+
 def plot_existing_causal():
     plot_curve_grid(
         (
@@ -634,6 +934,9 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     plot_injection()
     plot_injection_frequency()
+    plot_causal_refresh()
+    plot_optimizer_refresh()
+    plot_dose_refresh()
     plot_fixed_step_dose()
     plot_s1_epoch()
     plot_table_size()

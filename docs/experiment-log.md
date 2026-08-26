@@ -1755,10 +1755,10 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 
 | family | run_id 模式 | 数量 | steps | 唯一变量 | 状态 |
 |---|---|---:|---:|---|---|
-| optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | planned |
-| causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | planned |
-| M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | planned |
-| dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | planned |
+| optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | 🟡 running on 360-2 |
+| causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | 🟡 running on ophis-gpu |
+| M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | 🟡 running on 360-1 |
+| dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | 🟡 running on ophis-gpu + 360-2 |
 | table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | clean bigram/trigram physical-row diagnostics | ✅ done (2026-08-26) |
 
 ### Preflight 记录（2026-08-26）
@@ -1785,6 +1785,11 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
   队列已停止且产物保留。为杜绝此类重训，18 条权威 summary 位于 360-1 时只允许运行
   `code/cluster/backfill_v5_table_occupancy.sh`：它拒绝缺 summary 的目录、绝不调用
   `train.py`，只产生 occupancy JSON。
+- 剂量 refresh 在 360-2 初始调度时短暂重复启动了仍由 ophis-gpu 运行的
+  `nglab0_25x_input_v5_freq10` 与 `nglab0_5x_input_v5_freq10`。二者均在产生
+  `summary.json` 前收到 `SIGTERM`，对应 360-2 目录保留为非权威 partial；
+  这两个剂量只读取 ophis-gpu 的权威完整产物。360-2 队列随后自动释放两张卡并继续
+  其余 9 个互不重复的剂量 run。
 
 所有新训练 run 的 owner 为 local v5-refresh queue，seed 42，结果目录为
 `data/runs_fixed/<run_id>_fixed/`；训练/验证 shard 均由下表和 launcher
