@@ -188,7 +188,12 @@ def compute_occupancy(data_dir: str, shard_ids: list, vocab_size: int,
         keys = _context_keys(tokens, vocab_size, branch)
         clean_table = bigram_clean_table if branch == "bigram" else trigram_clean_table
         if clean_table > 0:
-            clean_primes = [primes_list[0][:1]]
+            first_hash = (
+                primes_list[0][:1]
+                if branch == "bigram"
+                else primes_list[0][:3]
+            )
+            clean_primes = [first_hash]
             rows = hash_rows_for_branch(tokens, vocab_size, clean_table,
                                         branch, clean_primes)
             for li, h_rows in rows.items():

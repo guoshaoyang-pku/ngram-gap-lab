@@ -309,6 +309,36 @@ def test_occupancy_hash_matches_model_hash():
         assert torch.equal(torch.from_numpy(a.astype(np.int64)), b)
 
 
+def test_clean_trigram_occupancy_uses_one_complete_hash():
+    vocab = 16
+    chunk_size = 6
+    d = tempfile.mkdtemp()
+    chunks = np.array([[1, 2, 3, 4, 5, 6], [7, 1, 9, 2, 0, 3]], dtype=np.uint16)
+    with open(os.path.join(d, "shard_00001.bin"), "wb") as f:
+        f.write(chunks.tobytes())
+
+    clean_rows = 31
+    branch_primes = {
+        "bigram": [[(1, 2), (3, 5)]],
+        "trigram": [(7, 11, 13, 17, 19, 23)],
+    }
+    occupancy = compute_occupancy(
+        d, [1], vocab, sequence_len=5, device_batch_size=2,
+        epoch_batches=1, table_mult=4, branch_primes=branch_primes,
+        bigram_clean_table=clean_rows, trigram_clean_table=clean_rows,
+    )
+    tokens = _load_chunk_matrix(d, [1], chunk_size=chunk_size, n_chunks=2)
+    expected_rows = hash_rows_for_branch(
+        tokens, vocab, clean_rows, "trigram", [(7, 11, 13)],
+    )[0]
+    trigram_stats = occupancy["branches"]["trigram"]["0"]
+
+    assert len(expected_rows) == 1
+    assert len(trigram_stats) == 1
+    assert trigram_stats[0]["physical_rows_R"] == clean_rows
+    assert trigram_stats[0]["logical_addresses"] == clean_rows
+
+
 def test_occupancy_monotonic_with_table_size():
     """Occupancy must decrease as table size grows (same data)."""
     vocab = 16
