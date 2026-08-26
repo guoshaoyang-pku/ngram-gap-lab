@@ -63,9 +63,13 @@
 | `ngram5_order5_trigram_s43_fixed` | 2026-08-24 | **自然语言 5gram（order=5）· +trigram · seed 43 复现** | ✅ done | −0.0090 @2000 | §19 |
 | `l6_counttable_freq_exact_v1` | 2026-08-25 | **二元计数表 · 频率扫描 · 精确枚举** | ✅ done | slope −1.0000（f≥512） | §23 |
 | `l6_response_moments_exact_v1` | 2026-08-25 | **残差—响应映射 · 二/四/绝对矩 · 精确枚举** | ✅ done | −1.0000/−0.4995/−1.9986 | §23 |
-| `optv5d_rms_b095_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.95，scale=8** | running | 待填 | §24c |
-| `optv5d_rms_b099_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.99，scale=8** | running | 待填 | §24c |
-| `optv5d_rms_b0995_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.995，scale=8** | running | 待填 | §24c |
+| `optv5d_rms_b095_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.95，scale=8** | ✅ done | +2.228 @1000 | §24c |
+| `optv5d_rms_b099_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.99，scale=8** | ✅ done | +2.432 @1000 | §24c |
+| `optv5d_rms_b0995_s8p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.995，scale=8** | ✅ done | +2.429 @1000 | §24c |
+| `optv5e_rms_b095_s16p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.95，scale=16** | 🔄 running | 待填 | §24c |
+| `optv5e_rms_b099_s16p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.99，scale=16** | 🔄 running | 待填 | §24c |
+| `optv5e_rms_b0995_s16p0` | 2026-08-26 | **高 table-LR β₂ gate · RMSProp β₂=.995，scale=16** | 🔄 running | 待填 | §24c |
+| `ngram5_order5_sample285_v5_transformer_s42` | 2026-08-26 | **5-gram condition · sample285 受控样本量 · Transformer · v5** | planned | 待填 | §26 |
 
 状态约定：`planned` 已登记未开跑 / `running` 运行中 / `done` 已回填 / `stalled` 超期未回填。
 新实验流程：总表加一行拿到唯一 `run_id` → 正文新建 section 按 `agents.md` §3 / `docs/plan.md` 模板填写
@@ -1954,9 +1958,9 @@ steps；gap=同 logged step 的 fixed val−current-batch online train。
 
 | run_id | GPU / cluster | 只改变量 | 结果目录 | 状态 |
 |---|---|---|---|---|
-| `optv5d_rms_b095_s8p0` | 360-2 GPU0 | β₂=.95 | `data/runs_fixed/optv5d_rms_b095_s8p0_fixed/` | running |
-| `optv5d_rms_b099_s8p0` | 360-2 GPU1 | β₂=.99 | `data/runs_fixed/optv5d_rms_b099_s8p0_fixed/` | running |
-| `optv5d_rms_b0995_s8p0` | 360-2 GPU2 | β₂=.995 | `data/runs_fixed/optv5d_rms_b0995_s8p0_fixed/` | running |
+| `optv5d_rms_b095_s8p0` | 360-2 GPU0 | β₂=.95 | `data/runs_fixed/optv5d_rms_b095_s8p0_fixed/` | ✅ done, gap 2.228379 |
+| `optv5d_rms_b099_s8p0` | 360-2 GPU1 | β₂=.99 | `data/runs_fixed/optv5d_rms_b099_s8p0_fixed/` | ✅ done, gap 2.432147 |
+| `optv5d_rms_b0995_s8p0` | 360-2 GPU2 | β₂=.995 | `data/runs_fixed/optv5d_rms_b0995_s8p0_fixed/` | ✅ done, gap 2.428866 |
 
 **精确执行命令**（远端仓库 `/data/home/guoshaoyang/ngram-gap-lab`，解释器
 `/usr/bin/python3`；运行前已核对本机与 360-2 的 `train.py`、`ngram_freq.py`、
@@ -1974,6 +1978,22 @@ NGLAB_PY=/usr/bin/python3 bash code/cluster/run_v5_clean.sh <GPU> <run_id> 1 \
 曲线均有限且无明显末端爆炸时，才称为候选 β₂-insensitive 区。通过后才登记
 scale=16 的中心臂及同样的 β₂ gate；不通过则停止把 LR 上探作为定量主 setting，
 保留 scale=2 仅作 optimizer-dependent 现象设置。
+
+**回填与后续登记（2026-08-26）**：三臂各有 100 条上述四类 step-10
+日志且 final train / val / gap 均有限。`β₂=.95/.99/.995` 的 final gap 为
+`2.228379/2.432147/2.428866`，相对 `.99` 的跨度为 `8.3781%`，通过预注册的
+10% gate。故登记、但不改变 SSOT 地启动同一 β₂ 三臂的 scale=16 验收：
+
+| run_id | cluster / GPU | 唯一变量 | 状态 |
+|---|---|---|---|
+| `optv5e_rms_b095_s16p0` | 360-1 GPU1 | β₂=.95，table scale 16 | 🔄 running |
+| `optv5e_rms_b099_s16p0` | 360-1 GPU2 | β₂=.99，table scale 16 | 🔄 running |
+| `optv5e_rms_b0995_s16p0` | 360-1 GPU3 | β₂=.995，table scale 16 | 🔄 running |
+
+它们与本节固定完整契约完全相同，仅把 table scale 固定为 `16.0`
+（实际 table LR `0.0096`），并仍以 `spread≤0.10` 与无 NaN/Inf 为 gate；
+即使通过，也只说明该范围的 β₂ 敏感性，不能凭 single-seed gap 替代 v5 的
+scale=2 主线。
 
 ---
 
@@ -2055,6 +2075,53 @@ partial 目录则拒绝覆盖。
 
 **产出**：v4 权威相图（semilog + 双对数），与 §22b warmdown 版并列对照。
 详细 gap 数值在 run 完成后回填到本表下方。
+
+---
+
+## §26 · 5-gram condition sample285 trunk 对照（2026-08-26）
+
+**背景**：主报告第 7 节原先展示的 sample285 页面实际是 `order=3`
+trigram controlled data。该页面没有可追溯的生成命令、`run_id` 或原始
+run 目录，因此旧数字降级为历史存档，不能作为本节的 5-gram 证据。
+本节保留原科学问题，但要求使用真正的 `order=5` context。
+
+### 登记
+
+| run_id | 状态 | owner | target | 变量 |
+|---|---|---|---|---|
+| `ngram5_order5_sample285_v5_transformer_s42` | planned | Codex | 待用户确认空闲 H200；未完成 `nvidia-smi` 前不得启动 | Transformer trunk；其余坐标固定 |
+| `ngram5_order5_sample285_v5_mlp_s42` | stalled | Codex | 不适用 | `code/train.py` 当前没有 position-wise MLP trunk，必须先实现并单独 smoke；不得以历史 HTML 数字回填 |
+
+### 固定 setting 与数据契约
+
+- 数据条件：真实文本 `order=5`（5-gram context），`fivegram_alpha*`
+  controlled blocks；完整 upstream train/val 不重叠，固定 train/val batch
+  hash；sample285 的目标是每个 epoch 285 个 device steps。
+- 模型：vanilla nanoGPT，8L·6H·768D，vocab 8192，sequence length 2048，
+  learned absolute position，LayerNorm，tied embedding，LLLL full attention。
+- 注入：input / wte；bigram + trigram value tables；unigram/fourgram 关闭。
+  数据 context order 与注入表 order 是两个独立坐标，本实验是
+  **5-gram condition + bigram/trigram injection**，不是 trigram condition。
+- 表：clean single table，`R_bigram=R_trigram=1,048,576`，每个 branch
+  一张表、一个 hash、单层；不能回落到 `table_mult` 历史架构。
+- 优化：backbone AdamW betas `(0.8,0.95)`、weight decay 0.1、LR `0.0006`；
+  table RMSProp 无动量，betas `(0.0,0.99)`，LR scale 2.0；固定
+  `warmup_constant`，100 steps warmup，之后不 warmdown；bf16，不 compile。
+- 测量：`VAL_LOSS_INTERVAL_STEPS=10`，fixed validation batches；主 gap 为
+  同一 logged step 的 fixed val loss 减当前 online train loss；`novel` 不进
+  gap；frequency 使用完整 upstream train epoch 的 collision-free exact
+  order-5 context count。
+
+### 可执行命令与验收
+
+launcher：`ngram5_freq_gap/cluster/run_on_cluster.sh`，必须显式设置
+`NGRAM5_RUN_ID=ngram5_order5_sample285_v5_transformer_s42`，并在目标机完成
+代码 hash 核对、GPU 空闲核对和数据生成 smoke。训练前需确认数据 metadata
+为 `order=5`、`block_len=7`，以及 `exact_ngram_counts.npz` 使用
+`contexts` 矩阵而不是溢出的 packed int64 key。验收产物为
+`data/runs_fixed/ngram5_order5_sample285_v5_transformer_s42_fixed/`，至少含
+run contract、summary、training/validation JSONL、fixed batch hashes 和
+exact-frequency probe 输出；MLP 臂只有在实现后另起 run_id。
 
 ---
 
