@@ -1,5 +1,7 @@
 # data directory (gitignored — large files, not tracked)
 data/
+# ...but keep docs/notes/data (cluster-infra coordinates, small markdown)
+!docs/notes/data/
 
 # Python
 __pycache__/
