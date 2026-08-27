@@ -1,18 +1,17 @@
 # 附录 · S1 三轴 scaling 验证
 
-> **这页只回答三个关系**：真实 context 的训练频率 `f`、clean 双表大小 `R`，以及 replay exposure `L` 如何对应 gap。当前可展示的 v5 结果位于页首；旧 `torch.compile` 波次完整保留在下方折叠区，只作溯源。
+> **这页只回答三个关系**：真实 context 的训练频率 `f`、clean table 大小 `R`，以及 replay exposure `L` 如何对应 gap。当前可展示的 v5 结果位于页首；旧 `torch.compile` 波次完整保留在下方折叠区，只作溯源。
 >
 > **当前口径**：bf16 autocast、默认不 compile；主 gap = 同一 logged step 的 `fixed val loss − current-batch train loss`。除特别标注外，不把诊断 probe 或旧波次拟合升级成普适定律。
 
-## 先看关系：v5 主线 + 早期 clean 单表
+## 先看关系：v5 主线
 
 | 关系 | 当前可见摘要 | 不能从中读出的结论 |
 |---|---|---|
-| 真实 context frequency `f` → gap | 7 个宽几何 bin 的诊断摘要：bigram `G(f)∝f^-0.357`（R²=0.997），trigram `G(f)∝f^-0.259`（R²=0.990）。`hit count` 是 hash 前同一真实 n-gram context 在训练语料中出现的次数；它不是 table row load。 | 不是 table hit count；当前单 seed 的斜率不是普适常数。 |
-| clean 双表大小 `R` → gap | `G_both(R) ∝ R^0.652`（18 个正终点，seed 42，step 1000）。 | 不是单独 bigram / trigram 的两个指数。 |
-| 早期 clean 单表、分支分开扫 `R` → gap | bigram 主体 `G_bi(R)∝R^0.33`；trigram `G_tri(R)∝R^0.67`。这里横轴原写为 `R/N`，但各 branch 的 `N` 固定，换成 `R` 指数不变。 | 不是 v5 双表的 `0.652` 拆分；bigram 大 R 端断裂，trigram 仅 6 点，无多 seed。 |
-| fixed-step 数据剂量 `D` → gap | v5 seed 42 在 step 2000 从 `D=.25×` 的 11.589 单调降至 `D=5×` 的 0.088，并在 6× 后接近/穿过 0。 | 不是一条全区间幂律；局部斜率随窗口显著变陡。 |
-| epoch prefix `L` → gap | 只展示 v5 单 seed replay/exposure 曲线。 | 不拟合幂律，不作独立因果律。 |
+| 真实 context frequency `f` → gap | 7 个宽几何 bin 的诊断摘要：bigram `G(f)∝f^-0.252746`（R²=0.997165），trigram `G(f)∝f^-0.318121`（R²=0.995548）。`hit count` 是 hash 前同一真实 n-gram context 在训练语料中出现的次数；它不是 table row load。 | 不是 table hit count；当前单 seed 的斜率不是普适常数。 |
+| clean table 大小 `R` → gap | 两条正式单表轴：bigram-only `G_bi(R)∝R^0.429`、trigram-only `G_tri(R)∝R^0.658`（各 18 点，seed 42，step 1000；R² 分别为 .976/.995）。另一张表在每条轴上关闭。 | 不是一个把两张表绑定在一起的 `G_both(R)` 指数；两条 branch 不能合并拟合。 |
+| fixed-step 数据剂量 `D` → gap | v5 seed 42 在 step 2000 从 `D=.25×` 的 11.536 单调降至 `D=5×` 的 0.084，并在 6× 后穿过 0。 | 不是一条全区间幂律；局部斜率随窗口显著变陡。 |
+| epoch length `L` → gap | 12 个 trigram-only、相对标准 `L4` 的 v5 点，每个 run 完成 3 个 epoch；U 形，1.0×L4 最低 gap=2.469。 | 不拟合幂律，不作独立因果律。 |
 
 > **读图规则**：频率图横轴是 exact context frequency；table 图横轴是每个 clean table 的物理行数 `R`。table occupancy / collision 是解释 `R` 效应的另一条观测轴，不能替代 `f`。
 
@@ -28,47 +27,47 @@
 
 *Trigram：v5 当前 batch 的 frequency-bin gap。与 bigram 使用同一“hash 前真实 context”口径。*
 
-作为更细的 *exact-f* 形状诊断，S1 v5 把 eligible exact-f 条目按对数范围合并为 **7 个宽几何 bin**；每个 bin 内按 shared-context token mass 加权，高频尾部不再由少数 exact-f 点主导。seed 42、step 1000 的双对数摘要为：**bigram `G(f)∝f^-0.357`（R²=0.997），trigram `G(f)∝f^-0.259`（R²=0.990）**。这两个数使用 fixed train probe，且只有单 seed；它们是当前诊断图中很清楚的**局部形状摘要**，仍不是普适幂律指数的结论。
+作为更细的 *exact-f* 形状诊断，S1 v5 把 eligible exact-f 条目按对数范围合并为 **7 个宽几何 bin**；每个 bin 内按 shared-context token mass 加权，高频尾部不再由少数 exact-f 点主导。seed 42、step 1000 的双对数摘要为：**bigram `G(f)∝f^-0.252746`（R²=0.997165），trigram `G(f)∝f^-0.318121`（R²=0.995548）**。这两个数使用 fixed train probe，且只有单 seed；它们是当前诊断图中很清楚的**局部形状摘要**，仍不是普适幂律指数的结论。
 
 ![v5 exact context frequency diagnostic](../../figs/main/fig_v5_s1_frequency_exact_f.png)
 
 *v5 S1 exact-frequency 诊断：7 个宽几何 bin、横向 whisker 为 bin 范围；图例直接标出 branch-wise log-log 摘要。不以 fixed-probe gap 替代上方主口径。*
 
-## 2. 表大小：clean 双表的 R → gap 双对数关系
+## 2. 表大小：clean table 的 R → gap 双对数关系
 
-这里 `R` 是每个 clean 单表的物理行数；bigram 与 trigram 两张表在每个 run 中取相同 R 并同步改变。故图中只有一个 paired-table 关系：**`G_both(R) ∝ R^0.652`**（18 个正终点，seed 42，step 1000）。它说明当前扫描窗口内 gap 随 paired table size 增大而上升；不支持从这张图读出单独 bigram 或 trigram 的斜率。
+这里 `R` 是被改变的 clean 单表物理行数；另一张表在该轴中关闭。bigram-only 与 trigram-only 是两条独立的单表轴：**`G_bi(R) ∝ R^0.429`**、**`G_tri(R) ∝ R^0.658`**（各 18 个正终点，seed 42，step 1000，R² 分别为 .976/.995）。这两个描述性指数只对应当前扫描窗口，不能合并成一个双表指数；相较此前双表轴的 .041/.247，单表设计消除了固定背景 gap 的斜率稀释。
+
+![v5 clean table size](../../figs/main/fig_v5_s1_table_size.png)
+
+*v5 clean table size：bigram-only 与 trigram-only 分支分别变化；横轴为物理行数 `R`，另一张表关闭。*
 
 ![v5 clean double-table size log-log](../../figs/main/fig_v5_s1_table_size_loglog.png)
 
-*v5 clean 双表：R 与 final online gap 的双对数端点图；页内 log-log 拟合摘要为 `+0.652`。*
+*v5 clean table size：正 gap 端点的双对数图；bigram / trigram 的 log-log 拟合摘要分别为 `+0.429` / `+0.658`。*
 
-![v5 clean double-table load and collision](../../figs/main/fig_v5_s1_table_load_collision.png)
+![v5 clean table load proxy](../../figs/main/fig_v5_s1_table_load_proxy.png)
 
-*同一 R 扫描的 occupancy / collision 记账：它解释碰撞状态如何随 R 变化，但不是 frequency-bin 的 hit count。*
+*K/R 只是 distinct-context load proxy；正式 run 未记录 occupied rows，因此不报告 collision rate，也不把 K/R 当成 frequency-bin hit count。*
 
-### 2.1 不能漏掉的早期 clean 单表：bigram `+0.33`、trigram `+0.67`
+### 2.1 数据剂量：强单调 dilution，但不是单一幂律
 
-这是一条**分支分别改变 R**的早期 clean 单表扫描：bigram 有 29 个 R 点和 perfect-map 锚点，主体区 `G_bi(R)∝R^0.33`；trigram 首扫 6 个 R 点，`G_tri(R)∝R^0.67`。原图以 `R/N` 为横轴；每个 branch 的 distinct-context 总数 `N` 固定，所以换成 R 后指数不变。它和上方的 v5 paired double-table `R^0.652` 是三条不同关系，不能互相替代或合并拟合。
+这里 `D` 是训练 shard dose；总训练步数固定为 2000，因此 D 越大，每个样本在该预算内被 replay 的次数越少。v5 frequency-refresh 扫描（seed 42）从 `D=.25×` 的 gap 11.536 下降到 `D=5×` 的 0.084，`D=6×/8×` 为 −0.088/−0.075。它是很强的剂量/重复暴露关系，但不宜命名为一条全区间 `G(D)∝D^{-α}`：正 gap 的 5× 以内拟合斜率为 `−1.727`（R²=0.887），随后 gap 过零而 log(y) 不再定义。这说明当前曲线是 crossover 到 near-zero floor，而不是常数指数。
 
-![early clean single-table branch-wise size scan](figs/fig_clean_gap_vs_KN_loglog.png)
+![v5 dose trajectories](../../figs/main/fig_v5_dose_trajectories.png)
 
-*早期 clean 单表分支扫描：bigram 主体约 `+0.33`，但 `K/N>1.5` 后有断点/波动；trigram 的 6 点首扫约 `+0.67`。均为 seed 42、step 1000，单 seed 形状摘要。*
-
-### 2.2 数据剂量：强单调 dilution，但不是单一幂律
-
-这里 `D` 是训练 shard dose；总训练步数固定为 2000，因此 D 越大，每个样本在该预算内被 replay 的次数越少。v5 fixed-step 扫描（seed 42）从 `D=.25×` 的 gap 11.589 下降到 `D=5×` 的 0.088，`D=6×/8×` 为 −0.082/−0.077。它是很强的剂量/重复暴露关系，但不宜命名为一条全区间 `G(D)∝D^{-α}`：只拟合 `.25×–.75×` 三点时 `α≈0.359`（R²=0.979），逐步扩展窗口到 `5×` 时拟合会漂到 `α≈1.718`（R²=0.888），随后 gap 过零而 log(y) 不再定义。这说明当前曲线是 crossover 到 near-zero floor，而不是常数指数。
-
-![v5 fixed-step data-dose scan](../../figs/main/fig_v5_dose_fixedstep.png)
-
-*v5 fixed-step dose response：横轴为 D 的对数；这是 online gap 的 endpoint 曲线，而非全区间 log-log 幂律图。*
+*v5 dose refresh：显示 12 个 dose 的 online train / fixed validation / online gap 原始轨迹；细线仅为 3 点视觉连接。*
 
 ## 3. Replay exposure：保留为相邻关系，不宣称幂律
 
-v5 的 nested epoch-prefix 扫描只有单 seed。它用于把“频率效应”和“训练流重复暴露”并列观察；当前证据不足以写出稳定的 `G(L)` 幂律或独立因果关系。
+v5 的 trigram-only epoch-length 阵列只有单 seed。它用于把“频率效应”和“训练流重复暴露”并列观察；当前证据不足以写出稳定的 `G(L)` 幂律或独立因果关系。
 
-![v5 nested epoch-prefix gap](../../figs/main/fig_v5_s1_epoch_prefix.png)
+![v5 epoch-length scaling](../../figs/main/fig_v5_s1_epoch_length_scaling.png)
 
-*v5 epoch-prefix：L1–L4 的 both / nogram 对照。仅作 exposure 曲线展示。*
+*v5 epoch-length scaling：12 个 trigram-only、相对标准 `L4` 的 epoch-length 点，横轴直接使用 `L4` 倍数，不使用 L1–L4 jargon。*
+
+![v5 epoch-length trajectories](../../figs/main/fig_v5_s1_epoch_length_trajectories.png)
+
+*v5 epoch-length trajectories：各 run 的原始在线 gap 与 epoch boundary 观察。*
 
 <details>
 <summary>展开历史 S1 审计（261 个 compile run、旧表架构与旧拟合；保留，不作为页首结论）</summary>

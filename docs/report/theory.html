@@ -108,7 +108,7 @@ G_D\approx\operatorname{logit}(p)\,\delta
 =\underbrace{\left[L^{\text{ctrl}}_{\text{train}}(f)-L^{\text{arm}}_{\text{train}}(f)\right]}_{M(f)\;\text{记忆增益}}
 +\underbrace{\left[L^{\text{arm}}_{\text{val}}(f)-L^{\text{ctrl}}_{\text{val}}(f)\right]}_{X(f)\;\text{泛化代价}}.
 \]</div><small>纯代数改写，不含任何分布假设。共享 backbone 在差分中抵消，剩下的就是 §1 里 <code>δᵀu_D</code> 那一项在频率轴上的分布。</small></div>
-<figure><img src="../figs/theory/fig_theory_paired_decomposition.svg" alt="配对双差分：nogram 对照、M/X 分解、净效应与响应参考线"><figcaption>左：nogram 对照臂的 gap 在整个频率轴上是常数 <code>0.13–0.37</code> nats，没有频率结构；input 臂从 <code>11.5</code> 降到 <code>2.9</code>。中：<code>M</code>（表在 train 侧买到的）与 <code>X</code>（在 val 侧付出的）分开画。右：净效应 <code>M+X</code> 与 <code>−1</code>／<code>−1/2</code> 两条响应参考线。<a href="experiment-registry.html#registry-m2-v2">M2-v2</a> input vs nogram，step 2000，seed 42，历史 <code>bf16+compile</code>；逐桶数值见 <a href="../figs/theory/theory_paired_decomposition.csv">theory_paired_decomposition.csv</a>。</figcaption></figure>
+<figure><img src="../figs/theory/fig_theory_paired_decomposition.svg" alt="配对双差分：nogram 对照、M/X 分解、净效应与响应参考线"><figcaption>左：nogram 对照臂的 gap 在整个频率轴上是常数 <code>0.13–0.37</code> nats，没有频率结构；input 臂从 <code>11.5</code> 降到 <code>2.9</code>。中：<code>M</code>（表在 train 侧买到的）与 <code>X</code>（在 val 侧付出的）分开画。右：净效应 <code>M+X</code> 与 <code>−1</code>／<code>−1/2</code> 两条响应参考线。<a href="versions/experiment-registry-20260827-before-v5-prune.html#registry-m2-v2">M2-v2 历史登记</a> input vs nogram，step 2000，seed 42，历史 <code>bf16+compile</code>；逐桶数值见 <a href="../figs/theory/theory_paired_decomposition.csv">theory_paired_decomposition.csv</a>。</figcaption></figure>
 <p><strong>第一个结论来自左图，而且它很强：对照臂的 gap 与 <code>f</code> 无关。</strong>backbone 单独不产生任何频率依赖的 gap —— 这正是 §2 第四格「响应与训练残差无关 ⇒ 期望 gap 为 0」的实证（实测 <code>0.13–0.37</code> 而非 0，是 exposure 与有限 batch 的常数底噪）。因此<strong>频率–gap 曲线的全部结构都由 n-gram 表产生</strong>，不是 backbone 的性质。</p>
 <h3>3.1 <code>f=1</code> 桶上有一个精确闭合点</h3>
 <p>命中数恰为 1 的 context，其经验条件分布是单点质量，所以 <code>H(p̂_c)=0</code> <em>精确成立</em>。由 <code>L_train=H(p̂)+\mathrm{KL}(p̂\,\|\,q)</code> 得</p>
@@ -139,14 +139,14 @@ f=1:\qquad \mathrm{KL}\!\left(\hat p_c\,\|\,q_c\right)=L_{\text{train}}(1)\quad\
 </tbody></table></div>
 <p>典型 trigram context 用 <code>768</code> 个私有参数去拟合 <code>2.6</code> 个观测；backbone 的参数在所有 context 之间共享，per-context 有效自由度是 <code>O(1)</code>。表把这个比例整个翻转过来，这就是 overfit 定位在模块而非 backbone 的支撑级原因。</p>
 <p>碰撞把损害推到了从未出现过的 context 上：<code>novel</code> 桶（训练命中数 <code>0</code>）的 val loss，input 臂 <code>13.095</code> vs 对照 <code>2.989</code>（<strong>+10.106</strong> nats），trigram 为 <code>9.139</code> vs <code>3.174</code>（<strong>+5.965</strong>）。这些行本身从未被该 context 写入，读到的是<strong>共享哈希行里别人的记忆</strong>。同一机制在高频端反过来伤 train：trigram 的 <code>M(f)</code> 在 <code>f≈40–62</code> 之间变号，之后稳定在 <code>−0.16…−0.39</code> nats，即<strong>高频 trigram context 带表反而比不带表的训练损失更差</strong>。</p>
-<div class="box"><h3>这些数字尚不能回答的问题</h3><p>上面全部来自单 seed、历史 <code>bf16+compile</code> 波次、legacy 多层／2-hash 表。它们确定了<strong>载体</strong>（表 + 共享 readout + 碰撞）和<strong>符号</strong>（低频净损失、高频碰撞损害），但没有确定 <code>d</code> 的因果作用 —— <code>d</code> 从未被单独扫过。§4 末尾的 X2 就是为这一点设计的。</p></div>
+<div class="box"><h3>历史证据与当前补充</h3><p>上面的机制分解来自单 seed、历史 <code>bf16+compile</code> 波次、legacy 多层／2-hash 表；它确定了<strong>载体</strong>（表 + 共享 readout + 碰撞）和<strong>符号</strong>（低频净损失、高频碰撞损害），但不能单独确定 <code>d</code> 的因果作用。当前 v5 的 X2 行宽扫描已经补上这一缺口，但它仍是单 seed、step-1000 的快速验证，不能替代完整多 seed 阵列。</p></div>
 
 <h2>4. 指数由响应形状决定，不是由采样律决定</h2>
 <p>§2 给出标度关系 <code>E[G]∝f^{−(a+1)/2}</code>，其中 <code>a</code> 是 learned response 的齐次指数（<code>u(λδ)≈λᵃu(δ)</code>）。把它反解，就得到一个可以直接从任何频率–gap 拟合里读出的量：</p>
 <div class="formula"><div class="math-display">\[
 \alpha=-\frac{a+1}{2}\quad\Longleftrightarrow\quad a=-2\alpha-1 .
 \]</div><small><code>α</code> 是双对数斜率。<code>a=1</code>（线性响应）↔ <code>α=−1</code>，即方差律；<code>a=0</code>（符号／饱和响应）↔ <code>α=−1/2</code>。</small></div>
-<p>于是「斜率为什么不是 −1」变成一个<strong>可测</strong>的问题：只要改 table optimizer，就改变了表对残差的响应形状，因此应当改变 <code>α</code>。注册表里的 <a href="experiment-registry.html#registry-m3">M3</a>／<a href="experiment-registry.html#registry-m4">M4</a> 已经跑过这批臂，且都带 freq-bin 记录。</p>
+<p>于是「斜率为什么不是 −1」变成一个<strong>可测</strong>的问题：只要改 table optimizer，就改变了表对残差的响应形状，因此应当改变 <code>α</code>。历史 M3/M4 仅作溯源；当前可比较的完整曲线是注册表中的 <a href="experiment-registry.html#registry-m3b">M3b</a>，seed 稳定性由 <a href="experiment-registry.html#registry-x1">X1</a> 补充。</p>
 <figure><img src="../figs/theory/fig_theory_optimizer_exponent.svg" alt="table optimizer 与频率指数"><figcaption>左：同 step 1000、同 seed 42、同 <code>f ≤ 900</code> 窗口下四个 table optimizer 的 bigram 桶 gap。右：由 <code>a=−2α−1</code> 反解的响应指数，只画 <code>R² ≥ 0.7</code> 的臂。数值见 <a href="../figs/theory/theory_optimizer_exponent.csv">theory_optimizer_exponent.csv</a>。</figcaption></figure>
 <div class="table-wrap"><table>
 <thead><tr><th>table optimizer</th><th>run_id</th><th>branch</th><th>α</th><th>R²</th><th>mean gap</th><th>反解 a</th></tr></thead>
@@ -170,14 +170,26 @@ f=1:\qquad \mathrm{KL}\!\left(\hat p_c\,\|\,q_c\right)=L_{\text{train}}(1)\quad\
 \frac{K-1}{f}\bigg|_{K=V,\,f=1}=8191\ \text{nats},\qquad\text{实测}\ 11.535\ \text{nats}.
 \]</div><small>差三个数量级。而 resolved 渐近本身要求 <code>f ≫ K</code>：取 <code>K=V</code> 就需要 <code>f ≫ 8192</code>，而本语料最大有界桶的几何中点只有 <code>7071</code>。</small></div>
 <p>所以词表大小的作用不是给出指数，而是<strong>划定 resolved 区的入口</strong>：整条实测曲线都在 <code>f &lt; K</code> 的未解析区，那里的形状由「表如何写入」（§4 的 <code>a</code>）而不是「多项式采样方差」决定。把 <code>K</code> 换成实测有效支撑 <code>exp(L_train)=1.33</code> 也救不回来 —— 它给 <code>0.33</code> nats，低一个半数量级。两个方向都错，说明失配不在 <code>K</code> 的取值，而在<strong>机制</strong>。</p>
-<div class="box"><h3>需要你拍板的实验规划</h3>
-<p>上表的判决力被两个已知缺陷限制：<strong>(i)</strong> RMSProp 臂同时带 <code>table_lr_scale=2.0</code>，与 SGD／AdamW 的 <code>1.0</code> 不同，optimizer 与 LR 混淆；<strong>(ii)</strong> 这批是历史 <code>bf16+compile</code>、旧 warmup/warmdown schedule、单 seed。所以「<code>a≈0</code>」目前只能算<strong>强指示</strong>，不是定论。三个单变量实验可以补齐，全部沿用 v5 极简契约（<code>--lr 0.0006 --lr_schedule warmup_constant --warmup_steps 100 --table_lr_scale 2.0</code>、bf16、no-compile、clean 单表 <code>R=2^20</code>、<code>freq=10</code>、1000 步）：</p>
+<div class="box"><h3>当前 v5 补充实验的回填</h3>
+<p>历史表的判决力曾被两个已知缺陷限制：<strong>(i)</strong> RMSProp 臂同时带 <code>table_lr_scale=2.0</code>，与 SGD／AdamW 的 <code>1.0</code> 不同，optimizer 与 LR 混淆；<strong>(ii)</strong> 这批是历史 <code>bf16+compile</code>、旧 warmup/warmdown schedule、单 seed。当前 v5 已统一 table LR scale=2.0、<code>warmup_constant(100)</code>、bf16/no-compile、clean <code>R=2^20</code> 与 freq=10，并完成 X1/X2/X3；下列数字仍按单 seed 或小样本实验的证据等级解读。</p>
 <ul>
-<li><strong>X1 · optimizer × 响应指数（最高优先，判决 §4）</strong>：<code>table_optimizer ∈ {rmsprop(0,0.99), adamw(0.8,0.95), sgd(m=0)}</code>，<strong>三臂统一 <code>table_lr_scale=2.0</code></strong> 解除混淆，各配一个 nogram 对照臂做双差分，seed 42/43/44。判据：<code>a</code> 是否随归一化强度单调、是否稳定在 0 附近、SGD 是否仍无幂律。9+3 个 run。</li>
-<li><strong>X2 · 私有自由度剂量（判决 §3.2）</strong>：只改表行维度 <code>d ∈ {768,192,48,12}</code>，<code>R</code> 与其余全部不动。预测：<code>M(f=1)</code> 单调下降、<code>X/M</code> 杠杆比下降、novel 桶的 <code>+10.1</code> nats 污染随 <code>d</code> 缩小。这是唯一能把 <code>d</code> 从相关变成因果的实验，也是<strong>唯一需要偏离极简 setting 的一项</strong>（<code>d=n_embd</code> 是绑定项，按 P5 需你同意）。4 个 run。</li>
-<li><strong>X3 · 语料侧支撑测量（零 GPU，CPU 即可）</strong>：从 tokenized shard 统计每个 context 的命中数 <code>f</code> 与<strong>不同后继个数</strong> <code>r</code>，得到 <code>r̄(f)</code>。它把「有效支撑」从 <code>exp(L_train)</code> 这个代理变成直接计数，并给出 <code>H(p̂)</code> 的桶级真值，从而把 §3 的 <code>M/X</code> 分解进一步拆成「统计必然」与「模型选择」两部分。不占卡、不改 setting。</li>
+<li><strong>X1 · optimizer × 响应指数（已完成）</strong>：<code>table_optimizer ∈ {rmsprop(0,0.99), adamw(0.8,0.95), sgd(m=0)}</code>，三臂统一 <code>table_lr_scale=2.0</code>，seed 42/43/44。step-1000 final gap 均值±sample SD：RMSProp <code>1.530459±0.025256</code>、AdamW <code>1.520992±0.016406</code>、SGD <code>0.053736±0.024813</code>；SGD 的近零 gap 与归一化型 optimizer 的约 1.5 gap 在三个 seed 上分离。</li>
+<li><strong>X2 · 私有自由度剂量（已完成）</strong>：只改表行维度 <code>d ∈ {768,192,48,12}</code>，<code>R</code> 与其余全部不动。step-1000 gap 为 <code>5.741356/0.803015/0.363563/0.157422</code>；单 seed 下随 d 变窄而下降并接近 no-gram，但不升级为多 seed 普适定律。</li>
+<li><strong>X3 · 语料侧支撑测量（零 GPU，CPU 即可，<span class="exact">已完成</span>）</strong>：从 tokenized shard 统计每个 context 的命中数 <code>f</code> 与<strong>不同后继个数</strong> <code>r</code>，得到 <code>r̄(f)</code>。它把「有效支撑」从 <code>exp(L_train)</code> 这个代理变成直接计数，并给出 <code>H(p̂)</code> 的桶级真值，从而把 §3 的 <code>M/X</code> 分解进一步拆成「统计必然」与「模型选择」两部分。不占卡、不改 setting。</li>
 </ul>
-<p class="muted">建议顺序：X3（无成本，先做）→ X1（判决性）→ X2（需拍板）。三项都还没有 run_id，未登记进 <code>docs/experiment-log.md</code>，因此本页只以「提案」身份出现。</p>
+<p class="muted"><strong>X3 已完成（2026-08-26，<code>corpus_rbar_freq_v1_fixed</code>，<a href="../experiment-log.md">登记 §29</a>）</strong>：语料侧实测 bigram <code>r̄(f)≈f^{0.54}</code>、trigram <code>r̄(f)≈f^{0.32}</code>（log–log 后半窗斜率），Good–Turing 缺失质量 <code>mgt=s₁/f</code> 整体 <code>≈f^{−0.3}</code>、即使在 <code>f≈2×10⁵</code> 超高频 bin 仍 <code>≈10⁻³</code>。含义：<code>f·P(y)≫1</code> 的解析区条件在自然语料的大频率窗口内<strong>不成立</strong>，<code>(K−1)/f</code> 的 −1 采样律只属于 L3 有限 support 合成对照，不能外推到 S1——与「未解析长尾压低斜率」一致。X1 与 X2 已完成，图与 run provenance 见<a href="experiment-registry.html#registry-x1">注册表扩展验证行</a>及 <a href="../experiment-log.md">§27–§29</a>。</p>
+<figure class="evidence-figure">
+<img src="../figs/theory/fig_theory_x1_optimizer.svg" alt="X1 table optimizer seed 复现">
+<figcaption>X1 <code>optv5c_*_fixed</code>：step-1000 final gap 的 seed 43/44 原始点、两点误差线与 seed-43 gap trajectory；seed 42 复用 §24b，三 seed 均值/SD 见 <a href="../experiment-log.md">§27</a>。</figcaption>
+</figure>
+<figure class="evidence-figure">
+<img src="../figs/theory/fig_theory_x2_tabledim.svg" alt="X2 clean table row width">
+<figcaption>X2 <code>ctbl_dim*_input_v5_fixed</code>：clean-table row width 的 step-1000 final gap；d=768 为 v5 baseline，d=192/48/12 为新增单变量 run，完整 setting 与限制见 <a href="../experiment-log.md">§28</a>。</figcaption>
+</figure>
+<figure class="evidence-figure">
+<img src="../figs/theory/fig_theory_rbar_support.svg" alt="自然语料中支撑宽度与 Good-Turing 缺失质量随 exact hit count 的变化">
+<figcaption>X3 <code>corpus_rbar_freq_v1</code>：train shard 1、chunk 语义、无训练；上图是 distinct successor 支撑宽度，下图是 Good–Turing 未见后继质量。曲线读取自 <a href="../../data/runs_fixed/corpus_rbar_freq_v1_fixed/rbar_bins_bigram.json">bigram</a> 与 <a href="../../data/runs_fixed/corpus_rbar_freq_v1_fixed/rbar_bins_trigram.json">trigram</a> 统计产物；不是 gap 曲线，也不把它解释为自然语言的 −1 定律。</figcaption>
+</figure>
 </div>
 <h2>5. 现在到底有哪些数据</h2>
 <div class="table-wrap"><table>
@@ -218,7 +230,7 @@ B_c=\operatorname{Var}_{Y\sim p_c}[z_c^{\star}(Y)].
 <div class="verdict">
 <strong>可以写：</strong>单数据集的 loss gap 精确等于 sampling residual 与 learned logits 的内积；跨随机训练集的期望是 residual–response covariance。resolved、有限支撑、<em>线性</em>响应的 count table 以协方差项为首阶，因此渐近出现 <code>(K−1)/f</code>。
 配对双差分给出无假设的分解 <code>G^arm−G^ctrl = M(f)+X(f)</code>；nogram 对照臂的 gap 与 <code>f</code> 无关（<code>0.13–0.37</code> nats），故频率结构全部来自表。<code>f=1</code> 桶上 <code>H(p̂)=0</code> 精确成立，因此 <code>L_train</code> 就是 <code>KL(p̂‖q)</code>：input <code>0.283</code> vs nogram <code>2.833</code>，杠杆比 <code>X/M∈[3.24,5.28]</code>。碰撞使 novel 桶被污染 <code>+10.106</code>（bigram）／<code>+5.965</code>（trigram）nats，并使 trigram 在 <code>f≳60</code> 后 <code>M&lt;0</code>。归一化型 optimizer 反解 <code>a∈[−0.19,+0.46]</code>，SGD 臂无可辨识幂律。
-<br><br><strong>不能写：</strong>“gap 普遍正比于方差”“自然语言的指数应为 −1”“现有 bucket 图验证了采样律”“表大小/词表大小与 gap 存在普适幂律”“SGD 把指数推向 −1”“<code>a≈0</code> 已被定论证明”（optimizer 与 <code>table_lr_scale</code> 仍混淆、单 seed、历史 compile 波次）“X1–X3 的预测已经被验证”。
+<br><br><strong>不能写：</strong>“gap 普遍正比于方差”“自然语言的指数应为 −1”“现有 bucket 图验证了采样律”“表大小/词表大小与 gap 存在普适幂律”“SGD 把指数推向 −1”“<code>a≈0</code> 已被定论证明”（frequency slope 的机制拟合仍受单 corpus、单 seed 与有限频率覆盖限制）“X1–X3 的所有机制预测已经被验证”。
 </div>
 
 <p class="footer">运行登记见 <a href="../experiment-log.md">docs/experiment-log.md §23</a>；L6 任务说明见 <a href="../../tasks/l6_residual_response/README.md">tasks/l6_residual_response/README.md</a>。本页不修改主报告 <code>docs/report/index.html</code> 的发布权威关系。</p>

@@ -45,16 +45,19 @@
 |---|---|---|---|---|---|---|---|---|
 | **M1** | 注入点消融 v50 | v/y/input 哪个产生 gap | `nglab_{v,y,input,nogram}` | `run_injpos.sh` | `gen_injpos_plot.py` | `figs/main/injpos_ablation.html` | §1–3 | 🗄️ 过时（val 每 50 步），被 M2 取代 |
 | **M2** | **注入点消融 v10（博客主线）** | 同上，2000 步 + val 每 10 步 + 无表对照 | `nglab1x_v10_*_fixed` | `run_injpos_parallel.sh` | **`gen_all_figures.py`**（canonical）<br>`build_injpos_data_json.py`<br>`build_blog_clone_v10.py` | `figs/main/` | §8 | ✅ 完成 |
-| **M3** | Table 优化器 · 1x epoch | RMSProp/AdamW/SGD 谁写得快；LR 剂量；β₂ | `nglab1x_opt_*_fixed` | `run_table_opt.sh` | `analyze_table_opt.py` | `figs/table_opt/` | §9 §9a §9b §9d | ⚠️ 完成但**结论待修正**（β₂ bug 直击此线） |
-| **M4** | Table 优化器 · 2x epoch | 同 M3，epoch 拉长看 β₂/LR 是否改变 | `nglab2x_opt_*_fixed` | `run_table_opt_2x.sh` | `analyze_table_opt_2x.py`<br>`analyze_table_opt_1x_vs_2x.py` | `figs/table_opt/` | §9c | ⚠️ 同上（`b2_099` 从 0.64→2.00） |
-| **M3b** | 表学习率 × β₂ 消融深挖（附录） | β₂ 与表学习率的消融及交互；**高表学习率体检（发现 ×2/×4 崩坏）** | `nglab*_opt_*_fixed` + 补点 `nglab*_b2_099_lr1` | 手工启动（补点脚本见任务目录） | `docs/appendices/lr_beta_ablation/` | `docs/appendices/lr_beta_ablation/figs/` | §9 系列 | 🟡 进行中（2 个补点跑中） |
+| **M3** | Table 优化器 · 1x epoch | RMSProp/AdamW/SGD 谁写得快；LR 剂量；β₂ | `nglab1x_opt_*_fixed` | `run_table_opt.sh` | `analyze_table_opt.py` | `figs/table_opt/` | §9 §9a §9b §9d | 🗄️ 历史结果受 β₂ bug 影响；当前证据由 V5-refresh/M3b 取代 |
+| **M4** | Table 优化器 · 2x epoch | 同 M3，epoch 拉长看 β₂/LR 是否改变 | `nglab2x_opt_*_fixed` | `run_table_opt_2x.sh` | `analyze_table_opt_2x.py`<br>`analyze_table_opt_1x_vs_2x.py` | `figs/table_opt/` | §9c | 🗄️ 历史结果受 β₂ bug 影响；当前证据由 V5-refresh/M3b 取代 |
+| **M3b** | 表学习率 × β₂ 消融深挖（附录） | β₂ 与表学习率的消融及交互；含 scale=8/16 高 table-LR β₂ gate | `optv5d_*`、`optv5e_*`、`optv5f_*` | `run_v5_clean.sh` + 专用高 scale 登记 | `docs/plot_scripts/plot_v5_optv5f_*.py` | `figs/main/` | §24c、§32 | ✅ 完成；scale=8/16 gate 与 scale=8–1024 收敛批均已回填 |
 | **M5** | shard 大小扫描 | 「epoch shard 越大 gap 越小」是否成立 | `nglab{0_25x…8x}_input_fv*_fixed` | `run_shard_sweep{,_v2,_360}.sh` | `gen_shard_sweep_figs.py` | `figs/epoch_scale/` | §4 §6 §7 §10 | ✅ 完成（12 点齐） |
-| **M6** | epoch 对齐批（e5，实际 5 epoch） | 对齐 epoch 数后 M5 的单调关系是否消失 | `nglab*_e6_fixed` | `launch_360_*.sh` | `gen_epoch_aligned_figs.py`<br>`gen_nogram_vs_epochaligned_figs.py` | `figs/epoch_scale/` | §12 | ❌ **不完整**：仅 0.25x–3x，缺 4x/5x/6x/8x。⚠️ 命名 `_e6` 但实际 5 epoch、无 LR schedule（`lr_schedule_epochs=0`），见 §12 勘误 |
+| **M6** | epoch 对齐批（历史 e5/e6） | 对齐 epoch 数后 M5 的单调关系是否消失 | `nglab*_e6_fixed` | `launch_360_*.sh` | `gen_epoch_aligned_figs.py`<br>`gen_nogram_vs_epochaligned_figs.py` | `figs/epoch_scale/` | §12 | 🗄️ 历史且不完整；由当前 v5 S1 三 epoch 阵列取代 |
 | **M7** | 短 epoch × β₂ | β₂ 是否改变 per-epoch 台阶清晰度 | `nglab{025x,05x}_b2_099` | `run_epoch_short_b2.sh` | `gen_short_epoch_b2_figs.py` | `figs/short_epoch_b2/` | §11(B) | ⚠️ 完成但图未按 `_fixed` 重生成 |
-| **V5-refresh** | 完整曲线证据刷新 | 把 M2、optimizer、causal、dose × frequency 统一到 current-batch / freq=10 口径 | `nglab1x_{input,y,v,nogram}_v5_freq10`；`optv5c_*`；`causalv5c_*`；`nglab*_input_v5_freq10` | `run_v5_optimizer_sweep.sh`；`V5_GROUP={inj_freq10,causal_refresh,dose_freq10} run_v5_main_manifest.sh` | `plot_v5_registry_figures.py` | `figs/main/` | §24b | 🟡 31/35 已完成：M2 4/4 + optimizer 11/11 + causal 9/9 + dose 7/11；剂量图只画已验收 7 点，4×/5×/6×/8× 继续运行，旧端点/precursor 不冒充此批 |
+| **V5-refresh** | 完整曲线证据刷新 | 把 M2、optimizer、causal、dose × frequency 统一到 current-batch / freq=10 口径 | `nglab1x_{input,y,v,nogram}_v5_freq10`；`optv5c_*`；`causalv5c_*`；`nglab*_input_v5_freq10` | `run_v5_optimizer_sweep.sh`；`V5_GROUP={inj_freq10,causal_refresh,dose_freq10} run_v5_main_manifest.sh` | `plot_v5_registry_figures.py` | `figs/main/` | §24b | ✅ 35/35 已验收：M2 4/4 + optimizer 11/11 + causal 9/9 + dose 11/11；只使用 `_fixed` 小型证据和 current-batch train loss |
+| **X1** | optimizer × seed 复现 | v5 table optimizer 的三 seed final gap 与完整 step-10 曲线 | `optv5c_{rms,adamw,sgd}_*_s{43,44}`；seed 42 复用 | `run_v5_clean.sh` | `gen_theory_x1x2_verdict_figs.py` | `figs/theory/` | §27 | ✅ 完成；三臂三 seed 均值/SD 已回填 |
+| **X2** | clean 表行宽扫描 | 同步改变 bigram/trigram row width `d`，观察 gap 是否向 no-gram 塌缩 | `ctbl_dim{192,48,12}_input_v5`；d=768 复用基线 | `run_v5_clean.sh` | `gen_theory_x1x2_verdict_figs.py` | `figs/theory/` | §28 | ✅ 完成；step-1000 final gap=0.803/0.364/0.157 |
 
-**M6 的缺口值得单独提**：§12 结论「对齐 epoch 后单调关系消失」目前只有 8/12 个点支撑，
-而缺失的恰是最能证伪的大 shard 端（4x/5x/6x/8x）。要么补跑，要么在结论里显式限定覆盖范围。
+**历史 M6 的缺口已不再是当前待办**：§12 的「对齐 epoch 后单调关系消失」仍只由
+8/12 个旧点支撑；缺失的大 shard 端（4x/5x/6x/8x）不补入当前证据，结论仅作
+历史限定。当前 epoch 结论改由下方 v5 S1 三 epoch 阵列与 L4 长训承担。
 
 ## Toy 线
 
@@ -87,12 +90,35 @@ run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有�
 
 | 轴 | 科学问题 | run_id 前缀 | launcher | 状态 |
 |---|---|---|---|---|
-| epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs[_s{43,44}]`（L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | 🟡 历史 compile 波次 48/48；当前 no-compile 待重跑 |
-| epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe[_s{43,44}]`（L1=252/L2=504/L3=1008/L4=2022 步） | `run_scaling_epoch_full.sh` | 🟡 历史 compile 波次 48/48；当前 no-compile 待重跑 |
-| table size · historical | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（seed 42：23 sizes；seed 43/44：12 sizes × 3 module，L4） | `run_scaling_table_full.sh`（dense + sparse） | 🟡 历史 compile 波次 141/141；仅作 table-size 局部 slope 审计，见注册表 `#registry-s1-table`；当前 no-compile 待重跑 |
-| table size · clean | 物理行数 R、collision 与 gap 的 clean 单表关系 | `ctbl_{R}_{bigram,trigram}` + perfect | `tasks/s1_scaling_three_axis/analysis/plot_clean_figures.py` | 🟡 clean seed 42 网格；trigram/both 与多 seed 待补，见注册表 `#registry-s1-table-clean` |
-| frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `freq_{arm}_{fs/fe}[_s{43,44}]`（L4 + 1M × 4 arms） | `run_scaling_frequency_axis.sh` | 🟡 历史 compile 波次 24/24；当前 no-compile 待重跑 |
+| epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs[_s{43,44}]`（历史 L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | 🗄️ 历史 compile 波次；由当前 v5 S1 三 epoch 阵列取代 |
+| epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe[_s{43,44}]`（历史 L1-L4） | `run_scaling_epoch_full.sh` | 🗄️ 历史 compile 波次；由当前 v5 S1 三 epoch 阵列取代 |
+| table size · historical | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（历史 dense/sparse） | `run_scaling_table_full.sh`（dense + sparse） | 🗄️ 历史 compile 波次；仅作 table-size 局部 slope 审计 |
+| table size · clean | 物理行数 R、collision 与 gap 的 clean 单表关系 | `s1v5_128_tbl_bi1_R*`；`s1v5_128_tbl_tri1_R*` | `run_v5_s1_three_axis_queue.sh`；`plot_v5_registry_figures.py` | ✅ 当前 v5 36/36 done；两条单表轴：bigram slope 0.429、trigram slope 0.658；见注册表 `#registry-s1-table-clean` |
+| frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `s1v5_128_frequency_main` | `run_v5_s1_three_axis_queue.sh`；`plot_v5_registry_figures.py` | ✅ 当前 v5 main done；exact-f 与 Σf 图已登记 |
 | backbone safety | 长训 no-ngram backbone 是否产生 gap | `bb_safety_L1_nogram_5000` | 手工（旧 cadence 50 步 + fp32） | ✅ done（旧口径；final +16.66 @5000，仅量级参考） |
+
+### S1 v5 · 128× table-LR complete array（2026-08-27）
+
+> 该批是快速现象筛查，不替代后续完整三轴证据。固定 v5 clean
+> setting：`input`、bigram+trigram clean table、RMSProp `(0.0,0.99)`、
+> backbone LR `6e-4`、`warmup_constant(100)`、bf16、无 compile、seed 42；
+> table LR scale 固定为 **128×**（实际 `0.0768`）；train shard `1`，
+> validation shards `2,3,4,5,6,7,8,9,10,6542`，结果写入
+> `data/runs_scaling/`。
+
+| 轴 | 科学问题 | run_id | 预算与统计 | 状态 |
+|---|---|---|---|---|
+| table size · bigram-only | 只开启 bigram，改变其 clean table 的 physical rows `R`；trigram 关闭 | `s1v5_128_tbl_bi1_R{16000..2347000}` | 18 个近似 log-spaced R；1000 steps；step 337/674/1000 已保留 | ✅ done；18/18；gap@1000=0.143–1.152；log-log slope=0.429（R²=.976） |
+| table size · trigram-only | 只开启 trigram，改变其 clean table 的 physical rows `R`；bigram 关闭 | `s1v5_128_tbl_tri1_R{16000..2347000}` | 18 个近似 log-spaced R；1000 steps；step 337/674/1000 已保留 | ✅ done；18/18；gap@1000=0.138–3.617；log-log slope=0.658（R²=.995） |
+| frequency · main | 主实验完整双支路的 frequency-bin gap | `s1v5_128_frequency_main` | 1 个主实验；bigram+trigram；1000 steps；step 337/674/1000 的 frequency-bin/exact-frequency/table-RMS 已保留 | ✅ done；final gap=2.736 |
+| epoch length · 3 epochs | 固定 3 个 epoch 时，epoch 长度是否改变 gap | `s1v5_128_ep_tri_{0p125..2p0}xL4_3ep` | 12 个 L4 倍数点；`epoch_batches=42…674`；仅 trigram；每点 3 epoch；step = `3×epoch_batches`，保留 e1/e2/e3 | ✅ done；12/12；U 形，minimum=2.469 @1×L4；0.125×=3.552、2×=5.582 |
+| epoch length · long | L4 下 gap 随 epoch 的长期变化 | `s1v5_128_ep_tri_1xL4_10ep[_nogram]` | trigram-only + no-gram；10 epoch；3370 steps；每个 epoch 边界保留 | ✅ done；trigram=8.675、nogram=0.455 |
+
+epoch 轴刻意不固定 1000 steps：每个长度都运行 3 个完整 epoch，以保持
+replay 次数一致；L4 另跑 10 epoch 长训。table-size/frequency 轴为 1000-step
+快速实验，并额外保留 337、674、1000 三个标准检查点，分别作为约 1、2、3
+个 L4 epoch 的备用对齐点。所有 train loss 仍是
+当前 batch 的 online loss，gap 为同一步 fixed validation − online train。
 
 **口径（用户 2026-08-24 拍板）**：L4 = 337 batches/epoch（完整 shard 1，
 24,264 chunks / 72）；L1/L2/L3 = 42/84/168 嵌套前缀。普通网格不跑
@@ -100,7 +126,8 @@ exact-frequency（不传 `--freq_index`），只算在线 train/val + fixed prob
 频率轴单独一小批 run（带 exact-freq）。原有 261 个 `_fixed` run 属于
 `bf16 + torch.compile` 历史波次；最新标准是 **bf16 不 compile**，因此这些
 run 只保留为历史数学审计，不能标记为当前标准完成。当前 no-compile S1
-重跑待补。历史 261 个 run 均通过当时的 contract / NaN / probe-hash QC；
+重跑已完成：table-size 单表 36/36、epoch trigram-only 14/14、frequency main 1/1。
+历史 261 个 run 均通过当时的 contract / NaN / probe-hash QC；
 其中 table 原始 21 个 run 为 dense
 每 10 步监测，48 个 seed-42 + 72 个 seed-43/44 加密 run 为 sparse 只监测
 最终 step。历史三 seed 的 H1–H4 探索性检验见附录报告 §7：ΔG 三 seed

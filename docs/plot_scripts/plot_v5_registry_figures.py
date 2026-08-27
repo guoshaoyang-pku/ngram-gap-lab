@@ -61,14 +61,14 @@ def save_figure(figure, filename):
 
 def plot_injection():
     arms = [
-        ("input", "#2d6f9f"),
-        ("y", "#c4493d"),
-        ("v", "#b67524"),
-        ("nogram", "#686d73"),
+        ("input", "nglab1x_input_v5_freq10_r1", "#2d6f9f"),
+        ("y", "nglab1x_y_v5_freq10", "#c4493d"),
+        ("v", "nglab1x_v_v5_freq10", "#b67524"),
+        ("nogram", "nglab1x_nogram_v5_freq10", "#686d73"),
     ]
     figure, axes = plt.subplots(1, 2, figsize=(13, 4.7), sharex=True)
-    for arm, color in arms:
-        _, rows = read_run(f"nglab1x_{arm}_v5")
+    for arm, run_id, color in arms:
+        _, rows = read_run(run_id)
         add_raw_and_smoothed(axes[0], rows, "gap", color, arm)
         add_raw_and_smoothed(axes[1], rows, "train_loss", color, f"{arm} train")
         values = [row["val_loss"] for row in rows]
@@ -86,7 +86,8 @@ def plot_injection():
         axis.grid(alpha=0.25)
         axis.legend(fontsize=7.5, frameon=False, ncol=2)
     figure.suptitle(
-        "V5 · seed 42 · clean bigram+trigram R=2²⁰ · warmup_constant(100) · bf16 · no compile",
+        "V5 injection-point refresh · seed 42 · 2000 steps · val/frequency every 10 steps\n"
+        "clean bigram+trigram R=2²⁰ · warmup_constant(100) · bf16 · no compile",
         fontsize=10,
         y=1.02,
     )
@@ -187,184 +188,272 @@ def plot_injection_frequency():
         save_figure(figure, f"fig_v5_injection_frequency_{branch}.png")
 
 
-def plot_fixed_step_dose():
-    doses = [
-        ("0.25×", "nglab0_25x_input_v5", 0.25),
-        ("0.5×", "nglab0_5x_input_v5", 0.5),
-        ("0.75×", "nglab0_75x_input_v5", 0.75),
-        ("1.5×", "nglab1_5x_input_v5", 1.5),
-        ("2×", "nglab2x_input_v5", 2.0),
-        ("2.5×", "nglab2_5x_input_v5", 2.5),
-        ("3×", "nglab3x_input_v5", 3.0),
-        ("4×", "nglab4x_input_v5", 4.0),
-        ("5×", "nglab5x_input_v5", 5.0),
-        ("6×", "nglab6x_input_v5", 6.0),
-        ("8×", "nglab8x_input_v5", 8.0),
-    ]
-    xs, gaps = [], []
-    for _, run_id, dose in doses:
-        summary, _ = read_run(run_id)
-        xs.append(dose)
-        gaps.append(summary["final_gap"])
-    figure, axis = plt.subplots(figsize=(7.8, 4.8))
-    axis.plot(xs, gaps, color="#2d6f9f", linewidth=1.1, marker="o", markersize=4)
-    axis.axhline(0, color="#686d73", linewidth=0.7, linestyle=":")
-    axis.set_xscale("log")
-    axis.set_xlabel("train-shard dose relative to 1× (log scale)")
-    axis.set_ylabel("final online gap at step 2000")
-    axis.set_title("V5 fixed-step dose scan")
-    axis.grid(alpha=0.25, which="both")
-    for label, dose, gap in zip((item[0] for item in doses), xs, gaps):
-        axis.annotate(label, (dose, gap), xytext=(0, 6), textcoords="offset points",
-                      ha="center", fontsize=7)
-    figure.text(
-        0.5,
-        0.01,
-        "input · seed 42 · clean R=2²⁰ · warmup_constant(100) · bf16 · no compile",
-        ha="center",
-        fontsize=8,
-    )
-    figure.tight_layout(rect=(0, 0.04, 1, 1))
-    save_figure(figure, "fig_v5_dose_fixedstep.png")
-
-
 def plot_s1_epoch():
-    lengths = ["L1", "L2", "L3", "L4"]
-    both, nogram = [], []
-    for length in lengths:
-        both_summary, _ = read_run(f"s1v5_{length}_both_fs", RUNS_SCALING)
-        nogram_summary, _ = read_run(f"s1v5_{length}_nogram_fs", RUNS_SCALING)
-        both.append(both_summary["final_gap"])
-        nogram.append(nogram_summary["final_gap"])
-    figure, axis = plt.subplots(figsize=(7.8, 4.8))
-    x = np.arange(len(lengths))
-    axis.plot(x, both, color="#353d79", marker="o", linewidth=1.2, label="bigram + trigram")
-    axis.plot(x, nogram, color="#8a8f8a", marker="o", linewidth=1.2, label="no-gram")
-    axis.plot(x, np.asarray(both) - np.asarray(nogram), color="#c4493d", marker="o",
-              linewidth=1.2, label="table-induced Δgap")
-    axis.set_xticks(x, ["L1\n42", "L2\n84", "L3\n168", "L4\n337"])
-    axis.set_xlabel("epoch-prefix length (device batches per epoch)")
-    axis.set_ylabel("final online gap at step 1000")
-    axis.set_title("V5 S1 epoch-prefix axis")
-    axis.grid(alpha=0.25)
-    axis.legend(fontsize=8, frameon=False)
+    specs = [
+        (0.125, 42, "s1v5_128_ep_tri_0p125xL4_3ep"),
+        (0.1667, 56, "s1v5_128_ep_tri_0p1667xL4_3ep"),
+        (0.25, 84, "s1v5_128_ep_tri_0p25xL4_3ep"),
+        (0.3333, 112, "s1v5_128_ep_tri_0p3333xL4_3ep"),
+        (0.5, 168, "s1v5_128_ep_tri_0p5xL4_3ep"),
+        (0.6667, 224, "s1v5_128_ep_tri_0p6667xL4_3ep"),
+        (0.75, 253, "s1v5_128_ep_tri_0p75xL4_3ep"),
+        (1.0, 337, "s1v5_128_ep_tri_1p0xL4_3ep"),
+        (1.25, 421, "s1v5_128_ep_tri_1p25xL4_3ep"),
+        (1.5, 506, "s1v5_128_ep_tri_1p5xL4_3ep"),
+        (1.75, 590, "s1v5_128_ep_tri_1p75xL4_3ep"),
+        (2.0, 674, "s1v5_128_ep_tri_2p0xL4_3ep"),
+    ]
+    rows = []
+    for multiplier, batches, run_id in specs:
+        path = RUNS_SCALING / f"{run_id}_fixed" / "summary.json"
+        if path.exists():
+            summary = read_json(path)
+            rows.append((multiplier, batches, summary["steps"], summary["final_gap"]))
+    if not rows:
+        print("skip epoch-length figure: no formal S1 runs")
+        return
+    figure, axis = plt.subplots(figsize=(8.4, 4.9))
+    x = np.asarray([row[0] for row in rows])
+    y = np.asarray([row[3] for row in rows])
+    axis.scatter(x, y, color="#0f766e", s=30, zorder=3)
+    averaged, offsets = smooth(y)
+    axis.plot(x[offsets], averaged, color="#0f766e", linewidth=0.85,
+              label="3-point visual connector")
+    axis.axvline(1.0, color="#64748b", linestyle=":", linewidth=0.8,
+                 label="standard L4")
+    axis.axhline(0, color="#64748b", linestyle=":", linewidth=0.7)
+    axis.set_xlabel("epoch length relative to L4 (L4 = 337 device batches)")
+    axis.set_ylabel("gap at the end of 3 complete epochs")
+    axis.set_title("V5 S1 epoch-length scaling · formal 12-point array")
+    axis.set_xticks(x)
+    labels = ["⅛×", "⅙×", "¼×", "⅓×", "½×", "⅔×", "¾×",
+              "1×", "1¼×", "1½×", "1¾×", "2×"]
+    axis.set_xticklabels(labels, rotation=35, ha="right", fontsize=8)
+    axis.grid(alpha=0.22)
+    axis.legend(frameon=False, fontsize=8)
     figure.text(
         0.5,
         0.01,
-        "seed 42 · fixed-step · clean R=2²⁰ · warmup_constant(100) · bf16 · no compile",
+        "input · trigram-only clean table R=2²⁰ · table LR=128× · β₂=.99 · seed 42 · bf16 · no compile",
         ha="center",
         fontsize=8,
     )
     figure.tight_layout(rect=(0, 0.04, 1, 1))
-    save_figure(figure, "fig_v5_s1_epoch_prefix.png")
+    save_figure(figure, "fig_v5_s1_epoch_length_scaling.png")
+
+    figure, axes = plt.subplots(2, 1, figsize=(9.2, 7.0), sharex=False)
+    for multiplier, batches, run_id in specs:
+        path = RUNS_SCALING / f"{run_id}_fixed" / "train_log.jsonl"
+        if not path.exists():
+            continue
+        curve = read_jsonl(path)
+        steps = np.asarray([row["step"] for row in curve])
+        gaps = np.asarray([row["gap"] for row in curve])
+        epochs = steps / batches
+        axes[0].scatter(epochs, gaps, s=12, alpha=0.55, label=f"{multiplier:g}×L4")
+        axes[1].scatter(steps, gaps, s=12, alpha=0.55, label=f"{multiplier:g}×L4")
+        for boundary in (1, 2, 3):
+            axes[0].axvline(boundary, color="#94a3b8", linewidth=0.45, linestyle=":")
+    axes[0].set_xlabel("completed epochs")
+    axes[0].set_title("Aligned by epoch count")
+    axes[1].set_xlabel("optimizer step")
+    axes[1].set_title("Same curves in optimizer-step coordinates")
+    for axis in axes:
+        axis.set_ylabel("online gap")
+        axis.axhline(0, color="#64748b", linewidth=0.7, linestyle=":")
+        axis.grid(alpha=0.22)
+    axes[0].legend(ncol=4, fontsize=7, frameon=False)
+    figure.suptitle(
+        "V5 S1 epoch-length trajectories · raw boundary observations\n"
+        "vertical dotted lines mark epoch boundaries in the epoch-aligned panel"
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_s1_epoch_length_trajectories.png")
+
+    long_runs = (
+        ("trigram-only", "s1v5_128_ep_tri_1xL4_10ep", "#0f766e"),
+        ("no-gram", "s1v5_128_ep1xL4_10ep_nogram", "#64748b"),
+    )
+    figure, axis = plt.subplots(figsize=(8.7, 4.9))
+    for label, run_id, color in long_runs:
+        path = RUNS_SCALING / f"{run_id}_fixed" / "train_log.jsonl"
+        if not path.exists():
+            continue
+        curve = read_jsonl(path)
+        steps = np.asarray([row["step"] for row in curve])
+        gap = np.asarray([row["gap"] for row in curve])
+        axis.scatter(steps / 337.0, gap, color=color, s=22, label=label)
+        averaged, offsets = smooth(gap)
+        axis.plot((steps / 337.0)[offsets], averaged, color=color, linewidth=1.0)
+    for epoch in range(1, 11):
+        axis.axvline(epoch, color="#cbd5e1", linewidth=0.45, linestyle=":")
+    axis.axhline(0, color="#64748b", linewidth=0.7, linestyle=":")
+    axis.set_xlabel("completed L4 epochs (337 device batches each)")
+    axis.set_ylabel("online gap")
+    axis.set_title("V5 S1 L4 long replay · 10 epochs")
+    axis.grid(alpha=0.22)
+    axis.legend(frameon=False)
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_s1_long_replay.png")
 
 
 def plot_table_size():
-    points = []
-    for run_dir in sorted(RUNS_SCALING.glob("ctbl_v5_both_*_fixed")):
-        summary = read_json(run_dir / "summary.json")
-        rows = int(run_dir.name.removeprefix("ctbl_v5_both_").removesuffix("_fixed"))
-        points.append((rows, summary["final_gap"]))
-    points.sort()
-    rows, gaps = zip(*points)
+    branches = {"bigram": [], "trigram": []}
+    for branch, prefix in (
+        ("bigram", "s1v5_128_tbl_bi1_R"),
+        ("trigram", "s1v5_128_tbl_tri1_R"),
+    ):
+        for run_dir in sorted(RUNS_SCALING.glob(f"{prefix}*_fixed")):
+            summary = read_json(run_dir / "summary.json")
+            rows = int(run_dir.name.removeprefix(prefix).removesuffix("_fixed"))
+            branches[branch].append((rows, summary["final_gap"]))
+    if not any(branches.values()):
+        print("skip table-size figure: no formal S1 runs")
+        return
     figure, axis = plt.subplots(figsize=(7.8, 4.8))
-    axis.plot(rows, gaps, color="#353d79", marker="o", markersize=3.5, linewidth=1.1)
+    for branch, color in (("bigram", BIGRAM_COLOR), ("trigram", TRIGRAM_COLOR)):
+        values = sorted(branches[branch])
+        xs = np.asarray([row for row, _ in values], dtype=float)
+        ys = np.asarray([gap for _, gap in values], dtype=float)
+        axis.plot(
+            xs,
+            ys,
+            color=color,
+            marker="o",
+            markersize=3.5,
+            linestyle="none",
+            label=f"{branch} raw points",
+        )
+        averaged, offsets = smooth(ys)
+        axis.plot(
+            xs[offsets],
+            averaged,
+            color=color,
+            linewidth=0.8,
+            label=f"{branch} 3-point connector",
+        )
     axis.set_xscale("log")
-    axis.set_xlabel("physical rows R per clean table (log scale)")
+    axis.set_xlabel("physical rows R of the varied clean table (log scale)")
     axis.set_ylabel("final online gap at step 1000")
-    axis.set_title("V5 clean double-table size scan")
+    axis.set_title("V5 S1 clean table-size scaling · one branch varied at a time")
     axis.grid(alpha=0.25, which="both")
+    axis.legend(frameon=False)
     figure.text(
         0.5,
         0.01,
-        "bigram and trigram enlarged together · seed 42 · warmup_constant(100) · bf16 · no compile",
+        "bigram-only and trigram-only axes; the non-varied table is disabled · "
+        "seed 42 · table LR=128×",
         ha="center",
         fontsize=8,
     )
     figure.tight_layout(rect=(0, 0.04, 1, 1))
     save_figure(figure, "fig_v5_s1_table_size.png")
 
-    positive_points = [(row, gap) for row, gap in points if gap > 0]
-    if positive_points:
-        log_rows, log_gaps = zip(*positive_points)
-        log_x = np.log(np.asarray(log_rows, dtype=float))
-        log_y = np.log(np.asarray(log_gaps, dtype=float))
-        exponent, intercept = np.polyfit(log_x, log_y, 1)
-        fitted_log_y = intercept + exponent * log_x
-        r_squared = 1 - np.sum((log_y - fitted_log_y) ** 2) / np.sum(
-            (log_y - log_y.mean()) ** 2
-        )
+    positive_points = {
+        branch: [(row, gap) for row, gap in values if gap > 0]
+        for branch, values in branches.items()
+    }
+    if any(positive_points.values()):
         figure, axis = plt.subplots(figsize=(7.8, 4.8))
-        axis.plot(log_rows, log_gaps, color="#353d79", marker="o", markersize=3.5,
-                  linewidth=1.0, label="raw endpoints")
-        fit_x = np.geomspace(min(log_rows), max(log_rows), 240)
-        axis.plot(
-            fit_x,
-            np.exp(intercept) * fit_x ** exponent,
-            color="#b45309",
-            linestyle="--",
-            linewidth=1.35,
-            label=rf"log-log fit: $G\propto R^{{{exponent:.3f}}}$ ($R^2={r_squared:.3f}$)",
-        )
+        for branch, color in (("bigram", BIGRAM_COLOR), ("trigram", TRIGRAM_COLOR)):
+            values = positive_points[branch]
+            if len(values) < 2:
+                continue
+            log_rows, log_gaps = zip(*values)
+            log_x = np.log(np.asarray(log_rows, dtype=float))
+            log_y = np.log(np.asarray(log_gaps, dtype=float))
+            exponent, intercept = np.polyfit(log_x, log_y, 1)
+            fitted_log_y = intercept + exponent * log_x
+            total = np.sum((log_y - log_y.mean()) ** 2)
+            r_squared = (
+                1 - np.sum((log_y - fitted_log_y) ** 2) / total
+                if total
+                else np.nan
+            )
+            axis.plot(
+                log_rows,
+                log_gaps,
+                color=color,
+                marker="o",
+                markersize=3.2,
+                linestyle="none",
+                label=f"{branch} raw points",
+            )
+            averaged, offsets = smooth(np.asarray(log_gaps, dtype=float))
+            axis.plot(
+                np.asarray(log_rows)[offsets],
+                averaged,
+                color=color,
+                linewidth=0.8,
+                label=f"{branch} 3-point connector",
+            )
+            fit_x = np.geomspace(min(log_rows), max(log_rows), 240)
+            axis.plot(
+                fit_x,
+                np.exp(intercept) * fit_x ** exponent,
+                color=color,
+                linestyle="--",
+                linewidth=1.15,
+                label=rf"{branch}: $G\propto R^{{{exponent:.3f}}}$ ($R^2={r_squared:.3f}$)",
+            )
         axis.set_xscale("log")
         axis.set_yscale("log")
-        axis.set_xlabel("physical rows R per clean table (log scale)")
+        axis.set_xlabel("physical rows R of the varied clean table (log scale)")
         axis.set_ylabel("final online gap at step 1000 (log scale)")
-        axis.set_title("V5 clean double-table size scan · positive-gap log–log view")
+        axis.set_title("V5 S1 clean table-size scaling · positive-gap log–log fits")
         axis.grid(alpha=0.25, which="both")
         axis.legend(frameon=False, fontsize=8, loc="upper left")
         figure.text(
             0.5,
             0.01,
-            "18 positive endpoints · seed 42 · step 1000. Non-positive gaps are excluded because log(y) is undefined.",
+            "Raw endpoint points from 36 formal single-table runs; non-positive gaps are excluded from log(y) fits only.",
             ha="center",
             fontsize=8,
         )
         figure.tight_layout(rect=(0, 0.04, 1, 1))
         save_figure(figure, "fig_v5_s1_table_size_loglog.png")
 
-    load_points = {"bigram": [], "trigram": []}
-    for run_dir in sorted(RUNS_SCALING.glob("ctbl_v5_both_*_fixed")):
-        occupancy_path = run_dir / "table_occupancy.json"
-        if not occupancy_path.exists():
+    with np.load(ROOT / "data" / "freq_index.npz") as index:
+        contexts = {
+            "bigram": int(index["bigram_keys"].size),
+            "trigram": int(index["trigram_keys"].size),
+        }
+    figure, axes = plt.subplots(1, 2, figsize=(10.4, 4.6), sharex=False)
+    for axis, branch, color in zip(
+        axes, ("bigram", "trigram"), (BIGRAM_COLOR, TRIGRAM_COLOR)
+    ):
+        values = sorted(branches[branch])
+        if not values:
             continue
-        payload = read_json(occupancy_path)
-        branches = payload.get("branches", payload)
-        for branch in load_points:
-            values = branches.get(branch, {})
-            if isinstance(values, dict) and "0" in values:
-                values = values["0"][0]
-            distinct = values.get("distinct_contexts_K", values.get("distinct_contexts"))
-            physical = values.get("physical_rows_R", values.get("table_size"))
-            collision = values.get("collision_rate")
-            if distinct is None or physical is None or collision is None:
-                continue
-            load_points[branch].append(
-                (float(physical), float(distinct) / float(physical), float(collision))
-            )
-    if any(load_points.values()):
-        figure, axes = plt.subplots(1, 2, figsize=(10.4, 4.6), sharex=True)
-        for branch, color in (("bigram", BIGRAM_COLOR), ("trigram", TRIGRAM_COLOR)):
-            values = sorted(load_points[branch])
-            if not values:
-                continue
-            xs, loads, collisions = zip(*values)
-            axes[0].plot(xs, loads, marker="o", markersize=3.6, linewidth=1.0,
-                         color=color, label=branch)
-            axes[1].plot(xs, collisions, marker="o", markersize=3.6, linewidth=1.0,
-                         color=color, label=branch)
-        for axis in axes:
-            axis.set_xscale("log")
-            axis.set_xlabel("physical rows R per branch (log scale)")
-            axis.grid(alpha=0.25, which="both")
-            axis.legend(frameon=False)
-        axes[0].set_ylabel("load ratio K/R")
-        axes[0].set_title("K/R is table load, not collision")
-        axes[1].set_ylabel("measured collision rate = (K − occupied) / K")
-        axes[1].set_title("Actual hash collision rate")
-        figure.suptitle("V5 clean double-table occupancy accounting")
-        figure.tight_layout()
-        save_figure(figure, "fig_v5_s1_table_load_collision.png")
+        xs = np.asarray([row for row, _ in values], dtype=float)
+        loads = contexts[branch] / xs
+        axis.plot(
+            xs,
+            loads,
+            marker="o",
+            markersize=3.6,
+            linewidth=1.0,
+            color=color,
+            label=branch,
+        )
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.set_xlabel("physical rows R (log scale)")
+        axis.set_ylabel("distinct train contexts K / R (log scale)")
+        axis.set_title(f"{branch}: load ratio only")
+        axis.grid(alpha=0.25, which="both")
+        axis.legend(frameon=False)
+    figure.suptitle("V5 S1 clean table load proxy · K/R, not measured collision")
+    figure.text(
+        0.5,
+        0.01,
+        "K is the number of distinct contexts in the shared train frequency index. "
+        "The formal runs do not log occupied rows, so collision rate is intentionally not inferred.",
+        ha="center",
+        fontsize=8,
+    )
+    figure.tight_layout(rect=(0, 0.05, 1, 0.96))
+    save_figure(figure, "fig_v5_s1_table_load_proxy.png")
 
 
 def final_record(path):
@@ -510,24 +599,20 @@ def exact_frequency_mass_from_index(index_path, branch, bins=12):
 
 
 def plot_s1_frequency():
-    records = {
-        branch: final_record(
-            RUNS_SCALING / f"s1v5_freq_{branch}_fixed" / "exact_freq_loss.jsonl"
-        )
-        for branch in ("bigram", "trigram")
-    }
-    if not any(records.values()):
+    run_dir = RUNS_SCALING / "s1v5_128_frequency_main_fixed"
+    record = final_record(run_dir / "exact_freq_loss.jsonl")
+    if record is None:
         print("skip S1 frequency figures: exact-frequency log unavailable")
         return
+    records = {"bigram": record, "trigram": record}
     by_branch = {
         branch: exact_frequency_rows_from_shared(record, branch)
         for branch, record in records.items()
-        if record is not None
     }
     if not any(by_branch.values()):
         print("skip S1 frequency figures: no context-matched exact-frequency rows")
         return
-    summary = read_json(RUNS_SCALING / "s1v5_freq_bigram_fixed" / "summary.json")
+    summary = read_json(run_dir / "summary.json")
     index_path = ROOT / "data" / Path(summary.get("freq_index", "")).name
 
     figure, axes = plt.subplots(1, 2, figsize=(12.4, 4.8), sharey=True)
@@ -938,85 +1023,6 @@ def plot_dose_refresh():
     save_figure(figure, "fig_v5_dose_frequency_heatmap.png")
 
 
-def plot_existing_causal():
-    plot_curve_grid(
-        (
-            "nglab1x_reset_e1_v5",
-            "nglab1x_reset_e2_v5",
-            "nglab1x_mask_e1_v5",
-            "nglab1x_freeze_table_e1_v5",
-            "nglab1x_freeze_backbone_e1_v5",
-        ),
-        "fig_v5_causal_existing_losses.png",
-        "Existing v5 causal arms (precursor batch; causal-refresh will supersede it)",
-        {
-            "nglab1x_reset_e1_v5",
-            "nglab1x_reset_e2_v5",
-            "nglab1x_mask_e1_v5",
-            "nglab1x_freeze_table_e1_v5",
-            "nglab1x_freeze_backbone_e1_v5",
-        },
-    )
-
-
-def plot_existing_optimizer():
-    plot_curve_grid(
-        (
-            "optv5_rms_b098_s2p0_curve",
-            "optv5_rms_b099_s1p0_curve",
-            "optv5_rms_b099_s3p0_curve",
-        ),
-        "fig_v5_optimizer_existing_curves.png",
-        "Existing v5 optimizer curves (three precursor arms; clean 11-arm batch is planned)",
-    )
-
-
-def plot_existing_dose_trajectories():
-    run_ids = (
-        "nglab0_25x_input_v5",
-        "nglab0_5x_input_v5",
-        "nglab0_75x_input_v5",
-        "nglab1x_input_v5",
-        "nglab1_5x_input_v5",
-        "nglab2x_input_v5",
-        "nglab2_5x_input_v5",
-        "nglab3x_input_v5",
-        "nglab4x_input_v5",
-        "nglab5x_input_v5",
-        "nglab6x_input_v5",
-        "nglab8x_input_v5",
-    )
-    available = [(run_id, read_curve(run_id)) for run_id in run_ids]
-    available = [(run_id, rows) for run_id, rows in available if rows]
-    if not available:
-        print("skip dose trajectories: curves unavailable")
-        return
-    figure, axes = plt.subplots(3, 1, figsize=(8.8, 8.2), sharex=True)
-    colors = plt.get_cmap("viridis", len(available))(np.arange(len(available)))
-    for color, (run_id, rows) in zip(colors, available):
-        steps = np.asarray([row["step"] for row in rows])
-        label = run_id.replace("nglab", "").replace("_input_v5", "")
-        for axis, metric, ylabel in zip(
-            axes,
-            ("train_loss", "val_loss", "gap"),
-            ("online train loss", "fixed validation loss", "online gap"),
-        ):
-            values = np.asarray(
-                [row.get(metric, row["val_loss"] - row["train_loss"]) for row in rows]
-            )
-            axis.scatter(steps, values, color=color, s=3.4, alpha=0.22)
-            averaged, offsets = smooth(values)
-            axis.plot(steps[offsets], averaged, color=color, linewidth=0.75, label=label)
-            axis.set_ylabel(ylabel)
-            axis.grid(alpha=0.20)
-    axes[0].legend(ncol=3, fontsize=7, frameon=False)
-    axes[-1].set_xlabel("optimizer step")
-    figure.suptitle("Existing v5 fixed-step dose trajectories\n"
-                    "points = raw online records; thin line = 3-point visual connector")
-    figure.tight_layout()
-    save_figure(figure, "fig_v5_dose_trajectories_existing.png")
-
-
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     plot_injection()
@@ -1024,13 +1030,9 @@ def main():
     plot_causal_refresh()
     plot_optimizer_refresh()
     plot_dose_refresh()
-    plot_fixed_step_dose()
     plot_s1_epoch()
     plot_table_size()
     plot_s1_frequency()
-    plot_existing_causal()
-    plot_existing_optimizer()
-    plot_existing_dose_trajectories()
 
 
 if __name__ == "__main__":
