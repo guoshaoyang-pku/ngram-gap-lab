@@ -1,5 +1,6 @@
 # data directory (gitignored — large files, not tracked)
-data/
+# 'data' (no slash) also matches the offload symlink (a symlink is not a dir)
+data
 # ...but keep docs/notes/data (cluster-infra coordinates, small markdown)
 !docs/notes/data/
 

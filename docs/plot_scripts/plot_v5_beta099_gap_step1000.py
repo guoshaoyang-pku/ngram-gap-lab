@@ -27,6 +27,9 @@ RUNS_BY_SCALE = {
     32.0: "optv5f_rms_b099_s32p0",
     64.0: "optv5f_rms_b099_s64p0",
     128.0: "optv5f_rms_b099_s128p0",
+    256.0: "optv5f_rms_b099_s256p0_2k",
+    512.0: "optv5f_rms_b099_s512p0_2k",
+    1024.0: "optv5f_rms_b099_s1024p0_2k",
 }
 
 
@@ -81,11 +84,11 @@ def main():
             fontsize=8.5,
             color="#123b5d",
         )
-    axis.axvline(2.0, color="#c2410c", linestyle=":", linewidth=1.1, alpha=0.85)
+    axis.axvline(128.0, color="#c2410c", linestyle=":", linewidth=1.1, alpha=0.85)
     axis.text(
-        2.0,
+        128.0,
         0.02,
-        "SSOT table-LR scale = 2×",
+        "SSOT table-LR scale = 128×",
         transform=axis.get_xaxis_transform(),
         ha="center",
         va="bottom",
@@ -103,7 +106,7 @@ def main():
         0.01,
         0.02,
         "All points: β₂=.99, seed 42, raw step-1000 records.\n"
-        "8× and 16× are read from the corresponding 2000-step runs at step 1000.",
+        "8×/16×/256×/512×/1024× are read from the corresponding 2000-step runs at step 1000.",
         transform=axis.transAxes,
         ha="left",
         va="bottom",

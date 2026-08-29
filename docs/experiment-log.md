@@ -2801,3 +2801,98 @@ rows `R` 对 1000-step online gap 的影响。这直接对应旧 `ctbl_*` 单表
 360-1 跑 `table_size_bi1`、360-2 跑 `table_size_tri1`（各 8 卡，run_id 不
 重复）；完成后两机跑 `epoch_length_tri`。create-only 输出；partial 目录
 停止并人工检查；不覆盖 §33 双表 run（保留作历史对照）。
+
+---
+
+## §35 · V5 标准 table LR 切到 128× 的全量标准实验重刷批（用户 2026-08-29 拍板）
+
+**决策**：用户 2026-08-29 拍板「所有标准 setting 的 table LR = 128×」
+（实际 `0.0006×128=0.0768`）。依据是 §31/§32 LR 扫描：step-1000 gap 随
+table LR 单调升、在 128× 附近达峰（~2.73），256× 以上略回落。SSOT
+`agents.md` §1.0/§1.1 已更新为 128×；`run_v5_clean.sh` 默认
+`NGLAB_TABLE_LR_SCALE=128.0`（旧 2× 可用 env 覆盖复现）。
+
+**范围**：凡「当前标准 setting」的 v5 实验线全部重刷为 128×，run_id 加
+`_128x` 后缀（不覆盖旧 2× 证据）。S1 三轴批本就以 128× 运行，无需重刷。
+旧 2× run 保留为历史证据并标记 superseded。
+
+**固定完整契约**：vanilla nanoGPT 8L/6H/768D；input 注入（除非注明）；
+clean 双表 R=2²⁰；backbone AdamW `(0.8,.95)`、wd `.1`、LR `.0006`、
+`warmup_constant(100)`；table RMSProp 无动量 `(0,.99)`、**table LR
+scale=128**；fixed replay；seed 42；bf16、不 compile；val/frequency/
+exact-frequency/table RMS 每 10 步；gap = 同一步 fixed val − 当前 batch
+online train。
+
+**代码身份**：仅改 launcher（`run_v5_clean.sh` 默认 scale、新增
+`run_v5_128x_rerun.sh`），未改训练代码。`train.py=c4729b30…`、
+`ngram_freq.py=e4f45f5b…`。
+
+### 35.1 M2 注入点消融（128×，2000 步）— ✅ 完成 2026-08-29
+
+| run_id | 状态 | final train | final val | final gap |
+|---|---|---|---|---|
+| `nglab1x_input_v5_128x_freq10` | ✅ done | 1.259 | 6.930 | **5.672** |
+| `nglab1x_y_v5_128x_freq10` | ✅ done | 1.203 | 6.451 | **5.248** |
+| `nglab1x_v_v5_128x_freq10` | ✅ done | 0.385 | 8.033 | **7.648** |
+| `nglab1x_nogram_v5_128x_freq10` | ✅ done | 3.121 | 3.348 | **0.227** |
+
+对比 2×（§22 历史）：input 5.74→5.67（≈不变）；y 3.64→5.25、v 2.01→7.65
+（高 LR 显著放大后端注入的 gap）；nogram 0.25→0.23（≈不变）。即
+**128× 下注入点越靠后 gap 越大**，与 2× 时代「input 最大」的排序相反。
+
+### 35.2 M5 剂量扫描（128×，2000 步，11 点）— ✅ 完成 2026-08-29
+
+| run_id | final gap | | run_id | final gap |
+|---|---|---|---|---|
+| `nglab0_25x_input_v5_128x_freq10` | **10.895** | | `nglab3x_input_v5_128x_freq10` | **0.835** |
+| `nglab0_5x_input_v5_128x_freq10` | **9.160** | | `nglab4x_input_v5_128x_freq10` | **0.640** |
+| `nglab0_75x_input_v5_128x_freq10` | **7.207** | | `nglab5x_input_v5_128x_freq10` | **0.355** |
+| `nglab1_5x_input_v5_128x_freq10` | **3.652** | | `nglab6x_input_v5_128x_freq10` | **−0.087** |
+| `nglab2x_input_v5_128x_freq10` | **2.306** | | `nglab8x_input_v5_128x_freq10` | **−0.055** |
+| `nglab2_5x_input_v5_128x_freq10` | **1.837** | | | |
+
+gap 随剂量单调下降：小剂量（0.25x–0.75x）在 128× 下严重过拟合
+（val 8–11），高剂量（6x/8x）gap 转负、逼近 nogram 对照。
+
+### 35.3 Causal 干预（128×，1000 步，9 臂）— ✅ 完成 2026-08-29
+
+| run_id | final gap | 语义 |
+|---|---|---|
+| `causalv5c_none_128x` | **2.724** | 无干预基线 |
+| `causalv5c_reset_table_e1_128x` | **1.409** | e1 重置表内容 |
+| `causalv5c_reset_table_e2_128x` | **0.075** | e2 重置表内容（更晚） |
+| `causalv5c_mask_readout_e1_128x` | **0.008** | 边界后移除全部 n-gram 输出（破坏性基准） |
+| `causalv5c_freeze_table_e1_128x` | **3.452** | e1 停止表更新 |
+| `causalv5c_freeze_backbone_e1_128x` | **1.230** | e1 停止 backbone 更新 |
+| `causalv5c_hash_reseed_e1_128x` | **1.354** | e1 仅重映射 context→row |
+| `causalv5c_mask_low_f200_e1_128x` | **0.101** | 屏蔽 f≤200 的 n-gram 输出 |
+| `causalv5c_mask_high_f200_e1_128x` | **2.808** | 屏蔽 f>200 的 n-gram 输出 |
+
+解读：low-freq 屏蔽几乎抹掉 gap（0.10），high-freq 屏蔽几乎不变（2.81≈基线）
+→ **gap 主要由低频率 context 的表记忆贡献**。freeze_table 反而升 gap（3.45），
+说明表仍在被 backbone 补偿；mask_readout 是最强破坏（0.01）。
+
+### 35.4 X2 表行宽（128×，1000 步）— ✅ 完成 2026-08-29
+
+| run_id | final gap | | run_id | final gap |
+|---|---|---|---|---|
+| `ctbl_dim12_input_v5_128x` | **0.180** | | `ctbl_dim192_input_v5_128x` | **1.458** |
+| `ctbl_dim48_input_v5_128x` | **0.552** | | `ctbl_dim768_input_v5_128x` | **2.742** |
+
+gap 随表行宽单调上升，768D（=全宽）达 2.74，接近 1000 步基线 2.72。
+
+### 35.5 X1 表优化器（128×，1000 步）— ✅ 完成 2026-08-29
+
+| run_id | final gap |
+|---|---|
+| `optv5c_rms_s128x` | **2.727** |
+| `optv5c_adamw_s128x` | **2.731** |
+| `optv5c_sgd_m0_s128x` | **0.047** |
+
+RMSProp 与 AdamW（均 128×）几乎相同；SGD 无动量几乎不学（0.05）→
+**128× 下优化器选择对 gap 不敏感（只要带自适应步长）**。
+
+### 35.6 调度与 stop rule
+
+ophis-gpu 6 张空闲卡（GPU 2/3/4/5/6/7）排队；360-1/360-2 待 VPN 恢复后
+加入。create-only 输出；partial 目录停止并人工检查；不覆盖旧 2× run。

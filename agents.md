@@ -36,7 +36,7 @@
 | 注入 | `input` / wte |
 | backbone LR | `0.0006` |
 | table optimizer | RMSProp 无动量 `--table_betas 0.0,0.99` |
-| table LR | `--table_lr_scale 2.0`，实际 `0.0012` |
+| table LR | `--table_lr_scale 128.0`，实际 `0.0768` |
 | LR schedule | `--lr_schedule warmup_constant --warmup_steps 100`：step 1–100 从 0.25×(`0.00015`) 线性升到 1×(`0.0006`)，之后固定；禁 warmdown |
 | 默认预算 | seed 42，1000 steps，bf16，不 `torch.compile`（H200 实测 compile 反慢 3.5x，因 n-gram 字典 graph break，见 `experiment-log.md` §18） |
 | 口径 | 当前 batch 的 online train loss；fixed val；`gap = val − train` |
@@ -49,7 +49,7 @@
 
 **n-gram**：注入点 `input`/wte（`x = wte(idx) + Σ ngram_ve`，不走 attention）· bigram+trigram（unigram/fourgram 关）· **clean 单表** `nn.Embedding(R, n_embd)`（单层、无 2-hash、无 4 层求和，见 `clean-table-rework.md`）· 单一 hash（`--*_clean_table R`，R=distinct+1 零碰撞）。旧 1M/4层/2-hash 框架仅作历史溯源。`v`/`y` 注入只作消融对照，非主线。
 
-**优化器**：表 RMSProp 无动量 `(0.0, 0.99)`（2026-08-24 拍板；历史 β₂=0.999 因 B2 bug 无证据）· backbone AdamW `(0.8,0.95)` wd 0.1 · lr `0.0006`(2026-08-25 v5，来自单 seed 筛选：6e-4 gap 1.534 > 4e-4 1.187 > 4e-3 0.060) · schedule `warmup_constant(100)`，禁 warmdown；零 warmup `constant` 仅诊断。
+**优化器**：表 RMSProp 无动量 `(0.0, 0.99)`（2026-08-24 拍板；历史 β₂=0.999 因 B2 bug 无证据）· table LR **128×**（实际 `0.0768`；2026-08-29 用户拍板标准切到 128×，来自 LR 扫描 step-1000 gap 峰值 ~2.73 @128×）· backbone AdamW `(0.8,0.95)` wd 0.1 · lr `0.0006`(2026-08-25 v5，来自单 seed 筛选：6e-4 gap 1.534 > 4e-4 1.187 > 4e-3 0.060) · schedule `warmup_constant(100)`，禁 warmdown；零 warmup `constant` 仅诊断。
 
 **数据/训练**：`fixed` replay · data_seed 42 · train shards 1(标准 1x) · val shards 与 train **完全不重叠** · device batch 72 · total batch 147,456 tok · seed 42(43/44) · steps 1000/2000 · bf16 autocast 不 compile · eval 三层默认：主实验 `freq=10`、只看曲线 `freq=50`、只要末端 `--val_steps 1000`（freq 跟随 val_steps 对齐，freq eval 每次 ~13s 是 wall-time 瓶颈）。
 

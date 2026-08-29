@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# V5 clean-table launcher: 6e-4 backbone LR, table ×2, RMSProp (0,0.99),
+# V5 clean-table launcher: 6e-4 backbone LR, table ×128, RMSProp (0,0.99),
 # 100-step warmup_constant, bf16 without torch.compile.
+# Standard table LR scale is 128.0 (2026-08-29 decision); override via
+# NGLAB_TABLE_LR_SCALE when reproducing historical 2x runs.
 set -euo pipefail
 
 GPU="${1:?gpu id}"
@@ -88,7 +90,7 @@ echo "[v5] run=$RUN_ID gpu=$GPU steps=$STEPS train=$TRAIN_SHARDS"
   --warmup_steps 100 \
   --table_optimizer rmsprop \
   --table_betas 0.0,0.99 \
-  --table_lr_scale 2.0 \
+  --table_lr_scale "${NGLAB_TABLE_LR_SCALE:-128.0}" \
   --val_interval 10 \
   --val_batches 4 \
   --freq_index "$FREQ_INDEX" \
