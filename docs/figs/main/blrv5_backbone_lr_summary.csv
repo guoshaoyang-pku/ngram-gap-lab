@@ -1,0 +1,13 @@
+run_id,arm,lr,final_gap,host,steps,seed
+blrv5_input_lr0p0001,input,0.0001,1.9754,360-1,1000,42
+blrv5_input_lr0p0003,input,0.0003,2.5129,360-1,1000,42
+blrv5_input_lr0p0006,input,0.0006,2.7179,360-1,1000,42
+blrv5_input_lr0p0010,input,0.001,2.8525,360-1,1000,42
+blrv5_input_lr0p0020,input,0.002,2.8338,360-1,1000,42
+blrv5_input_lr0p0040,input,0.004,2.295,360-2,1000,42
+blrv5_nogram_lr0p0001,nogram,0.0001,0.0355,360-2,1000,42
+blrv5_nogram_lr0p0003,nogram,0.0003,0.0273,360-1,1000,42
+blrv5_nogram_lr0p0006,nogram,0.0006,0.0222,360-1,1000,42
+blrv5_nogram_lr0p0010,nogram,0.001,0.0112,360-1,1000,42
+blrv5_nogram_lr0p0020,nogram,0.002,0.0409,360-1,1000,42
+blrv5_nogram_lr0p0040,nogram,0.004,0.0176,360-1,1000,42
