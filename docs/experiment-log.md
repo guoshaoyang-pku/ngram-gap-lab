@@ -3097,3 +3097,29 @@ n=10）slope −1.176（R²=.899）。新增 `docs/appendices/s1_scaling_three_a
   trigram 0.648（实测 0.576/0.665），并复现大 R 饱和弯头；每 branch 仅一个自由幅度参数。
 - 假说登记：`docs/notes/theory/hypothesis-dilution-amplification.md`（H-DILUTE，标注为假设），
   主报告新增 §6 与图 7c/14/15。
+
+## §38 · κ 微观起源与稀释面零 GPU 判决 + causal_dynamics 批（2026-08-30 晚）
+
+分析（无新 GPU）：
+- `plot_v5_missing_mass_kernel.py`：H-KAPPA 两分量核 κ=B·M(f)+V·S_eff/f，bigram linR²=.928
+  （B=4.17,V=3.40）；均场与 Poisson 行内竞争稀释形式在 f=1 处被数据否定。
+  产物 `fig_v5_missing_mass_kernel.png`、`theory_missing_mass_bigram.csv`。
+- `plot_v5_dilution_surface.py`：62 个单表 bigram run 的经验稀释面 s_emp(f,R)（ref R=2.35e6）；
+  压制近乎 f-平坦、由 K/R 决定，load 10→1000 斜率 ≈ −0.59 ≈ R 轴实测 0.576。
+  产物 `fig_v5_dilution_surface.png`、`theory_dilution_surface.csv`。
+- 详细结论与降级措辞见 `docs/notes/theory/hypothesis-dilution-amplification.md` v2 节。
+
+新 GPU 批（360-2，V5_GROUP=causal_dynamics，run_v5_clean.sh 128× 标准，2022 步=6 pass，
+input 双表 1x，val=2,…,10,6542，freq10）：
+| run_id | 单变量 |
+|---|---|
+| causalv5m3_none_2022 | 对照 |
+| causalv5m3_freeze_backbone_e1/e2/e3 | epoch 1/2/3 边界冻结 backbone（A(t) 形状）|
+| causalv5m3_freeze_table_e2 | epoch 2 边界冻结表（补 e1@1000 已有点）|
+| causalv5m3_wd0 / causalv5m3_wd03 | backbone weight decay 0.0 / 0.3（A 饱和预测）|
+状态：planned→running（本节回填 final gap）。
+CPU job（360-2）：`compute_fourgram_missing_mass.py` 产 trigram 支路 M(f)
+→ `theory_missing_mass_trigram.csv`（回传后并入 H-KAPPA 图）。
+混匀（pass 交错 replay）实验：规格=同 shard-1 tokens×3 pass 全局 sample 级 shuffle vs 分块 replay，
+trigram-only 1011 步对照一对；需 `--replay_mix_passes` 新旗标（train.py 迭代器改动，改后新 run_id），
+登记 planned，下一批实现。

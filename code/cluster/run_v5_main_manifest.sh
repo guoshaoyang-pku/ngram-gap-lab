@@ -118,6 +118,20 @@ case "$GROUP" in
       SPECS+=("causalv5m2_mask_high_t${t}_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_high_freq --intervention_epoch 1 --intervention_freq_threshold ${t}")
     done
     ;;
+  causal_dynamics)
+    # A(t,passes) dynamics probe, 2026-08-30: 6-pass (2022-step) horizon.
+    # Single variable per arm vs causalv5m3_none_2022; input arm, both tables,
+    # 128x standard from run_v5_clean.sh defaults; extra flags win (argparse last).
+    SPECS=(
+      "causalv5m3_none_2022|1|2,3,4,5,6,7,8,9,10,6542|2022|"
+      "causalv5m3_freeze_backbone_e1|1|2,3,4,5,6,7,8,9,10,6542|2022|--intervention freeze_backbone --intervention_epoch 1"
+      "causalv5m3_freeze_backbone_e2|1|2,3,4,5,6,7,8,9,10,6542|2022|--intervention freeze_backbone --intervention_epoch 2"
+      "causalv5m3_freeze_backbone_e3|1|2,3,4,5,6,7,8,9,10,6542|2022|--intervention freeze_backbone --intervention_epoch 3"
+      "causalv5m3_freeze_table_e2|1|2,3,4,5,6,7,8,9,10,6542|2022|--intervention freeze_table --intervention_epoch 2"
+      "causalv5m3_wd0|1|2,3,4,5,6,7,8,9,10,6542|2022|--weight_decay 0.0"
+      "causalv5m3_wd03|1|2,3,4,5,6,7,8,9,10,6542|2022|--weight_decay 0.3"
+    )
+    ;;
   rho)
     SPECS=(
       "nglab1x_input_rho_v5|1|2,3,4,5,6,7,8,9,10,6542|2000|--fixed_train_probe 4 --probe_eval_interval 10"
