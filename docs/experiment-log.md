@@ -8,7 +8,7 @@
 
 | run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
 |---|---|---|---|---|---|
-| `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **V5 backbone LR 扫描 × table LR 128× 固定 · A 因子判决批（12 run）** | 🔄 running | — | §39 |
+| `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **V5 backbone LR 扫描 × table LR 128× 固定 · A 因子判决批（12 run）** | ✅ done | net gap 峰 2.841@1e-3；1.94→2.84→2.28；**A 因子成立** | §39 |
 | `optv5h_rms_b099_s2p0_warmstart0p1` | 2026-08-26 | V5 warmup 起始倍率 · 0.1× | ✅ done | +1.504498 @1000 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× | ⚠️ failed at initialization（360-1 GPU7 CUDA launch failure） | 无结果 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5_r1` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× retry | ⚠️ failed at initialization（GPU7 large-allocation launch failure） | 无结果 | §31 |
@@ -3142,11 +3142,31 @@ run_v5_clean.sh=1c1ad9c2…，与本地 commit 一致）。⚠️ 360-1 GPU7 初
 **预登记预测（假设）**：net gap 随 backbone LR 单调上升后趋于饱和/回落（A∝累计 backbone 更新，
 过高 LR 也会抬高 nogram 自身 gap）；nogram gap 随 LR 单独演化，由对照臂剥离。
 
-| run_id | --lr | 臂 | 状态 |
-|---|---|---|---|
-| `blrv5_input_lr0p0001` / `blrv5_nogram_lr0p0001` | 0.0001 | input / nogram | running |
-| `blrv5_input_lr0p0003` / `blrv5_nogram_lr0p0003` | 0.0003 | input / nogram | running |
-| `blrv5_input_lr0p0006` / `blrv5_nogram_lr0p0006` | 0.0006 | input / nogram | running |
-| `blrv5_input_lr0p0010` / `blrv5_nogram_lr0p0010` | 0.001 | input / nogram | running |
-| `blrv5_input_lr0p0020` / `blrv5_nogram_lr0p0020` | 0.002 | input / nogram | running |
-| `blrv5_input_lr0p0040` / `blrv5_nogram_lr0p0040` | 0.004 | input / nogram | running |
+| run_id | --lr | 臂 | 状态 | gap @1000 |
+|---|---|---|---|---|
+| `blrv5_input_lr0p0001` / `blrv5_nogram_lr0p0001` | 0.0001 | input / nogram | ✅ done（input 360-1 / nogram 360-2） | 1.9754 / 0.0355 |
+| `blrv5_input_lr0p0003` / `blrv5_nogram_lr0p0003` | 0.0003 | input / nogram | ✅ done | 2.5129 / 0.0273 |
+| `blrv5_input_lr0p0006` / `blrv5_nogram_lr0p0006` | 0.0006 | input / nogram | ✅ done | 2.7179 / 0.0222 |
+| `blrv5_input_lr0p0010` / `blrv5_nogram_lr0p0010` | 0.001 | input / nogram | ✅ done | 2.8525 / 0.0112 |
+| `blrv5_input_lr0p0020` / `blrv5_nogram_lr0p0020` | 0.002 | input / nogram | ✅ done | 2.8338 / 0.0409 |
+| `blrv5_input_lr0p0040` / `blrv5_nogram_lr0p0040` | 0.004 | input / nogram | ✅ done（input 360-2 / nogram 360-1） | 2.2950 / 0.0176 |
+
+**结果（2026-08-31 回填）**：net gap = input − nogram：
+
+| backbone lr | 1e-4 | 3e-4 | 6e-4 | 1e-3 | 2e-3 | 4e-3 |
+|---|---|---|---|---|---|---|
+| net gap | 1.940 | 2.486 | 2.696 | **2.841（峰）** | 2.793 | 2.277 |
+
+**对预登记预言的裁决**：
+1. ✅ **主预言命中**：net gap 随 backbone LR 强响应（1.94→2.84，+47%）后饱和回落——table 侧
+   全程锁 128× 不动，gap 差异全部来自 backbone 侧 ⇒ **A 因子（backbone 读出放大）成立**，
+   「table LR 128× 后表侧不再是瓶颈」自洽。
+2. ⚠️ 次预言「过高 LR 抬高 nogram 自身 gap」未观察到：nogram 全程平坦（0.011–0.041），
+   4e-3 的回落来自 input 臂自身退化（2.85→2.30）——backbone 过快反而损害读出巩固，
+   更支持「读出增益存在最优点」而非单调放大。
+3. lr=1e-3 峰值 2.841 比主线 6e-4（2.696）高 +5.4%（单 seed，不据此改标准；6e-4 为
+   vanilla nanoGPT 沿用值，改标准须用户拍板）。6e-4 点与 `s1v5_128_frequency_main` 同
+   setting 跨批一致性检查通过（2.718，量级吻合）。
+4. provenance：`run_v5_clean.sh` 不写 config.json，参数核验依赖启动时 `ps` 检查（5 臂 --lr
+   覆盖生效）+ summary.json（steps=1000, seed 42）+ nogram 臂 gap≈0 交叉验证开关生效；
+   360-1 上 GPU7 失败遗留的 2 个空壳目录（input_lr0p0040/nogram_lr0p0001）保留未删（P5）。
