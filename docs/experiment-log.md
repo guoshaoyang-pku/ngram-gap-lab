@@ -8,6 +8,7 @@
 
 | run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
 |---|---|---|---|---|---|
+| `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **V5 backbone LR 扫描 × table LR 128× 固定 · A 因子判决批（12 run）** | 🔄 running | — | §39 |
 | `optv5h_rms_b099_s2p0_warmstart0p1` | 2026-08-26 | V5 warmup 起始倍率 · 0.1× | ✅ done | +1.504498 @1000 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× | ⚠️ failed at initialization（360-1 GPU7 CUDA launch failure） | 无结果 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5_r1` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× retry | ⚠️ failed at initialization（GPU7 large-allocation launch failure） | 无结果 | §31 |
@@ -3123,3 +3124,29 @@ CPU job（360-2）：`compute_fourgram_missing_mass.py` 产 trigram 支路 M(f)
 混匀（pass 交错 replay）实验：规格=同 shard-1 tokens×3 pass 全局 sample 级 shuffle vs 分块 replay，
 trigram-only 1011 步对照一对；需 `--replay_mix_passes` 新旗标（train.py 迭代器改动，改后新 run_id），
 登记 planned，下一批实现。
+
+## §39 · V5 backbone LR 扫描 · A 因子判决批（blrv5，2026-08-30 深夜，用户拍板）
+
+**科学问题**：H-DILUTE v2 把 gap 的后期增长归到 backbone 读出放大 A(t,passes)。直接判决：
+固定 table LR ×128 与全部表侧参数不动，只扫 backbone `--lr`——若 net gap（input − nogram）随
+backbone LR 变化，A 因子成立；若纹丝不动，A 解释被证伪。
+
+**契约**：`run_v5_clean.sh` 128× 标准（input 双表 R=2²⁰、RMSProp (0,0.99)、×128、warmup_constant(100)、
+bf16 不 compile、seed 42、1000 步≈3 pass、train shard 1、val 2,…,10,6542、val/freq=10）。
+单变量 = `--lr` ∈ {0.0001, 0.0003, 0.0006, 0.001, 0.002, 0.004}；nogram 臂加
+`--enable_bigram 0 --enable_trigram 0`。机器 360-1（train.py 已同步 md5=b5910b0b…，
+run_v5_clean.sh=1c1ad9c2…，与本地 commit 一致）。⚠️ 360-1 GPU7 初始化 CUDA 错误复发（§31 同款硬件问题），
+`blrv5_input_lr0p0040`/`blrv5_nogram_lr0p0001` 改排在 360-2 GPU7（执行器 md5 同 1c1ad9c2…）。
+中心点 0.0006 与 `s1v5_128_frequency_main` 互为一致性检查（不同批同 setting）。
+
+**预登记预测（假设）**：net gap 随 backbone LR 单调上升后趋于饱和/回落（A∝累计 backbone 更新，
+过高 LR 也会抬高 nogram 自身 gap）；nogram gap 随 LR 单独演化，由对照臂剥离。
+
+| run_id | --lr | 臂 | 状态 |
+|---|---|---|---|
+| `blrv5_input_lr0p0001` / `blrv5_nogram_lr0p0001` | 0.0001 | input / nogram | running |
+| `blrv5_input_lr0p0003` / `blrv5_nogram_lr0p0003` | 0.0003 | input / nogram | running |
+| `blrv5_input_lr0p0006` / `blrv5_nogram_lr0p0006` | 0.0006 | input / nogram | running |
+| `blrv5_input_lr0p0010` / `blrv5_nogram_lr0p0010` | 0.001 | input / nogram | running |
+| `blrv5_input_lr0p0020` / `blrv5_nogram_lr0p0020` | 0.002 | input / nogram | running |
+| `blrv5_input_lr0p0040` / `blrv5_nogram_lr0p0040` | 0.004 | input / nogram | running |
