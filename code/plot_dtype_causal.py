@@ -52,11 +52,11 @@ print("saved", out)
 # ---- Panel 2: causal arms vs control (fp32) ----
 control = fp32
 arms = {
-    "reset_table e2": ("nglab1x_input_reset_e2_fixed", "reset_table", 2),
-    "reset_table e1": ("nglab1x_input_reset_e1_fixed", "reset_table", 1),
-    "mask_readout e1": ("nglab1x_input_mask_e1_fixed", "mask_readout", 1),
-    "freeze_table e1": ("nglab1x_input_freeze_table_e1_fixed", "freeze_table", 1),
-    "freeze_backbone e1": ("nglab1x_input_freeze_backbone_e1_fixed", "freeze_backbone", 1),
+    "freeze_table e1": ("causalv5c_freeze_table_e1_128x_fixed", "freeze_table", 1),
+    "freeze_backbone e1": ("causalv5c_freeze_backbone_e1_128x_fixed", "freeze_backbone", 1),
+    "hash_reseed e1": ("causalv5c_hash_reseed_e1_128x_fixed", "hash_reseed", 1),
+    "mask_low f≤200 e1": ("causalv5c_mask_low_f200_e1_128x_fixed", "mask_low_freq", 1),
+    "mask_high f>200 e1": ("causalv5c_mask_high_f200_e1_128x_fixed", "mask_high_freq", 1),
 }
 fig2, ax2 = plt.subplots(figsize=(7.5, 5))
 if control:

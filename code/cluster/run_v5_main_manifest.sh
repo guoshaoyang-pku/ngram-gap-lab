@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${NGLAB_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PY="${NGLAB_PY:-$ROOT/.venv/bin/python}"
 OUT_DIR="${NGLAB_OUT_DIR:-$ROOT/data/runs_fixed}"
-GROUP="${V5_GROUP:?set V5_GROUP to inj, inj_freq10, dose, dose_freq10, epoch, causal, causal_refresh, rho, long, s1_epoch, or s1_frequency}"
+GROUP="${V5_GROUP:?set V5_GROUP to inj, inj_freq10, dose, dose_freq10, epoch, causal, causal_refresh, mask_high_refresh, rho, long, s1_epoch, or s1_frequency}"
 GPUS=("$@")
 
 if [[ "${#GPUS[@]}" -eq 0 ]]; then
@@ -91,9 +91,6 @@ case "$GROUP" in
     ;;
   causal)
     SPECS=(
-      "nglab1x_reset_e1_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention reset_table --intervention_epoch 1"
-      "nglab1x_reset_e2_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention reset_table --intervention_epoch 2"
-      "nglab1x_mask_e1_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_readout --intervention_epoch 1"
       "nglab1x_freeze_table_e1_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_table --intervention_epoch 1"
       "nglab1x_freeze_backbone_e1_v5|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_backbone --intervention_epoch 1"
     )
@@ -101,15 +98,25 @@ case "$GROUP" in
   causal_refresh)
     SPECS=(
       "causalv5c_none|1|2,3,4,5,6,7,8,9,10,6542|1000|"
-      "causalv5c_reset_table_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention reset_table --intervention_epoch 1"
-      "causalv5c_reset_table_e2|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention reset_table --intervention_epoch 2"
-      "causalv5c_mask_readout_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_readout --intervention_epoch 1"
       "causalv5c_freeze_table_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_table --intervention_epoch 1"
       "causalv5c_freeze_backbone_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention freeze_backbone --intervention_epoch 1"
       "causalv5c_hash_reseed_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention hash_reseed --intervention_epoch 1"
+      "causalv5c_hash_reseed_e1e2|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention hash_reseed --intervention_epochs 1,2"
       "causalv5c_mask_low_f200_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 200"
       "causalv5c_mask_high_f200_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_high_freq --intervention_epoch 1 --intervention_freq_threshold 200"
+      "causalv5m_mask_low_le0_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 0 --intervention_low_inclusive 1"
+      "causalv5m_mask_low_le1_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 1 --intervention_low_inclusive 1"
+      "causalv5m_mask_low_le2_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 2 --intervention_low_inclusive 1"
+      "causalv5m_mask_low_le4_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 4 --intervention_low_inclusive 1"
+      "causalv5m_mask_low_le8_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 8 --intervention_low_inclusive 1"
     )
+    ;;
+  mask_high_refresh)
+    # f >= t inclusive semantics (current code); replaces the historical f > t scan
+    SPECS=()
+    for t in 1 2 5 10 25 50 100 400 800 1600 3200 6400 12800; do
+      SPECS+=("causalv5m2_mask_high_t${t}_e1|1|2,3,4,5,6,7,8,9,10,6542|1000|--intervention mask_high_freq --intervention_epoch 1 --intervention_freq_threshold ${t}")
+    done
     ;;
   rho)
     SPECS=(

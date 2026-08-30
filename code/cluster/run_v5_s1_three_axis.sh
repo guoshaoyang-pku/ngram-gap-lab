@@ -15,6 +15,9 @@ if [[ "${#GPUS[@]}" -eq 0 ]]; then
 fi
 
 TABLE_ROWS=(16000 22000 30000 41000 56000 76000 104000 142000 194000 265000 362000 494000 675000 922000 1259000 1719000 2000000 2347000)
+# small-R extension (2026-08-29): 1e4 → 1e0, ~1/3 decade spacing; extends the
+# load factor K/R from ~221 (bigram) up to K itself (R=1, all contexts collide).
+SMALL_TABLE_ROWS=(10000 4642 2154 1000 464 215 100 46 22 10 5 2 1)
 SPECS=()
 
 if [[ "$GROUP" == "frequency_main" ]]; then
@@ -30,6 +33,17 @@ case "$GROUP" in
     ;;
   table_size_tri1)
     for rows in "${TABLE_ROWS[@]}"; do
+      SPECS+=("s1v5_128_tbl_tri1_R${rows}|1000|--enable_bigram 0 --enable_trigram 1 --bigram_clean_table 0 --trigram_clean_table ${rows} --table_lr_scale 128.0 --val_steps 337,674,1000")
+    done
+    ;;
+  # —— 小 R 扩展轴（2026-08-29：R 从 1e4 扫到 1e0，观察 gap 是否塌缩到 no-gram 水平）——
+  table_size_bi1_small)
+    for rows in "${SMALL_TABLE_ROWS[@]}"; do
+      SPECS+=("s1v5_128_tbl_bi1_R${rows}|1000|--enable_bigram 1 --enable_trigram 0 --bigram_clean_table ${rows} --trigram_clean_table 0 --table_lr_scale 128.0 --val_steps 337,674,1000")
+    done
+    ;;
+  table_size_tri1_small)
+    for rows in "${SMALL_TABLE_ROWS[@]}"; do
       SPECS+=("s1v5_128_tbl_tri1_R${rows}|1000|--enable_bigram 0 --enable_trigram 1 --bigram_clean_table 0 --trigram_clean_table ${rows} --table_lr_scale 128.0 --val_steps 337,674,1000")
     done
     ;;

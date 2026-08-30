@@ -84,9 +84,11 @@ class Config:
     trigram_table_dim: int = 0        # same rule for the trigram branch
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
-    intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone | hash_reseed | mask_low_freq | mask_high_freq
+    intervention: str = "none"        # none | freeze_table | freeze_backbone | hash_reseed | mask_low_freq | mask_high_freq
     intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
+    intervention_epochs: tuple = ()   # extra 0-indexed due epochs for multi-fire interventions (e.g. (1, 2))
     intervention_freq_threshold: int = 200
+    intervention_low_inclusive: bool = False  # mask_low masks f <= threshold (default f < threshold)
     adam_betas: tuple = (0.8, 0.95)
     weight_decay: float = 0.1
     # training
@@ -428,6 +430,9 @@ class NanoGPT(nn.Module):
         self._freq_mask_mode = "none"
         self._freq_mask_threshold = 0
         self._hash_reseed_count = 0
+        self._intervention_due = frozenset(
+            {config.intervention_epoch} | set(config.intervention_epochs)
+        )
 
     @torch.no_grad()
     def init_weights(self):
@@ -441,11 +446,6 @@ class NanoGPT(nn.Module):
         for name, p in self.named_parameters():
             if name.endswith("c_proj.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * self.config.n_layer))
-        self._ngram_init_cpu_rng_state = torch.get_rng_state()
-        self._ngram_init_cuda_rng_state = (
-            torch.cuda.get_rng_state(torch.cuda.current_device())
-            if torch.cuda.is_available() else None
-        )
         self._initialize_ngram_tables()
 
     @torch.no_grad()
@@ -464,20 +464,6 @@ class NanoGPT(nn.Module):
                 g = getattr(blk.attn, gname, None)
                 if g is not None:
                     torch.nn.init.zeros_(g.weight)
-
-    @torch.no_grad()
-    def reset_ngram_tables(self):
-        """Reset all n-gram table rows to their init distribution (P1: erase
-        accumulated historical row state, keeping backbone intact)."""
-        if not hasattr(self, "_ngram_init_cpu_rng_state"):
-            raise RuntimeError("init_weights() must run before reset_ngram_tables()")
-        device = next(self.parameters()).device
-        devices = [torch.cuda.current_device()] if device.type == "cuda" else []
-        with torch.random.fork_rng(devices=devices):
-            torch.set_rng_state(self._ngram_init_cpu_rng_state)
-            if device.type == "cuda":
-                torch.cuda.set_rng_state(self._ngram_init_cuda_rng_state, device)
-            self._initialize_ngram_tables()
 
     @staticmethod
     def _reseed_constants(constants, salt):
@@ -518,7 +504,8 @@ class NanoGPT(nn.Module):
         }
         self._hash_reseed_count += 1
 
-    def set_frequency_mask(self, freq_index, mode: str, threshold: int):
+    def set_frequency_mask(self, freq_index, mode: str, threshold: int,
+                           low_inclusive: bool = False):
         if mode not in {"low", "high"}:
             raise ValueError(f"unsupported frequency mask mode: {mode}")
         if threshold < 0:
@@ -531,8 +518,19 @@ class NanoGPT(nn.Module):
             ("bigram", freq_index._bigram_keys_sorted, freq_index._bigram_counts_sorted),
             ("trigram", freq_index._trigram_keys_sorted, freq_index._trigram_counts_sorted),
         ):
-            high_keys = keys[counts > threshold]
-            high_context_counts[branch] = int(high_keys.size)
+            if mode == "high" and threshold == 0:
+                high_keys = np.empty(0, dtype=np.int64)
+                high_context_counts[branch] = int(keys.size)
+            else:
+                # mask_high masks f >= t (inclusive boundary). mask_low is the
+                # complement: f < t plus novel f=0 contexts (f <= t when
+                # low_inclusive). Novel contexts are never in the index, so
+                # low mode always masks them at forward time (train and eval).
+                if mode == "low" and low_inclusive:
+                    high_keys = keys[counts > threshold]
+                else:
+                    high_keys = keys[counts >= threshold]
+                high_context_counts[branch] = int(high_keys.size)
             self._freq_mask_index[branch] = torch.from_numpy(
                 np.ascontiguousarray(high_keys, dtype=np.int64)
             ).to(device)
@@ -541,12 +539,15 @@ class NanoGPT(nn.Module):
         return {
             "mode": mode,
             "threshold": int(threshold),
+            "low_inclusive": bool(low_inclusive),
             "high_context_counts": high_context_counts,
         }
 
     def _frequency_mask(self, branch, context_keys):
         if self._freq_mask_index is None:
             return None
+        if self._freq_mask_mode == "high" and self._freq_mask_threshold == 0:
+            return torch.ones_like(context_keys, dtype=torch.bool)
         high_keys = self._freq_mask_index[branch]
         flat_keys = context_keys.reshape(-1)
         if high_keys.numel() == 0:
@@ -562,10 +563,13 @@ class NanoGPT(nn.Module):
         return high_match
 
     def apply_intervention(self, epoch0: int, freq_index=None):
-        """Fire intervention when 0-indexed epoch reaches `intervention_epoch`."""
+        """Fire intervention when 0-indexed epoch reaches a due epoch.
+
+        Due epochs = {intervention_epoch} | set(intervention_epochs); the
+        train loop guarantees each due epoch fires at most once."""
         if self.config.intervention == "none":
             return {"kind": "none"}
-        if epoch0 != self.config.intervention_epoch:
+        if epoch0 not in self._intervention_due:
             return {"kind": "not_due"}
         event = {
             "epoch0": epoch0,
@@ -574,13 +578,7 @@ class NanoGPT(nn.Module):
             "optimizer_state_preserved": True,
             "hash_identity_before": self.hash_identity(),
         }
-        if self.config.intervention == "reset_table":
-            self.reset_ngram_tables()
-            event["table_parameters_preserved"] = False
-        elif self.config.intervention == "mask_readout":
-            self.config.enable_bigram_ve = False
-            self.config.enable_trigram_ve = False
-        elif self.config.intervention == "freeze_table":
+        if self.config.intervention == "freeze_table":
             for p in self._ngram_params():
                 p.requires_grad_(False)
         elif self.config.intervention == "freeze_backbone":
@@ -598,6 +596,11 @@ class NanoGPT(nn.Module):
                 freq_index,
                 mode,
                 self.config.intervention_freq_threshold,
+                low_inclusive=self.config.intervention_low_inclusive,
+            )
+            event["frequency_mask"]["novel_contexts_masked"] = (
+                mode == "low"
+                or (mode == "high" and self.config.intervention_freq_threshold == 0)
             )
         event["hash_identity_after"] = self.hash_identity()
         return event
@@ -1442,14 +1445,20 @@ def main():
                         help="restrict the bigram table to the first ngram layer "
                              "(control arm for the collision-free perfect-map run)")
     parser.add_argument("--intervention", default="none",
-                        choices=["none", "reset_table", "mask_readout",
-                                 "freeze_table", "freeze_backbone", "hash_reseed",
+                        choices=["none", "freeze_table", "freeze_backbone", "hash_reseed",
                                  "mask_low_freq", "mask_high_freq"],
                         help="causal intervention fired at intervention_epoch boundary")
     parser.add_argument("--intervention_epoch", type=int, default=1,
                         help="0-indexed epoch at which the intervention fires (1 = start of epoch 2)")
+    parser.add_argument("--intervention_epochs", default="",
+                        help="comma-separated extra 0-indexed due epochs for multi-fire "
+                             "interventions, e.g. \"1,2\" = fire at the start of epochs 2 and 3")
     parser.add_argument("--intervention_freq_threshold", type=int, default=200,
-                        help="mask_low/high_freq threshold; low includes f <= threshold")
+                        help="mask threshold: mask_high masks f >= threshold; mask_low masks "
+                             "f < threshold (f <= threshold with --intervention_low_inclusive 1); "
+                             "novel f=0 contexts are always masked in low mode, at train and eval")
+    parser.add_argument("--intervention_low_inclusive", type=int, default=0,
+                        help="1: mask_low masks f <= threshold instead of f < threshold")
     parser.add_argument("--enable_unigram", type=int, default=0)
     parser.add_argument("--enable_bigram", type=int, default=1)
     parser.add_argument("--enable_trigram", type=int, default=1)
@@ -1516,6 +1525,8 @@ def main():
         not args.freq_index or not os.path.isfile(args.freq_index)
     ):
         parser.error(f"--intervention {args.intervention} requires an existing --freq_index")
+    if args.intervention == "none" and args.intervention_epochs.strip():
+        parser.error("--intervention_epochs requires --intervention hash_reseed (or another intervention)")
     if args.intervention in {"mask_low_freq", "mask_high_freq"} and args.injection_position != "input":
         parser.error(f"--intervention {args.intervention} currently requires --injection_position input")
 
@@ -1554,7 +1565,11 @@ def main():
         bigram_single_layer=bool(args.bigram_single_layer),
         intervention=args.intervention,
         intervention_epoch=args.intervention_epoch,
+        intervention_epochs=tuple(
+            int(x) for x in args.intervention_epochs.split(",") if x.strip()
+        ),
         intervention_freq_threshold=args.intervention_freq_threshold,
+        intervention_low_inclusive=bool(args.intervention_low_inclusive),
         data_dir=args.data_dir,
         train_shards=[int(x) for x in args.train_shards.split(",") if x.strip()],
         val_shards=[int(x) for x in args.val_shards.split(",") if x.strip()],
@@ -1713,7 +1728,11 @@ def main():
 
     model.train()
     t0 = time.time()
-    intervention_fired = cfg.intervention == "none"
+    intervention_due = (
+        frozenset({cfg.intervention_epoch} | set(cfg.intervention_epochs))
+        if cfg.intervention != "none" else frozenset()
+    )
+    intervention_fired_epochs = set()
     intervention_events = []
     amp_ctx = _autocast_ctx(args.dtype)
     cur_inp = cur_tgt = cur_ptl = None
@@ -1727,11 +1746,12 @@ def main():
             except StopIteration:
                 train_iter = train_ds.iter_batches(device)
                 inp, tgt = next(train_iter)
-            if not intervention_fired and train_ds._epoch >= cfg.intervention_epoch:
+            if (train_ds._epoch in intervention_due
+                    and train_ds._epoch not in intervention_fired_epochs):
                 event = model.apply_intervention(train_ds._epoch, freq_index_obj)
                 event["step"] = step + 1
                 intervention_events.append(event)
-                intervention_fired = True
+                intervention_fired_epochs.add(train_ds._epoch)
                 print(f"[nglab] intervention={cfg.intervention} at step={step + 1} "
                       f"epoch={train_ds._epoch + 1}")
             with amp_ctx:
@@ -1975,6 +1995,11 @@ def main():
         "intervention": {
             "kind": cfg.intervention,
             "epoch0": cfg.intervention_epoch,
+            "epochs_due": (
+                sorted({cfg.intervention_epoch} | set(cfg.intervention_epochs))
+                if cfg.intervention != "none" else None
+            ),
+            "low_inclusive": cfg.intervention_low_inclusive,
             "frequency_threshold": cfg.intervention_freq_threshold,
             "events": intervention_events,
         },

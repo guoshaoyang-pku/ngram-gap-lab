@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # P1/P2 因果干预 · 极简 setting 重跑（干净 vanilla nanoGPT + input 注入）
-# 复现 agents.md §6.3 的四条 DEPRECATED 结论（原 current-shell 数字重做）。
+# 旧版极简 causal launcher；仅保留当前允许的干预类型。
 #
 # 干预在 epoch 边界触发（--intervention_epoch 为 0-indexed epoch）：
 #   e1 边界 = 0-indexed epoch 1（step ~337）；e2 边界 = 0-indexed epoch 2（step ~674）。
-# 对应旧实验：p1_reset_all_e2(-89%) / p2_readout_mask_e1(-89%) /
-#             p2_freeze_table_e1(-49%) / p2_table_gate_only_e1(-54%)。
-#
-# 控制臂复用已完成干净跑 vanilla_input_1000_seed42（+0.858 @1000），不重跑。
+# 当前支持：freeze_table、freeze_backbone、hash_reseed、mask_low_freq、
+# mask_high_freq。
 #
 # NOTE: 干预臂必须与 §14 控制臂 vanilla_input_1000_seed42 完全同 setting，
 # 仅加 --intervention / --intervention_epoch。控制臂实跑配置：
@@ -16,7 +14,8 @@
 # 默认从当前仓库的 code/train.py 运行；集群副本可通过环境变量覆盖。
 #
 # Usage: ./run_causal_minimal.sh <gpu_id> <arm>
-#   arm: reset_e2 | reset_e1 | mask_e1 | freeze_table_e1 | freeze_backbone_e1
+#   arm: freeze_table_e1 | freeze_backbone_e1 | hash_reseed_e1 |
+#        mask_low_f200_e1 | mask_high_f200_e1
 set -euo pipefail
 
 GPU="${1:?gpu id}"
@@ -40,21 +39,30 @@ if [[ "${NGLAB_COMPILE:-0}" == "1" ]]; then
 fi
 
 declare -A INTERV
-INTERV[reset_e2]="reset_table"
-INTERV[reset_e1]="reset_table"
-INTERV[mask_e1]="mask_readout"
 INTERV[freeze_table_e1]="freeze_table"
 INTERV[freeze_backbone_e1]="freeze_backbone"
+INTERV[hash_reseed_e1]="hash_reseed"
+INTERV[mask_low_f200_e1]="mask_low_freq"
+INTERV[mask_high_f200_e1]="mask_high_freq"
 
 declare -A EPOCH
-EPOCH[reset_e2]=2
-EPOCH[reset_e1]=1
-EPOCH[mask_e1]=1
 EPOCH[freeze_table_e1]=1
 EPOCH[freeze_backbone_e1]=1
+EPOCH[hash_reseed_e1]=1
+EPOCH[mask_low_f200_e1]=1
+EPOCH[mask_high_f200_e1]=1
 
 INTERV_VAL="${INTERV[$ARM]}"
 EPOCH_VAL="${EPOCH[$ARM]}"
+FREQ_ARGS=()
+if [[ "$INTERV_VAL" == "mask_low_freq" || "$INTERV_VAL" == "mask_high_freq" ]]; then
+  FREQ_ARGS=(
+    --freq_index "$ROOT/data/freq_index.npz"
+    --freq_eval_interval 10
+    --freq_eval_batches 4
+    --intervention_freq_threshold 200
+  )
+fi
 
 echo "=== $EXP  intervention=$INTERV_VAL  epoch=$EPOCH_VAL  GPU=$GPU  $(date) ==="
 
@@ -84,6 +92,7 @@ TORCHINDUCTOR_CACHE_DIR="$COMPILE_CACHE" CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$
   "${COMPILE_ARGS[@]}" \
   --intervention "$INTERV_VAL" \
   --intervention_epoch "$EPOCH_VAL" \
+  "${FREQ_ARGS[@]}" \
   --n_layer 8 --n_head 6 --n_embd 768 --vocab_size 8192 --sequence_len 2048 \
   2>&1 | tee "$RESULT_DIR/train.log"
 

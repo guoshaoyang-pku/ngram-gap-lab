@@ -5,7 +5,7 @@
 # Usage: ./run_rerun_v2.sh <gpu_id> <run_id> <train_shards> <val_shards> <steps> <extra...>
 #   extra 可追加: --injection_position v/y/input（默认 input）
 #                  --enable_bigram 0 --enable_trigram 0（nogram 臂）
-#                  --intervention reset_table --intervention_epoch 1（因果臂）
+#                  --intervention hash_reseed --intervention_epoch 1（因果臂）
 #                  --table_mult 16（表大小扫描臂）
 #   compute dtype 固定 bf16（新标准 §1.4，~5.6x 提速；torch.compile 在 28.8B 上为负优化，禁用）。
 set -euo pipefail

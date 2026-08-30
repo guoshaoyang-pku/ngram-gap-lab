@@ -82,7 +82,7 @@ class Config:
     trigram_clean_table: int = 0      # clean single-table rows R for trigram (0=off); same SSOT
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
-    intervention: str = "none"        # none | reset_table | mask_readout | freeze_table | freeze_backbone
+    intervention: str = "none"        # none | freeze_table | freeze_backbone
     intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
     adam_betas: tuple = (0.8, 0.95)
     weight_decay: float = 0.1
@@ -425,11 +425,6 @@ class NanoGPT(nn.Module):
         for name, p in self.named_parameters():
             if name.endswith("c_proj.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * self.config.n_layer))
-        self._ngram_init_cpu_rng_state = torch.get_rng_state()
-        self._ngram_init_cuda_rng_state = (
-            torch.cuda.get_rng_state(torch.cuda.current_device())
-            if torch.cuda.is_available() else None
-        )
         self._initialize_ngram_tables()
 
     @torch.no_grad()
@@ -449,32 +444,13 @@ class NanoGPT(nn.Module):
                 if g is not None:
                     torch.nn.init.zeros_(g.weight)
 
-    @torch.no_grad()
-    def reset_ngram_tables(self):
-        """Reset all n-gram table rows to their init distribution (P1: erase
-        accumulated historical row state, keeping backbone intact)."""
-        if not hasattr(self, "_ngram_init_cpu_rng_state"):
-            raise RuntimeError("init_weights() must run before reset_ngram_tables()")
-        device = next(self.parameters()).device
-        devices = [torch.cuda.current_device()] if device.type == "cuda" else []
-        with torch.random.fork_rng(devices=devices):
-            torch.set_rng_state(self._ngram_init_cpu_rng_state)
-            if device.type == "cuda":
-                torch.cuda.set_rng_state(self._ngram_init_cuda_rng_state, device)
-            self._initialize_ngram_tables()
-
     def apply_intervention(self, epoch0: int):
         """Fire intervention when 0-indexed epoch reaches `intervention_epoch`."""
         if self.config.intervention == "none":
             return
         if epoch0 != self.config.intervention_epoch:
             return
-        if self.config.intervention == "reset_table":
-            self.reset_ngram_tables()
-        elif self.config.intervention == "mask_readout":
-            self.config.enable_bigram_ve = False
-            self.config.enable_trigram_ve = False
-        elif self.config.intervention == "freeze_table":
+        if self.config.intervention == "freeze_table":
             for p in self._ngram_params():
                 p.requires_grad_(False)
         elif self.config.intervention == "freeze_backbone":
@@ -1273,8 +1249,7 @@ def main():
                         help="restrict the bigram table to the first ngram layer "
                              "(control arm for the collision-free perfect-map run)")
     parser.add_argument("--intervention", default="none",
-                        choices=["none", "reset_table", "mask_readout",
-                                 "freeze_table", "freeze_backbone"],
+                        choices=["none", "freeze_table", "freeze_backbone"],
                         help="causal intervention fired at intervention_epoch boundary")
     parser.add_argument("--intervention_epoch", type=int, default=1,
                         help="0-indexed epoch at which the intervention fires (1 = start of epoch 2)")
