@@ -1413,6 +1413,9 @@ def main():
                              "and the fixed train/val probe tokens to probe_tokens.npz "
                              "for offline per-token / row-level loss analysis")
     parser.add_argument("--lr", type=float, default=0.004)
+    parser.add_argument("--weight_decay", type=float, default=0.1,
+                        help="AdamW weight decay for backbone matrices (default 0.1; "
+                             "tables are never decayed)")
     parser.add_argument("--table_optimizer", default="rmsprop",
                         choices=["rmsprop", "adamw", "sgd"],
                         help="optimizer for n-gram table params (default rmsprop)")
@@ -1554,6 +1557,7 @@ def main():
         lr_schedule_epochs=args.lr_schedule_epochs,
         lr_schedule=args.lr_schedule,
         nanogpt_adam_lr=args.lr,
+        weight_decay=args.weight_decay,
         table_optimizer=args.table_optimizer,
         table_lr_scale=args.table_lr_scale,
         table_mult=args.table_mult,
