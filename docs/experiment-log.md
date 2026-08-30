@@ -2960,7 +2960,7 @@ CPU 语义测试通过（mask 互补、novel 行为、双 reseed 保权重换映
 | `causalv5m_mask_low_le2_e1` | mask f≤2 | ✅ done（360-2 gpu3）final gap 1.320 |
 | `causalv5m_mask_low_le4_e1` | mask f≤4 | ✅ done（360-2 gpu4）final gap 1.046 |
 | `causalv5m_mask_low_le8_e1` | mask f≤8 | ✅ done（360-2 gpu5）final gap 0.765 |
-| `causalv5m2_mask_high_t{1,2,5,10,25,50,100,200,400,800,1600,3200,6400,12800}_e1` | mask_high `f≥t` 全量重刷（14 点，含新 t200） | 🟡 14 点中 t1/t2/t200 done，其余 running（360-2 gpu0-5 + ophis gpu3） |
+| `causalv5m2_mask_high_t{1,2,5,10,25,50,100,200,400,800,1600,3200,6400,12800}_e1` | mask_high `f≥t` 全量重刷（14 点，含新 t200） | ✅ 14/14 done（360-2 gpu0-4；t200 在 ophis gpu3），全部 step-1000 回填至 §35.8.1 |
 
 #### 35.8.1 已回填结果（step-1000，seed 42，online train / fixed val）
 
@@ -2974,7 +2974,18 @@ CPU 语义测试通过（mask 互补、novel 行为、双 reseed 保权重换映
 | `causalv5m_mask_low_le8_e1` | 3.355 | 4.119 | **0.765** | 单调下降；f≤200 端点 ≈0.101 |
 | `causalv5m2_mask_high_t1_e1` | 3.867 | 5.794 | **1.927** | 屏蔽全部 f≥1（仅留 novel 读出）；事件记录 high_counts bigram 3,541,098 = f≥1 实测 |
 | `causalv5m2_mask_high_t2_e1` | 4.210 | 5.962 | **1.752** | |
-| `causalv5m2_mask_high_t200_e1` | 3.232 | 6.056 | **2.824** | 与旧语义 t=200（f>200，2.86）接近：40,307 vs 40,518 个 bigram context 之差 |
+| `causalv5m2_mask_high_t5_e1` | 4.362 | 6.385 | **2.023** | high_counts bigram 809,058 = f≥5 实测 ✓ |
+| `causalv5m2_mask_high_t10_e1` | 4.266 | 6.556 | **2.291** | 470,543 ✓ |
+| `causalv5m2_mask_high_t25_e1` | 4.057 | 6.615 | **2.558** | 235,202 ✓ |
+| `causalv5m2_mask_high_t50_e1` | 3.809 | 6.537 | **2.728** | 137,843 ✓ |
+| `causalv5m2_mask_high_t100_e1` | 3.532 | 6.317 | **2.786** | 77,916 ✓ |
+| `causalv5m2_mask_high_t200_e1` | 3.232 | 6.056 | **2.824** | 与旧语义 t=200（f>200，2.86）接近：40,307 vs 40,518 个 bigram context 之差；40,518 ✓ |
+| `causalv5m2_mask_high_t400_e1` | 3.054 | 5.848 | **2.794** | 18,339 ✓ |
+| `causalv5m2_mask_high_t800_e1` | 2.801 | 5.584 | **2.784** | 5,972 ✓ |
+| `causalv5m2_mask_high_t1600_e1` | 2.702 | 5.462 | **2.760** | 2,038 ✓ |
+| `causalv5m2_mask_high_t3200_e1` | 2.606 | 5.358 | **2.752** | 768 ✓ |
+| `causalv5m2_mask_high_t6400_e1` | 2.598 | 5.329 | **2.731** | 302 ✓ |
+| `causalv5m2_mask_high_t12800_e1` | 2.568 | 5.291 | **2.722** | 107 ✓ |
 
 mask_high 刷新批的 summary 事件记录已逐一验证：`frequency_mask.high_context_counts`
 与本地 `freq_index.npz` 的 f≥t 计数完全吻合（含边界语义生效），`novel_contexts_masked=false`。
