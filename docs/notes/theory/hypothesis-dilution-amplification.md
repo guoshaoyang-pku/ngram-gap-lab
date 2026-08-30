@@ -117,6 +117,90 @@ bigram −0.214 / trigram −0.436 vs 探针几何桶 −0.253/−0.318）；(b)
 3. **v2 形式**：Gap(R,f,t) ≈ A(t,passes) · a_emp(K/R) · [B·M(f)+V·S_eff(f)/f] · m_f，
    其中 a_emp 由稀释面 CSV 插值；开放项变为 a(load) 的动力学起源与 A 的时间结构。
 
-**待跑判决**（已登记）：trigram 支路 M(f)（4-gram 计数，集群 CPU job）；causal_dynamics 批
-（freeze_backbone e1/e2/e3、freeze_table e2、wd 0/0.3、control，2022 步 6 pass）标定 A 动力学；
-混匀（pass 交错）实验需 train.py 新旗标，规格已登记、下一批实现。
+**待跑判决**（已登记）：~~trigram 支路 M(f)~~ ✅ 已完成（4-gram 计数集群 CPU job，
+`theory_missing_mass_trigram.csv`，commit 2ecf5e0：M(f) 在 [1,100] 斜率 −0.319 ≈ 实测 β −0.318）；
+causal_dynamics 批（freeze_backbone e1/e2/e3、freeze_table e2、wd 0/0.3、control，2022 步 6 pass）
+标定 A 动力学——running（§38）；backbone-LR 判决批 running（§39）；混匀（pass 交错）实验需
+train.py 新旗标，规格已登记、下一批实现。
+
+---
+
+## H-KAPPA 完整推导（2026-08-31 深夜补，用户要求）
+
+### 0. 论证形态：两个独立测量相等，不是 curve fit
+
+- **训练侧**：per-context gap 随 f 的衰减指数 β，由 run `s1v5_128_frequency_main`（seed 42，
+  input 双表 R=2^20，step-1000 exact_freq_loss，token-mass 加权局部斜率）量得：
+  bigram −0.253、trigram −0.318。
+- **语料侧**：缺失延续质量 M(f) 的斜率，由 `data/freq_index.npz`（seed-42 shard-1）纯计数得到：
+  bigram −0.241（窗口 [1,100]）/ −0.258（[4,4096]）；trigram −0.319（[1,100]）。
+- H-KAPPA 断言两者相等；实测命中。**M(f) 零训练、零 GPU、零自由形状参数**；
+  全部拟合自由度 = 幅度（两分量核 B、V 两个数，或单幅度 C）。若 M(f) 形状是拟合的，
+  这只是一个 fit；因为它是数出来的，这是解释。
+
+### 1. 定义（bigram 支路；trigram 把延续类型换成 4-gram 类型）
+
+- context c：前 n−1 个 token；train 中总出现次数 f_c。
+- 延续类型：t = (c, next-token)，即下一级 n-gram 类型（bigram 支路 = trigram 类型，
+  前缀索引 `tri_keys // 8192` 精确可查）。
+- N1(c)：c 的延续类型中在 train 恰出现 1 次的个数（singleton 类型数）。
+- 频率层 L_f = {c : f_c = f}，n(f) = |L_f|，N1(f) = Σ_{c∈L_f} N1(c)。
+- **M(f) = N1(f) / (f · n(f))** = 层内平均的 N1(c)/f。
+
+### 2. Good–Turing：M(f) ≈ P(val 下文是 c 没见过的新类型)
+
+设真条件分布 p(·|c) 的类型概率 {q_i}。c 在 train 被抽 f 次（跨 pass 近似 i.i.d.）：
+
+- val 下文类型 train 未见过：P_novel(f) = Σ_i q_i (1−q_i)^f。
+- singleton 计数期望：E[N1(c)] = Σ_i f·q_i (1−q_i)^{f−1}。
+- 故 E[N1(c)/f] = Σ_i q_i (1−q_i)^{f−1} ≈ Σ_i q_i (1−q_i)^f = P_novel(f)：
+  逐项相对差 O(q_i)，重尾下由 q_i ≪ 1 的尾部类型主导，近似成立（标准 GT 缺失质量估计）。
+- **f=1 sanity**：c 只出现 1 次 ⇒ 其唯一延续类型必为 singleton ⇒ M(1) = 1。
+  数据：bigram M(1)=1.000、trigram M(1)=1.000 ✓。
+- 实测：bigram M(8)=0.510、M(128)=0.269；trigram M(8)=0.535、M(128)=0.296。
+  f 越大，延续支撑按 Heaps 律次线性增长，新鲜下文供给按幂律（非指数）枯竭。
+
+### 3. 幂律尾 ⇒ β = 1 − 1/a（β 的微观来源）
+
+设单 context 延续分布尾部 q_r ∝ r^{−a}（a>1，Z 为归一常数）：
+
+```
+P_novel(f) = Σ_r q_r (1−q_r)^f ≈ (1/Z) ∫ r^{−a} exp(−f·r^{−a}/Z) dr
+换元 u = f·r^{−a}/Z  (r = (f/(Zu))^{1/a})：
+P_novel(f) ≈ (Γ(1−1/a)/a) · Z^{−1/a} · f^{−(1−1/a)}
+```
+
+即 **M(f) ∝ f^{−(1−1/a)}，β = 1 − 1/a**，与优化器、表大小、训练时间均无关。
+反解 a = 1/(1−β)：
+
+- bigram：β=0.253 ⇒ a ≈ 1.34 ≈ 4/3
+- trigram：β=0.318 ⇒ a ≈ 1.47 ≈ 3/2
+
+解读：context 越长，条件分布越尖（尾部越陡、a 越大），延续支撑长得越慢，
+新鲜延续消耗越快 ⇒ β 越大。**β 是语言条件分布尖度的投影**——「支撑维度」直觉的严格化。
+
+### 4. 两分量核：κ(f) = B·M(f) + V·min(S_eff,f)/f
+
+- **第一项（未见延续，主导）**：val 下文类型 train 完全没见过 ⇒ 行对该类型分配 ≈ 0 质量 ⇒ 惩罚大。
+- **第二项（已见延续的插件方差）**：行内容是 f 个样本的经验分布；即便 val 下文类型已被见过，
+  行的质量分配仍有 O((S−1)/f) 量级误差。S_eff(f) = 层内平均延续种类数（index 直接可数）；
+  min(·,f) 防止 f < S_eff 时越界。
+- 拟合（bigram，19 个几何桶，val-token 加权线性最小二乘）：**B=4.17、V=3.40，linR²=0.928**；
+  纯 M 单幅度版 linR²=0.796。窗口 [4,4096] 实测数据斜率 −0.441，两分量核同窗口一致
+  （图 `fig_v5_missing_mass_kernel.png` 左面板：蓝点=实测，绿线=C·M(f)，
+  红虚线=被否定的碰撞稀释版，紫线=两分量核）。
+
+### 5. 与总公式的接口、边界与复现
+
+- 在 Gap(R,f,t) ≈ A(t,passes) · a_emp(K/R) · κ(f) · m_f 中，κ 的形状全部由 §1–4 的语料量给出；
+  A、a_emp 的幅度另行标定（稀释面 CSV / causal 批）。
+- 边界（诚实清单）：
+  1. M(f) 斜率依赖窗口（bigram −0.22~−0.26；trigram −0.19~−0.32），[1,100] token 质量主区
+     命中最干净；**β 不作普适常数使用**（另见 β(R) 漂移，§v2-2）。
+  2. 第一项只解释 gap 大头：方差项（V）、backbone scar（mask_high t=1 残留 1.927）、
+     读出放大 A 均在核外。
+  3. 目前为「同数据强一致性检验」；升级为因果判据依赖混匀实验与 causal_dynamics 批（§38）。
+  4. E[N1/f] ≈ P_novel 的近似在 f 大、头部质量重时偏差增大（§2 换元的紧性条件）。
+- 复现：`docs/plot_scripts/plot_v5_missing_mass_kernel.py`（bigram）+
+  `docs/plot_scripts/compute_fourgram_missing_mass.py`（trigram，集群 CPU job）
+  → `docs/figs/theory/theory_missing_mass_{bigram,trigram}.csv`。
