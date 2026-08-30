@@ -359,7 +359,7 @@
       </div>
       <span class="note">图源为 12 个 <code>s1v5_128_ep_tri_*xL4_3ep_fixed</code> 与 L4 trigram-only/no-gram 长训；点为原始 online 记录，细线为 3 点视觉连接，竖线为 epoch boundary。</span>
     </td>
-    <td class="st-done">✅ 12/12 完成；U 形最低 gap=2.469 @1×L4；0.125×=3.552、2×=5.582</td>
+    <td class="st-done">✅ 12/12 完成；≤1×L4（真 epoch-length 段）gap 随 L 从 0.125× 的 3.552 降到 1× 的 2.469；&gt;1×L4 点为 shard-1 wrap-around（pass 数点，2×L4=5.582 ≈ 长 replay 6-pass 5.609），旧“U 形+顶点 0.41×L4”读法作废（2026-08-30 勘误，pass 折叠图见主报告图 7c）</td>
     <td class="com"><input type="text"></td>
   </tr>
   <tr id="registry-s1-v5-128-long">
@@ -456,8 +456,8 @@
 结果当作力学定律：</p>
 <ul>
   <li>table-size：净 gap（减 floor 0.02）分窗口拟合 bigram <code>(G−0.02)∝R^0.5761</code>（R 2e3–2e5，n=12，R²=.9969）、trigram <code>(G−0.02)∝R^0.6648</code>（R 1e5–9.3e5，n=8，R²=.9997）；raw gap（不减 floor）敏感性斜率 0.5010 / 0.6526。每条单表轴 31 个 run；R≤约1e4 进入 no-gram floor（nogram 实测 0.0234，小 R 平台均值 0.0196），塌缩区不进入拟合；bigram R≈3e5 后、trigram R≈1.2e6 后饱和。旧的 R≥16000 raw-gap 拟合（0.429/0.657）混入两端机制，已废弃。</li>
-  <li>epoch-length：在 ln(L4 multiplier) 上的二次描述拟合顶点为 <code>0.411502×L4</code>，预测 gap=2.648528（R²=.774155）；另有 L4 10-epoch boundary 图，显示 gap 增长逐渐变缓但尚未达到明确平台。</li>
-  <li>dose：5× 以内正 gap 的 log-log slope 为 −1.726983（R²=.887225）；5× 到 6× 之间发生符号翻转，不报告全区间幂律。</li>
+  <li>epoch-length：<b>2026-08-30 勘误</b>——&gt;1×L4 的点共用 shard-1 频率索引，是 wrap-around 重放（pass 数点），旧“在 ln(L4 multiplier) 上二次拟合顶点 0.41×L4”的 U 形读法把两个变量混进一条轴，已作废；≤1×L4 段 gap 随 L 温和下降（3.552→2.469）。L4 10-epoch boundary 图显示 gap 增长逐渐变缓但尚未达到明确平台。</li>
+  <li>dose：<b>2026-08-30 勘误</b>——slope −1.726983（R²=.887225）来自 2× 批 <code>nglab*_input_v5_freq10</code>（config 实测 <code>table_lr_scale=2.0</code>）；128× 权威批 <code>nglab*_input_v5_128x_freq10</code> 正 gap（≤5×，n=10）slope −1.176（R²=.899），0.25×=10.895、5×=0.355、6×/8×=−0.087/−0.055，登记于 <code>s1_dose_points_128x.csv</code>。两批均在 5×–6× 间穿零，不报告全区间幂律；pass 数折叠见主报告图 7c。</li>
   <li>exact-frequency：bigram slope −.252746（R²=.997165），trigram slope −.318121（R²=.995548）；按 shared-context token mass 的 7 个几何 bin 聚合。</li>
 </ul>
 <p>可复核文件：
@@ -465,7 +465,9 @@
 <a href="../../docs/appendices/s1_scaling_three_axis/s1_scaling_fits.csv">拟合系数 CSV</a> ·
 <a href="../../docs/appendices/s1_scaling_three_axis/s1_table_size_points.csv">table-size 原始点</a> ·
 <a href="../../docs/appendices/s1_scaling_three_axis/s1_epoch_length_points.csv">epoch 原始点</a> ·
-<a href="../../docs/appendices/s1_scaling_three_axis/s1_dose_frequency_gap.csv">dose × frequency 原始点</a>。</p>
+<a href="../../docs/appendices/s1_scaling_three_axis/s1_dose_points_128x.csv">dose 128× 原始点</a> ·
+<a href="../../docs/appendices/s1_scaling_three_axis/s1_dose_frequency_gap.csv">dose × frequency 原始点</a>。
+理论假说（H-DILUTE，待挑战）及其数值检验图（干涉稀释卷积、Zipf 结构、pass 折叠）见主报告 §6 与 <code>docs/notes/theory/hypothesis-dilution-amplification.md</code>。</p>
 </details>
 
 <h2>④ 核心代码与「来源唯一可追溯」</h2>

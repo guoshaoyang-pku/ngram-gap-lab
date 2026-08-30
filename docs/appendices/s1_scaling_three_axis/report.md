@@ -10,7 +10,7 @@
 |---|---|---|
 | 真实 context frequency `f` → gap | 7 个宽几何 bin 的诊断摘要：bigram `G(f)∝f^-0.252746`（R²=0.997165），trigram `G(f)∝f^-0.318121`（R²=0.995548）。`hit count` 是 hash 前同一真实 n-gram context 在训练语料中出现的次数；它不是 table row load。 | 不是 table hit count；当前单 seed 的斜率不是普适常数。 |
 | clean table 大小 `R` → gap | 两条正式单表轴各 31 点，另一张表关闭。减去 no-gram floor `0.02` 后，在中间线性窗口得到 bigram `(G−0.02)∝R^0.576`（R=2e3–2e5，R²=.997）与 trigram `(G−0.02)∝R^0.665`（R=1e5–9.3e5，R²=.9997）；raw-gap 敏感性为 .501/.653。 | 不是一个把两张表绑定在一起的 `G_both(R)` 指数；小 R 塌缩区和大 R 饱和区不能混入同一条全区间幂律。 |
-| fixed-step 数据剂量 `D` → gap | v5 seed 42 在 step 2000 从 `D=.25×` 的 11.536 单调降至 `D=5×` 的 0.084，并在 6× 后穿过 0。 | 不是一条全区间幂律；局部斜率随窗口显著变陡。 |
+| fixed-step 数据剂量 `D` → gap | **2× 批**（`nglab*_input_v5_freq10`，config `table_lr_scale=2.0`）step 2000 从 `D=.25×` 的 11.536 降至 `D=5×` 的 0.084、6× 后穿 0；**128× 批**（`nglab*_input_v5_128x_freq10`）从 10.895 降至 5× 的 0.355，6×/8× 为 −0.087/−0.055。 | 不是一条全区间幂律；正 gap 段描述斜率 2× 批 −1.727、128× 批 −1.176（见 `s1_dose_points_128x.csv`）。 |
 | epoch length `L` → gap | 12 个 trigram-only、相对标准 `L4` 的 v5 点，每个 run 完成 3 个 epoch；U 形，1.0×L4 最低 gap=2.469。 | 不拟合幂律，不作独立因果律。 |
 
 > **读图规则**：频率图横轴是 exact context frequency；table 图横轴是每个 clean table 的物理行数 `R`。table occupancy / collision 是解释 `R` 效应的另一条观测轴，不能替代 `f`。
@@ -51,7 +51,7 @@
 
 ### 2.1 数据剂量：强单调 dilution，但不是单一幂律
 
-这里 `D` 是训练 shard dose；总训练步数固定为 2000，因此 D 越大，每个样本在该预算内被 replay 的次数越少。v5 frequency-refresh 扫描（seed 42）从 `D=.25×` 的 gap 11.536 下降到 `D=5×` 的 0.084，`D=6×/8×` 为 −0.088/−0.075。它是很强的剂量/重复暴露关系，但不宜命名为一条全区间 `G(D)∝D^{-α}`：正 gap 的 5× 以内拟合斜率为 `−1.727`（R²=0.887），随后 gap 过零而 log(y) 不再定义。这说明当前曲线是 crossover 到 near-zero floor，而不是常数指数。
+这里 `D` 是训练 shard dose；总训练步数固定为 2000，因此 D 越大，每个样本在该预算内被 replay 的次数越少。**批次勘误（2026-08-30）**：本节原引数字来自 `nglab*_input_v5_freq10` 批，其 config 实测 `table_lr_scale=2.0`（2× 时代产物），不是当前 128× 标准。该 2× 批（seed 42）从 `D=.25×` 的 gap 11.536 下降到 `D=5×` 的 0.084，`D=6×/8×` 为 −0.088/−0.075，正 gap 的 5× 以内拟合斜率 `−1.727`（R²=0.887）。**128× 权威批** `nglab*_input_v5_128x_freq10` 的对应数字为 10.895 → 0.355（5×），6×/8× −0.087/−0.055，正 gap（≤5×，n=10）斜率 `−1.176`（R²=0.899），登记于 `s1_dose_points_128x.csv`。两批都说明这是很强的剂量/重复暴露关系，但不宜命名为一条全区间 `G(D)∝D^{-α}`：gap 过零后 log(y) 不再定义，曲线是 crossover 到 near-zero floor 而不是常数指数；把横轴换成完成 pass 数后，dose 轴与 epoch-number 轴基本折叠（见主报告图 7c）。
 
 ![v5 dose trajectories](../../figs/main/fig_v5_dose_trajectories.png)
 

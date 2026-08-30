@@ -3069,3 +3069,31 @@ raw-gap 敏感性斜率为 `.501/.653`；大 R 端分别进入饱和，不能用
 `docs/figs/main/fig_v5_s1_table_size_loglog_clean.png`。图中实心点是原
 formal grid，空心点是本次 `R=10^4…1` 扩展；细线仅为 3-point visual
 connector，虚线为大 R 描述性拟合。
+
+## §37 · 理论审计与勘误批（零 GPU 分析，2026-08-30）
+
+无新 GPU run。全部输入为已登记 run 目录与 `data/freq_index.npz`（shard-1 exact counts）；脚本
+`docs/plot_scripts/plot_v5_theory_alpha_collapse.py`、`plot_v5_interference_model.py`。
+
+**勘误 1（dose 批次归属）**：`nglab*_input_v5_freq10` 系列 config 实测 `table_lr_scale=2.0`
+（2× 时代批），此前被当作现行 dose 证据引用（0.25×=11.536，slope −1.727）。128× 权威批为
+`nglab*_input_v5_128x_freq10`：0.25×=10.895 → 5×=0.355，6×/8×=−0.087/−0.055，正 gap（≤5×，
+n=10）slope −1.176（R²=.899）。新增 `docs/appendices/s1_scaling_three_axis/s1_dose_points_128x.csv`。
+两批均保留，引用时必须注明批次。
+
+**勘误 2（epoch-length 轴 >1×L4 段）**：12 点 epoch-length 批共用 shard-1 频率索引；>1×L4 的
+“epoch”是 shard-1 wrap-around 重放，属 pass 数点（2×L4 3-epoch 终点 5.582 ≈ 长 replay 6-pass
+5.609）。旧“U 形 + 二次拟合顶点 0.41×L4”作废；≤1×L4 段（嵌套前缀，3 pass）gap 随 L 从 3.552
+降至 2.469。
+
+**新分析产物**：
+- `docs/figs/main/fig_v5_pass_collapse.png`：dose 128× 批、>1×L4 wrap 点、10-epoch 长 replay 在
+  「完成 pass 数」轴上折叠；6× 恰在 0.99 pass 处穿零；0.75× 的 7.9-pass 点 7.21 ≈ replay 8-pass 7.14。
+- `docs/figs/theory/fig_v5_zipf_context_alpha.png` + `theory_zipf_triangle.csv`：rank–frequency 局部
+  α（table-size 拟合同窗口）bigram 0.994 / trigram 0.841；朴素代数关系 γ=1−α(1−β) 需要 α=0.57/0.49
+  才闭合 → 被证伪。
+- `docs/figs/theory/fig_v5_interference_model_vs_data.png` + `theory_interference_scan.csv`：干涉稀释
+  卷积 G(R)∝Σ_f n(f)·(f/T)·f^{−β}·f/(f+T/R)，β 取频率轴实测值，预测窗口斜率 bigram 0.567 /
+  trigram 0.648（实测 0.576/0.665），并复现大 R 饱和弯头；每 branch 仅一个自由幅度参数。
+- 假说登记：`docs/notes/theory/hypothesis-dilution-amplification.md`（H-DILUTE，标注为假设），
+  主报告新增 §6 与图 7c/14/15。
