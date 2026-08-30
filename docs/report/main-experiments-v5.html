@@ -162,6 +162,8 @@ details>div{padding:0 0 14px}.footer{margin-top:40px;padding-top:15px;border-top
   <h3>3.2 Epoch-length：相对完整 L4 的倍数</h3>
   <div class="figure-card"><div class="figure-title"><strong>图 7 · 3-epoch epoch-length 阵列</strong><span>trigram-only；横轴是 L4 倍数，L4=337 device batches</span></div><img src="../figs/main/fig_v5_s1_epoch_length_scaling.png" alt="epoch length scaling relative to L4"></div>
   <p>12 个点的 final gap 对 <code>ln(L/L4)</code> 做二次描述拟合，顶点约为 <b>0.412×L4</b>，预测 gap 2.649，R²=.774。它概括了观察到的 U 形，但不是机制定律；每个点是 seed 42 的三 epoch 对齐 run。</p>
+  <div class="figure-card"><div class="figure-title"><strong>图 7b · gap–epoch 编号与每 epoch 增量</strong><span>L4 长 replay；原始 epoch-boundary 记录，不平滑</span></div><img src="../figs/main/fig_v5_s1_epoch_number.png" alt="gap versus epoch number and per-epoch increment"></div>
+  <p>同一 L4（337 device batches/epoch）的 10-epoch trigram-only 长训中，epoch-boundary gap 为 −0.048、1.018、2.473、3.697、4.614、5.609、6.439、7.144、7.847、8.675（epoch 1–10；<code>s1v5_128_ep_tri_1xL4_10ep</code>，seed 42，step 3370）。从 epoch 2 到 10 的线性参考斜率约为 0.96 gap/epoch，但每 epoch 增量从 1.45 的早期峰值逐步降到约 0.7–0.8；因此当前证据支持“近似线性、斜率逐渐变小”的凹增长，而不是已经观测到明确平台。no-gram 对照在同一窗口只从约 0 增至 0.48。图中点是原始 boundary records，没有 21-step 平滑或插值。</p>
 
   <h3>3.3 Shard dose：同一 input 主线的剂量轴</h3>
   <div class="figure-card"><div class="figure-title"><strong>图 8 · dose–gap 关系</strong><span>128× · step 2000 · 11 个非 1× dose，1× 由 M2 主线提供</span></div><img src="../figs/main/fig_v5_128x_dose_gap.png" alt="128x dose and final gap"></div>

@@ -93,7 +93,7 @@ run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有�
 | epoch · fixed-step | epoch 长度 L 是否影响 gap（相同算力 1000 步） | `ep_{L}_{arm}_fs[_s{43,44}]`（历史 L1-L4 × bigram/trigram/both/nogram） | `run_scaling_epoch_full.sh` | 🗄️ 历史 compile 波次；由当前 v5 S1 三 epoch 阵列取代 |
 | epoch · fixed-epoch | 相同重播次数（6 epoch）下 gap 是否随 L 变化 | `ep_{L}_{arm}_fe[_s{43,44}]`（历史 L1-L4） | `run_scaling_epoch_full.sh` | 🗄️ 历史 compile 波次；由当前 v5 S1 三 epoch 阵列取代 |
 | table size · historical | 1M 逻辑地址只向下，gap 由参数量还是 collision 决定 | `tbl_{TM}_{arm}[_s{43,44}]`（历史 dense/sparse） | `run_scaling_table_full.sh`（dense + sparse） | 🗄️ 历史 compile 波次；仅作 table-size 局部 slope 审计 |
-| table size · clean | 物理行数 R、collision 与 gap 的 clean 单表关系 | `s1v5_128_tbl_bi1_R*`；`s1v5_128_tbl_tri1_R*` | `run_v5_s1_three_axis_queue.sh`；`plot_v5_registry_figures.py` | ✅ 当前 v5 36/36 done；两条单表轴：bigram slope 0.429、trigram slope 0.658；见注册表 `#registry-s1-table-clean` |
+| table size · clean | 物理行数 R、collision 与 gap 的 clean 单表关系 | `s1v5_128_tbl_bi1_R*`；`s1v5_128_tbl_tri1_R*` | `run_v5_s1_three_axis_queue.sh`；`plot_v5_registry_figures.py` | ✅ 当前 v5 62/62 done；两条单表轴各 31 点；净 gap 分窗口 slope：bigram 0.58、trigram 0.66；见注册表 `#registry-s1-table-clean` |
 | frequency 轴 | `G(E,f)` 是否服从两因素模型（observational） | `s1v5_128_frequency_main` | `run_v5_s1_three_axis_queue.sh`；`plot_v5_registry_figures.py` | ✅ 当前 v5 main done；exact-f 与 Σf 图已登记 |
 | backbone safety | 长训 no-ngram backbone 是否产生 gap | `bb_safety_L1_nogram_5000` | 手工（旧 cadence 50 步 + fp32） | ✅ done（旧口径；final +16.66 @5000，仅量级参考） |
 
@@ -108,11 +108,11 @@ run metadata 未随仓库迁入，因此作图脚本默认拒绝运行；只有�
 
 | 轴 | 科学问题 | run_id | 预算与统计 | 状态 |
 |---|---|---|---|---|
-| table size · bigram-only | 只开启 bigram，改变其 clean table 的 physical rows `R`；trigram 关闭 | `s1v5_128_tbl_bi1_R{16000..2347000}` | 18 个近似 log-spaced R；1000 steps；step 337/674/1000 已保留 | ✅ done；18/18；gap@1000=0.143–1.152；log-log slope=0.429（R²=.976） |
-| table size · trigram-only | 只开启 trigram，改变其 clean table 的 physical rows `R`；bigram 关闭 | `s1v5_128_tbl_tri1_R{16000..2347000}` | 18 个近似 log-spaced R；1000 steps；step 337/674/1000 已保留 | ✅ done；18/18；gap@1000=0.138–3.617；log-log slope=0.658（R²=.995） |
+| table size · bigram-only | 只开启 bigram，改变其 clean table 的 physical rows `R`；trigram 关闭 | `s1v5_128_tbl_bi1_R{10000..2347000}` 与小 R 扩展 | 31 个近似 log-spaced R；1000 steps；step 337/674/1000 已保留 | ✅ done；31/31；小 R 塌缩到 no-gram floor；净 gap 分窗口 R=2e3–2e5 的 log-log slope=0.576（R²=.997，n=12），raw-gap 敏感性 0.501 |
+| table size · trigram-only | 只开启 trigram，改变其 clean table 的 physical rows `R`；bigram 关闭 | `s1v5_128_tbl_tri1_R{10000..2347000}` 与小 R 扩展 | 31 个近似 log-spaced R；1000 steps；step 337/674/1000 已保留 | ✅ done；31/31；小 R 塌缩到 no-gram floor；净 gap 分窗口 R=1e5–9.3e5 的 log-log slope=0.665（R²=.9997，n=8），raw-gap 敏感性 0.653 |
 | frequency · main | 主实验完整双支路的 frequency-bin gap | `s1v5_128_frequency_main` | 1 个主实验；bigram+trigram；1000 steps；step 337/674/1000 的 frequency-bin/exact-frequency/table-RMS 已保留 | ✅ done；final gap=2.736 |
 | epoch length · 3 epochs | 固定 3 个 epoch 时，epoch 长度是否改变 gap | `s1v5_128_ep_tri_{0p125..2p0}xL4_3ep` | 12 个 L4 倍数点；`epoch_batches=42…674`；仅 trigram；每点 3 epoch；step = `3×epoch_batches`，保留 e1/e2/e3 | ✅ done；12/12；U 形，minimum=2.469 @1×L4；0.125×=3.552、2×=5.582 |
-| epoch length · long | L4 下 gap 随 epoch 的长期变化 | `s1v5_128_ep_tri_1xL4_10ep[_nogram]` | trigram-only + no-gram；10 epoch；3370 steps；每个 epoch 边界保留 | ✅ done；trigram=8.675、nogram=0.455 |
+| epoch length · long | L4 下 gap 随 epoch 的长期变化 | `s1v5_128_ep_tri_1xL4_10ep[_nogram]` | trigram-only + no-gram；3370 steps；10 个 epoch boundary 记录 | ✅ done；trigram=8.675、nogram=0.480 @3370；epoch 增量逐渐变缓，尚未见明确平台 |
 
 epoch 轴刻意不固定 1000 steps：每个长度都运行 3 个完整 epoch，以保持
 replay 次数一致；L4 另跑 10 epoch 长训。table-size/frequency 轴为 1000-step
@@ -126,7 +126,7 @@ exact-frequency（不传 `--freq_index`），只算在线 train/val + fixed prob
 频率轴单独一小批 run（带 exact-freq）。原有 261 个 `_fixed` run 属于
 `bf16 + torch.compile` 历史波次；最新标准是 **bf16 不 compile**，因此这些
 run 只保留为历史数学审计，不能标记为当前标准完成。当前 no-compile S1
-重跑已完成：table-size 单表 36/36、epoch trigram-only 14/14、frequency main 1/1。
+重跑已完成：table-size 单表 62/62、epoch trigram-only 14/14、frequency main 1/1。
 历史 261 个 run 均通过当时的 contract / NaN / probe-hash QC；
 其中 table 原始 21 个 run 为 dense
 每 10 步监测，48 个 seed-42 + 72 个 seed-43/44 加密 run 为 sparse 只监测

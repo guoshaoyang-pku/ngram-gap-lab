@@ -333,16 +333,26 @@ def plot_injection_frequency():
         save_figure(figure, f"fig_v5_128x_injection_frequency_{branch}.png")
 
 
-# ---------- Causal 6-arm curves (128×) ----------
+# ---------- Causal 7-arm curves (128×) ----------
 def plot_causal_losses():
     run_ids = (
         "causalv5c_none_128x",
         "causalv5c_freeze_table_e1_128x",
         "causalv5c_freeze_backbone_e1_128x",
         "causalv5c_hash_reseed_e1_128x",
+        "causalv5c_hash_reseed_e1e2",
         "causalv5c_mask_low_f200_e1_128x",
-        "causalv5c_mask_high_f200_e1_128x",
+        "causalv5m2_mask_high_t200_e1",
     )
+    labels = {
+        "causalv5c_none_128x": "none",
+        "causalv5c_freeze_table_e1_128x": "freeze_table e1",
+        "causalv5c_freeze_backbone_e1_128x": "freeze_backbone e1",
+        "causalv5c_hash_reseed_e1_128x": "hash_reseed e1",
+        "causalv5c_hash_reseed_e1e2": "hash_reseed e1+e2",
+        "causalv5c_mask_low_f200_e1_128x": "mask_low f≤200",
+        "causalv5m2_mask_high_t200_e1": "mask_high f≥200",
+    }
     curves = []
     for run_id in run_ids:
         summary, rows = read_run(run_id)
@@ -359,7 +369,7 @@ def plot_causal_losses():
     )
     for color, (run_id, rows) in zip(colors, curves):
         steps = np.asarray([row["step"] for row in rows])
-        label = run_id.removeprefix("causalv5c_").removesuffix("_128x")
+        label = labels[run_id]
         for axis, (metric, ylabel) in zip(axes, metrics):
             values = np.asarray(
                 [row.get(metric, row["val_loss"] - row["train_loss"]) for row in rows]
@@ -374,10 +384,12 @@ def plot_causal_losses():
                     boundary, color="#9ca3af", linewidth=0.35,
                     linestyle=":", alpha=0.55
                 )
-    axes[0].legend(ncol=3, fontsize=7, frameon=False)
+    axes[0].legend(ncol=4, fontsize=7, frameon=False)
     axes[-1].set_xlabel("optimizer step")
     figure.suptitle(
-        "V5 causal-refresh 128× · six matched intervention arms (1000 steps)\n"
+        "V5 causal-refresh 128× · seven matched intervention arms (1000 steps)\n"
+        "hash_reseed e1+e2 resees the context→row mapping at both epoch boundaries;\n"
+        "mask_low f≤200 masks seen contexts with f≤200 plus novel (f=0) at train and eval;\n"
         "points = raw online records; thin lines = 3-point visual connector",
     )
     figure.tight_layout()
@@ -391,13 +403,18 @@ def plot_causal_frequency_effect():
         for run_id in (
             "causalv5c_none_128x",
             "causalv5c_mask_low_f200_e1_128x",
-            "causalv5c_mask_high_f200_e1_128x",
+            "causalv5m2_mask_high_t200_e1",
         )
     }
     if any(record is None or int(record.get("step", -1)) != 1000
            for record in frequency_records.values()):
         print("skip causal frequency figure: final frequency evidence incomplete")
         return
+    labels = {
+        "causalv5c_none_128x": "none",
+        "causalv5c_mask_low_f200_e1_128x": "mask_low f≤200",
+        "causalv5m2_mask_high_t200_e1": "mask_high f≥200",
+    }
     figure, axes = plt.subplots(1, 2, figsize=(12.8, 4.7), sharey=True)
     for axis, branch in zip(axes, ("bigram", "trigram")):
         for run_id, color in zip(frequency_records, ("#374151", "#0f766e", "#d97706")):
@@ -406,8 +423,7 @@ def plot_causal_frequency_effect():
             x = np.arange(len(buckets))
             values = [gaps[bucket] for bucket in buckets]
             axis.scatter(x, values, color=color, s=20, alpha=0.75)
-            add_finite_smoothed_segments(axis, x, values, color,
-                                         run_id.removeprefix("causalv5c_").removesuffix("_128x"))
+            add_finite_smoothed_segments(axis, x, values, color, labels[run_id])
         axis.axhline(0, color="#686d73", linewidth=0.7, linestyle=":")
         axis.set_xticks(x, buckets, rotation=38, ha="right")
         axis.set_xlabel("train context hit-count bucket")
@@ -417,10 +433,185 @@ def plot_causal_frequency_effect():
     axes[0].legend(fontsize=8, frameon=False)
     figure.suptitle(
         "V5 causal frequency contribution · 128× · final step 1000\n"
-        "low mask = f≤200; high mask = f>200; points = raw bins; thin line = 3-point connector",
+        "low mask = f≤200 incl. novel (train+eval); high mask = f≥200;\n"
+        "points = raw bins; thin line = 3-point connector",
     )
     figure.tight_layout()
     save_figure(figure, "fig_v5_128x_causal_frequency_effect.png")
+
+
+# ---------- mask_low inclusive threshold scan (f≤t, 128×) ----------
+def plot_mask_low_le_scan():
+    """Gap trajectories for mask_low f≤t at t=0,1,2,4,8 (+ t=200 endpoint).
+
+    All scan arms mask at train AND eval (the mask lives in forward), and
+    novel (f=0) contexts are always masked in low mode.  t=0 therefore only
+    removes the novel-context table readout at eval; t≥1 additionally removes
+    the training signal of contexts seen ≤ t times."""
+    run_specs = (
+        ("causalv5c_none_128x", "none (control)", "#6b7280"),
+        ("causalv5m_mask_low_le0_e1", "mask f≤0 (novel only)", "#8dd3c7"),
+        ("causalv5m_mask_low_le1_e1", "mask f≤1", "#4c9f70"),
+        ("causalv5m_mask_low_le2_e1", "mask f≤2", "#2d86b3"),
+        ("causalv5m_mask_low_le4_e1", "mask f≤4", "#2660a4"),
+        ("causalv5m_mask_low_le8_e1", "mask f≤8", "#1b3a6b"),
+        ("causalv5c_mask_low_f200_e1_128x", "mask f≤200 (endpoint)", "#0f766e"),
+    )
+    curves = []
+    for run_id, label, color in run_specs:
+        summary, rows = read_run(run_id)
+        if not rows or max(row["step"] for row in rows) != 1000:
+            print(f"skip mask_low le-scan: {run_id} incomplete")
+            return
+        curves.append((label, color, rows))
+    figure, axis = plt.subplots(figsize=(10.4, 5.6))
+    for label, color, rows in curves:
+        steps = np.asarray([row["step"] for row in rows])
+        values = np.asarray(
+            [row.get("gap", row["val_loss"] - row["train_loss"]) for row in rows]
+        )
+        axis.scatter(steps, values, color=color, s=3.2, alpha=0.25)
+        averaged, offsets = smooth(values)
+        axis.plot(steps[offsets], averaged, color=color, linewidth=0.9, label=label)
+    for boundary in (337, 674):
+        axis.axvline(boundary, color="#9ca3af", linewidth=0.35,
+                     linestyle=":", alpha=0.55)
+    axis.axhline(0, color="#686d73", linewidth=0.7, linestyle=":")
+    axis.set_xlabel("optimizer step")
+    axis.set_ylabel("online gap = fixed val − online train")
+    axis.grid(alpha=0.20)
+    axis.legend(fontsize=8, frameon=False, loc="upper left")
+    figure.suptitle(
+        "mask_low f≤t threshold scan · 128× · intervention at epoch-2 boundary (1000 steps)\n"
+        "mask applies at train and eval; novel (f=0) contexts always masked in low mode;\n"
+        "points = raw online records; thin lines = 3-point visual connector",
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_128x_mask_low_le_scan.png")
+
+
+# ---------- freeze arms: forking with a frozen write/read path ----------
+def plot_freeze_forking():
+    """freeze_table and freeze_backbone both still develop gap after the
+    epoch-2 boundary — dedicated 3-panel view with final values annotated."""
+    run_specs = (
+        ("causalv5c_none_128x", "none (control)", "#374151"),
+        ("causalv5c_freeze_table_e1_128x", "freeze_table e1", "#d97706"),
+        ("causalv5c_freeze_backbone_e1_128x", "freeze_backbone e1", "#0f766e"),
+    )
+    curves = []
+    for run_id, label, color in run_specs:
+        summary, rows = read_run(run_id)
+        if not rows or max(row["step"] for row in rows) != 1000:
+            print(f"skip freeze forking: {run_id} incomplete")
+            return
+        curves.append((label, color, rows))
+    figure, axes = plt.subplots(3, 1, figsize=(10.4, 8.4), sharex=True)
+    metrics = (
+        ("train_loss", "online train loss"),
+        ("val_loss", "fixed validation loss"),
+        ("gap", "online gap = fixed val − online train"),
+    )
+    for label, color, rows in curves:
+        steps = np.asarray([row["step"] for row in rows])
+        for axis, (metric, ylabel) in zip(axes, metrics):
+            values = np.asarray(
+                [row.get(metric, row["val_loss"] - row["train_loss"]) for row in rows]
+            )
+            axis.scatter(steps, values, color=color, s=3.2, alpha=0.25)
+            averaged, offsets = smooth(values)
+            axis.plot(steps[offsets], averaged, color=color,
+                      linewidth=0.9, label=label)
+            axis.set_ylabel(ylabel)
+            axis.grid(alpha=0.20)
+            for boundary in (337, 674):
+                axis.axvline(boundary, color="#9ca3af", linewidth=0.35,
+                             linestyle=":", alpha=0.55)
+    gap_axis = axes[-1]
+    for label, color, rows in curves:
+        final = rows[-1].get("gap", rows[-1]["val_loss"] - rows[-1]["train_loss"])
+        gap_axis.annotate(
+            f"{label}: {final:+.2f}",
+            (rows[-1]["step"], final), textcoords="offset points",
+            xytext=(6, 0), fontsize=8, color=color, va="center",
+        )
+    axes[0].legend(fontsize=8, frameon=False, loc="upper right")
+    axes[-1].set_xlabel("optimizer step")
+    figure.suptitle(
+        "freeze arms still fork · 128× · freeze at epoch-2 boundary (1000 steps)\n"
+        "freeze_table: backbone keeps learning on frozen table content;\n"
+        "freeze_backbone: table keeps writing under RMSProp 128×;\n"
+        "points = raw online records; thin lines = 3-point visual connector",
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_128x_freeze_forking.png")
+
+
+# ---------- S1 epoch number: gap growth within one long replay ----------
+def plot_epoch_number():
+    """Gap at each epoch boundary of the 10-epoch L4 long replay.
+
+    Left: raw gap vs epoch number for trigram-only, both-tables and the
+    no-gram control, with a linear reference over epochs 2-10 (trigram arm).
+    Right: per-epoch gap increments, showing the early-epoch peak and the
+    slow decay towards a smaller per-epoch gain (gradual saturation).
+    """
+    runs = (
+        ("trigram-only", "s1v5_128_ep_tri_1xL4_10ep", "#2d6f9f"),
+        ("bigram+trigram", "s1v5_128_ep1xL4_10ep_both", "#67439b"),
+        ("no-gram control", "s1v5_128_ep1xL4_10ep_nogram", "#686d73"),
+    )
+    series = {}
+    for label, run_id, color in runs:
+        path = ROOT / "data" / "runs_scaling" / f"{run_id}_fixed" / "train_log.jsonl"
+        rows = read_jsonl(path)
+        gap = {
+            row["step"]: row["val_loss"] - row["train_loss"]
+            for row in rows
+            if row.get("val_loss") is not None and row.get("train_loss") is not None
+        }
+        epochs = [(e, gap[337 * e]) for e in range(1, 11) if 337 * e in gap]
+        if len(epochs) < 10:
+            print(f"skip epoch-number figure: {run_id} incomplete ({len(epochs)}/10)")
+            return
+        series[label] = (color, epochs)
+
+    figure, axes = plt.subplots(1, 2, figsize=(12.6, 4.6))
+    for label, (color, epochs) in series.items():
+        x = [e for e, _ in epochs]
+        y = [g for _, g in epochs]
+        axes[0].scatter(x, y, color=color, s=22, zorder=3)
+        axes[0].plot(x, y, color=color, linewidth=0.9, alpha=0.85, label=label)
+        if label != "no-gram control":
+            increments = [y[i] - y[i - 1] for i in range(1, len(y))]
+            axes[1].plot(x[1:], increments, color=color, linewidth=0.9,
+                         marker="o", markersize=3.6, label=label)
+    tri_color, tri_epochs = series["trigram-only"]
+    ref = [(e, g) for e, g in tri_epochs if e >= 2]
+    slope = (ref[-1][1] - ref[0][1]) / (ref[-1][0] - ref[0][0])
+    axes[0].plot([ref[0][0], ref[-1][0]],
+                 [ref[0][1], ref[0][1] + slope * (ref[-1][0] - ref[0][0])],
+                 color="#9ca3af", linestyle="--", linewidth=0.8,
+                 label=f"linear ref ≈ {slope:.2f}/epoch (e2–e10)")
+    axes[0].axhline(0, color="#686d73", linewidth=0.6, linestyle=":")
+    axes[0].set_xlabel("epoch number (L4 = 337 batches / epoch)")
+    axes[0].set_ylabel("gap at epoch boundary")
+    axes[0].set_title("gap vs epoch number · 10-epoch L4 replay")
+    axes[1].axhline(0, color="#686d73", linewidth=0.6, linestyle=":")
+    axes[1].set_xlabel("epoch boundary (e−1 → e)")
+    axes[1].set_ylabel("per-epoch gap increment")
+    axes[1].set_title("per-epoch increment: early peak → slow decay")
+    for axis in axes:
+        axis.grid(alpha=0.22)
+        axis.legend(fontsize=8, frameon=False)
+    figure.suptitle(
+        "S1 epoch-number relation · 128× · seed 42 · fixed replay of shard 1\n"
+        "points = raw boundary records (gap = fixed val − online train); "
+        "no smoothing applied to boundary values",
+        fontsize=10,
+    )
+    figure.tight_layout()
+    save_figure(figure, "fig_v5_s1_epoch_number.png")
 
 
 if __name__ == "__main__":
@@ -429,4 +620,7 @@ if __name__ == "__main__":
     plot_injection_frequency()
     plot_causal_losses()
     plot_causal_frequency_effect()
+    plot_mask_low_le_scan()
+    plot_freeze_forking()
+    plot_epoch_number()
     print("DONE")

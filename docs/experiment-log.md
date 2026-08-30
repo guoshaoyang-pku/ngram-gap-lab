@@ -2936,6 +2936,56 @@ validation 与当前 train batch 的分布差，预期接近同预算 no-gram �
 t=200 复用臂的配置完整记录在其
 `summary.json.config` 中，其他扫描臂另有 `config.json`。
 
+### 35.8 Causal refresh II：双边界 reseed、mask_low f≤t 扫描、mask_high f≥t 全量重刷（128×，2026-08-30）
+
+用户 2026-08-30 指示：① `hash_reseed_e1` 在 epoch-3 没有再次 reseed、gap 回升，
+要加一个 epoch-2+epoch-3 双边界 reseed 臂；② freeze_table / freeze_backbone
+都仍然 fork，现象要做专图；③ mask_low 增加 `f≤t`（t=0,1,2,4,8）小阈值扫描、
+10 步评估看轮廓变化；④ mask 必须同时在 train 和 eval 生效（代码事实：mask
+是 model state，在 forward 内生效，val 与 exact-freq 诊断自动同步屏蔽；
+low 模式下 novel f=0 恒被屏蔽）；⑤ mask_high 扫描按新 `f≥t` 语义全量重刷。
+
+代码支撑（commit `8f7d198`，train.py）：
+`--intervention_epochs 1,2`（多边界触发，各边界恰好一次）；
+`--intervention_low_inclusive 1`（mask_low 从 `f<t` 改 `f≤t`，novel 恒屏蔽）；
+summary 记录 `epochs_due / low_inclusive / 逐事件 frequency_mask`。
+CPU 语义测试通过（mask 互补、novel 行为、双 reseed 保权重换映射、屏蔽位置零梯度）；
+360-2 冒烟（50 步双 reseed + 30 步 mask）通过后删除。
+
+| run_id | 唯一变量 | 状态 |
+|---|---|---|
+| `causalv5c_hash_reseed_e1e2` | epoch0=1 与 epoch0=2 各 reseed 一次 | ✅ done（360-2 gpu0）final gap 0.069 |
+| `causalv5m_mask_low_le0_e1` | mask f≤0（仅 eval 屏蔽 novel 的 table 读出；train 无操作） | ✅ done（360-2 gpu1）final gap 2.945 |
+| `causalv5m_mask_low_le1_e1` | mask f≤1 | ✅ done（360-2 gpu2）final gap 1.578 |
+| `causalv5m_mask_low_le2_e1` | mask f≤2 | ✅ done（360-2 gpu3）final gap 1.320 |
+| `causalv5m_mask_low_le4_e1` | mask f≤4 | ✅ done（360-2 gpu4）final gap 1.046 |
+| `causalv5m_mask_low_le8_e1` | mask f≤8 | ✅ done（360-2 gpu5）final gap 0.765 |
+| `causalv5m2_mask_high_t{1,2,5,10,25,50,100,200,400,800,1600,3200,6400,12800}_e1` | mask_high `f≥t` 全量重刷（14 点，含新 t200） | 🟡 14 点中 t1/t2/t200 done，其余 running（360-2 gpu0-5 + ophis gpu3） |
+
+#### 35.8.1 已回填结果（step-1000，seed 42，online train / fixed val）
+
+| run | train | val | gap | 说明 |
+|---|---:|---:|---:|---|
+| `causalv5c_hash_reseed_e1e2` | 4.304 | 4.373 | **0.069** | 双边界 reseed 后 gap 全程塌缩；单边界 1.354 → 双边界 0.069，证实 epoch-3 重写新映射会把 gap 拉回来 |
+| `causalv5m_mask_low_le0_e1` | 2.523 | 5.468 | **2.945** | 仅屏蔽 novel（f=0）的 eval 读出即超过 control 2.724：novel table 读出对 val 是净正贡献 |
+| `causalv5m_mask_low_le1_e1` | 2.975 | 4.554 | **1.578** | 屏蔽 f≤1 的 train+eval 信号 |
+| `causalv5m_mask_low_le2_e1` | 3.074 | 4.394 | **1.320** | 单调下降 |
+| `causalv5m_mask_low_le4_e1` | 3.186 | 4.231 | **1.046** | 单调下降 |
+| `causalv5m_mask_low_le8_e1` | 3.355 | 4.119 | **0.765** | 单调下降；f≤200 端点 ≈0.101 |
+| `causalv5m2_mask_high_t1_e1` | 3.867 | 5.794 | **1.927** | 屏蔽全部 f≥1（仅留 novel 读出）；事件记录 high_counts bigram 3,541,098 = f≥1 实测 |
+| `causalv5m2_mask_high_t2_e1` | 4.210 | 5.962 | **1.752** | |
+| `causalv5m2_mask_high_t200_e1` | 3.232 | 6.056 | **2.824** | 与旧语义 t=200（f>200，2.86）接近：40,307 vs 40,518 个 bigram context 之差 |
+
+mask_high 刷新批的 summary 事件记录已逐一验证：`frequency_mask.high_context_counts`
+与本地 `freq_index.npz` 的 f≥t 计数完全吻合（含边界语义生效），`novel_contexts_masked=false`。
+
+其余口径与 §35.3/§35.7 一致：input 注入、clean 双表 R=2^20、RMSProp(0,0.99)、
+128×、warmup_constant(100)、bf16 no-compile、seed 42、1000 步、val/freq=10、
+train shard 1 / freq_index.npz。旧 `causalv5m_*`（f>t）与旧 f200 双臂保留为
+历史记录，不与新批混用。绘图：`fig_v5_128x_causal_losses`（七臂）、
+`fig_v5_128x_freeze_forking`（新）、`fig_v5_128x_mask_low_le_scan`（新）、
+`fig_v5_128x_mask_high_threshold_scan`（切 causalv5m2 数据源）。
+
 ## §36 · S1 table-size 小 R 扩展批（R 从 1e4 扫到 1e0，2026-08-29 用户拍板）
 
 ### 36.1 动机与设计
@@ -2994,11 +3044,13 @@ no-compile；gap 仍为同一步 fixed-val − current-batch online train。
 | 2 | −0.0043 | 0.0056 |
 | 1 | 0.0160 | 0.0182 |
 
-结果显示，R≤约 10³ 后两条单表轴都落入 no-gram floor 附近
+结果显示，R≤约 10⁴ 后两条单表轴都落入 no-gram floor 附近
 （约 `|gap|≲0.06`，并包含有限 batch 噪声）；R=1 时所有 context
-共享同一行，确实失去 context-specific memory。原 formal 大 R 区间的
-幂律仍保持：bigram `G∝R^0.429`、trigram `G∝R^0.657`，拟合只使用
-`R≥16000`，不把低 R collapse 硬拟合成幂律。
+共享同一行，确实失去 context-specific memory。更新后的中间窗口拟合为：
+bigram `(G−0.02)∝R^0.576`（R=2e3–2e5，n=12，R²=.997），
+trigram `(G−0.02)∝R^0.665`（R=1e5–9.3e5，n=8，R²=.9997）。
+raw-gap 敏感性斜率为 `.501/.653`；大 R 端分别进入饱和，不能用一条
+`R≥16000` 直线代表全区间。
 
 权威数据已回填：
 `docs/appendices/s1_scaling_three_axis/s1_table_size_points.csv`、

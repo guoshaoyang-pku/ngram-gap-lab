@@ -2,8 +2,8 @@
 """mask_high threshold scan figure (128×, epoch-2 boundary).
 
 Plots final gap at step 1000 vs mask_high frequency threshold (high→low),
-with the reused f=200 point from causalv5c_mask_high_f200_e1_128x.
-Points are raw final gaps; thin connector only as visual aid.
+all 14 points from the causalv5m2 inclusive-semantics refresh (f>=t).
+Points are raw final gaps; thin 3-point connector only as visual aid.
 
 Mask semantics: the frequency mask is context-level.  For t>0, `high`
 masks only contexts seen in the train shard with f>=t, so novel contexts
@@ -24,22 +24,23 @@ RUNS_FIXED = ROOT / "data" / "runs_fixed"
 OUT = ROOT / "docs" / "figs" / "main"
 OUT.mkdir(parents=True, exist_ok=True)
 
-# (threshold, run_id) — f=200 reuses the causal batch arm
+# (threshold, run_id) — causalv5m2_* are the f>=t inclusive-semantics refresh;
+# t=200 is part of the same causalv5m2 batch (ophis GPU3).
 POINTS = [
-    (12800, "causalv5m_mask_high_t12800_e1_128x_fixed"),
-    (6400, "causalv5m_mask_high_t6400_e1_128x_fixed"),
-    (3200, "causalv5m_mask_high_t3200_e1_128x_fixed"),
-    (1600, "causalv5m_mask_high_t1600_e1_128x_fixed"),
-    (800, "causalv5m_mask_high_t800_e1_128x_fixed"),
-    (400, "causalv5m_mask_high_t400_e1_128x_fixed"),
-    (200, "causalv5c_mask_high_f200_e1_128x_fixed"),
-    (100, "causalv5m_mask_high_t100_e1_128x_fixed"),
-    (50, "causalv5m_mask_high_t50_e1_128x_fixed"),
-    (25, "causalv5m_mask_high_t25_e1_128x_fixed"),
-    (10, "causalv5m_mask_high_t10_e1_128x_fixed"),
-    (5, "causalv5m_mask_high_t5_e1_128x_fixed"),
-    (2, "causalv5m_mask_high_t2_e1_128x_fixed"),
-    (1, "causalv5m_mask_high_t1_e1_128x_fixed"),
+    (12800, "causalv5m2_mask_high_t12800_e1_fixed"),
+    (6400, "causalv5m2_mask_high_t6400_e1_fixed"),
+    (3200, "causalv5m2_mask_high_t3200_e1_fixed"),
+    (1600, "causalv5m2_mask_high_t1600_e1_fixed"),
+    (800, "causalv5m2_mask_high_t800_e1_fixed"),
+    (400, "causalv5m2_mask_high_t400_e1_fixed"),
+    (200, "causalv5m2_mask_high_t200_e1_fixed"),
+    (100, "causalv5m2_mask_high_t100_e1_fixed"),
+    (50, "causalv5m2_mask_high_t50_e1_fixed"),
+    (25, "causalv5m2_mask_high_t25_e1_fixed"),
+    (10, "causalv5m2_mask_high_t10_e1_fixed"),
+    (5, "causalv5m2_mask_high_t5_e1_fixed"),
+    (2, "causalv5m2_mask_high_t2_e1_fixed"),
+    (1, "causalv5m2_mask_high_t1_e1_fixed"),
 ]
 
 
@@ -72,8 +73,8 @@ def main():
             continue
         x.append(threshold)
         y.append(gap)
-        labels.append(run_id.replace("causalv5m_mask_high_", "mask_high ").replace(
-            "_e1_128x_fixed", "").replace("causalv5c_", "mask_high "))
+        labels.append(run_id.replace("causalv5m2_mask_high_", "mask_high ").replace(
+            "_e1_fixed", "").replace("causalv5c_", "mask_high "))
         print(f"{run_id}: gap={gap:.4f} @step {steps}")
 
     order = np.argsort(x)
@@ -105,8 +106,8 @@ def main():
     axis.grid(alpha=0.25, which="both")
     axis.set_title(
         "mask_high threshold scan · 128× · epoch-2 boundary (1000 steps)\n"
-        "lower $t$ masks more seen contexts; novel ($f{=}0$) contexts are never masked\n"
-        "PLOT LABELS use f>=t; current points are legacy f>t runs — refresh before citing"
+        "lower $t$ masks more seen contexts; novel ($f{=}0$) contexts are never masked;\n"
+        "all points use the inclusive f$\\geq t$ semantics (causalv5m2 refresh)"
     )
     figure.tight_layout()
     out = OUT / "fig_v5_128x_mask_high_threshold_scan.png"

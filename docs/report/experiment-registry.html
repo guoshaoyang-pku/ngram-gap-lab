@@ -355,6 +355,7 @@
         <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_s1_epoch_length_scaling.png"><img src="../../docs/figs/main/fig_v5_s1_epoch_length_scaling.png" alt="v5 S1 epoch length scaling"></a><figcaption>3 epoch 终值阵列</figcaption></figure>
         <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_s1_epoch_length_trajectories.png"><img src="../../docs/figs/main/fig_v5_s1_epoch_length_trajectories.png" alt="v5 S1 epoch length trajectories"></a><figcaption>按 epoch / step 轨迹</figcaption></figure>
         <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_s1_long_replay.png"><img src="../../docs/figs/main/fig_v5_s1_long_replay.png" alt="v5 S1 long replay"></a><figcaption>L4 10 epoch 长训</figcaption></figure>
+        <figure class="inline-figure"><a href="../../docs/figs/main/fig_v5_s1_epoch_number.png"><img src="../../docs/figs/main/fig_v5_s1_epoch_number.png" alt="v5 S1 gap versus epoch number"></a><figcaption>epoch 编号 gap 与逐 epoch 增量</figcaption></figure>
       </div>
       <span class="note">图源为 12 个 <code>s1v5_128_ep_tri_*xL4_3ep_fixed</code> 与 L4 trigram-only/no-gram 长训；点为原始 online 记录，细线为 3 点视觉连接，竖线为 epoch boundary。</span>
     </td>
@@ -365,9 +366,8 @@
     <td>S1 v5 L4 long replay（10 epoch）</td>
     <td>trigram-only + no-gram；L4=<code>337</code> batches/epoch；10 epochs；
       3370 steps；table LR=128×；β₂=.99</td>
-    <td class="visual">gap 随 epoch 的 trajectory；trigram-only/no-gram train、val、gap
-      对照；每个 epoch 边界显式标注。</td>
-    <td class="st-done">✅ 完成；L4 trigram-only final gap=8.675、no-gram=0.455 @3370；gap 随 epoch 持续展开，epoch boundary 已保留</td>
+    <td class="visual">gap 随 epoch 编号的 trajectory；左侧为 trigram-only、both、no-gram 的原始 boundary gap，右侧为逐 epoch gap 增量；每个 epoch 边界显式标注。</td>
+    <td class="st-done">✅ 完成；L4 trigram-only gap=8.675、no-gram=0.480 @3370；epoch 2–10 线性参考约 0.96/epoch，但增量从早期峰值逐渐降至约 0.7–0.8，支持凹增长/渐缓而非已证实的平台</td>
     <td class="com"><input type="text"></td>
   </tr>
 
@@ -456,7 +456,7 @@
 结果当作力学定律：</p>
 <ul>
   <li>table-size：净 gap（减 floor 0.02）分窗口拟合 bigram <code>(G−0.02)∝R^0.5761</code>（R 2e3–2e5，n=12，R²=.9969）、trigram <code>(G−0.02)∝R^0.6648</code>（R 1e5–9.3e5，n=8，R²=.9997）；raw gap（不减 floor）敏感性斜率 0.5010 / 0.6526。每条单表轴 31 个 run；R≤约1e4 进入 no-gram floor（nogram 实测 0.0234，小 R 平台均值 0.0196），塌缩区不进入拟合；bigram R≈3e5 后、trigram R≈1.2e6 后饱和。旧的 R≥16000 raw-gap 拟合（0.429/0.657）混入两端机制，已废弃。</li>
-  <li>epoch-length：在 ln(L4 multiplier) 上的二次描述拟合顶点为 <code>0.474733×L4</code>，预测 gap=3.029724（R²=.743451）。</li>
+  <li>epoch-length：在 ln(L4 multiplier) 上的二次描述拟合顶点为 <code>0.411502×L4</code>，预测 gap=2.648528（R²=.774155）；另有 L4 10-epoch boundary 图，显示 gap 增长逐渐变缓但尚未达到明确平台。</li>
   <li>dose：5× 以内正 gap 的 log-log slope 为 −1.726983（R²=.887225）；5× 到 6× 之间发生符号翻转，不报告全区间幂律。</li>
   <li>exact-frequency：bigram slope −.252746（R²=.997165），trigram slope −.318121（R²=.995548）；按 shared-context token mass 的 7 个几何 bin 聚合。</li>
 </ul>

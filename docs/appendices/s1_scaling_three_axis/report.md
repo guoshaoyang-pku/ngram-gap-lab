@@ -9,7 +9,7 @@
 | 关系 | 当前可见摘要 | 不能从中读出的结论 |
 |---|---|---|
 | 真实 context frequency `f` → gap | 7 个宽几何 bin 的诊断摘要：bigram `G(f)∝f^-0.252746`（R²=0.997165），trigram `G(f)∝f^-0.318121`（R²=0.995548）。`hit count` 是 hash 前同一真实 n-gram context 在训练语料中出现的次数；它不是 table row load。 | 不是 table hit count；当前单 seed 的斜率不是普适常数。 |
-| clean table 大小 `R` → gap | 两条正式单表轴：bigram-only `G_bi(R)∝R^0.429`、trigram-only `G_tri(R)∝R^0.658`（各 18 点，seed 42，step 1000；R² 分别为 .976/.995）。另一张表在每条轴上关闭。 | 不是一个把两张表绑定在一起的 `G_both(R)` 指数；两条 branch 不能合并拟合。 |
+| clean table 大小 `R` → gap | 两条正式单表轴各 31 点，另一张表关闭。减去 no-gram floor `0.02` 后，在中间线性窗口得到 bigram `(G−0.02)∝R^0.576`（R=2e3–2e5，R²=.997）与 trigram `(G−0.02)∝R^0.665`（R=1e5–9.3e5，R²=.9997）；raw-gap 敏感性为 .501/.653。 | 不是一个把两张表绑定在一起的 `G_both(R)` 指数；小 R 塌缩区和大 R 饱和区不能混入同一条全区间幂律。 |
 | fixed-step 数据剂量 `D` → gap | v5 seed 42 在 step 2000 从 `D=.25×` 的 11.536 单调降至 `D=5×` 的 0.084，并在 6× 后穿过 0。 | 不是一条全区间幂律；局部斜率随窗口显著变陡。 |
 | epoch length `L` → gap | 12 个 trigram-only、相对标准 `L4` 的 v5 点，每个 run 完成 3 个 epoch；U 形，1.0×L4 最低 gap=2.469。 | 不拟合幂律，不作独立因果律。 |
 
@@ -35,15 +35,15 @@
 
 ## 2. 表大小：clean table 的 R → gap 双对数关系
 
-这里 `R` 是被改变的 clean 单表物理行数；另一张表在该轴中关闭。bigram-only 与 trigram-only 是两条独立的单表轴：**`G_bi(R) ∝ R^0.429`**、**`G_tri(R) ∝ R^0.658`**（各 18 个正终点，seed 42，step 1000，R² 分别为 .976/.995）。这两个描述性指数只对应当前扫描窗口，不能合并成一个双表指数；相较此前双表轴的 .041/.247，单表设计消除了固定背景 gap 的斜率稀释。
+这里 `R` 是被改变的 clean 单表物理行数；另一张表在该轴中关闭。bigram-only 与 trigram-only 是两条独立的单表轴，各 31 个 raw endpoint。小 R（约 `R≤1e4`）接近 no-gram floor，大 R 进入饱和，因此正式斜率只取中间窗口：**`(G_bi−0.02) ∝ R^0.576`**（`R=2e3–2e5`，n=12，R²=.997）与 **`(G_tri−0.02) ∝ R^0.665`**（`R=1e5–9.3e5`，n=8，R²=.9997）。raw-gap 敏感性斜率为 `.501/.653`。这些是描述性局部指数，不能合并成一个双表指数，也不代表全区间幂律。
 
 ![v5 clean table size](../../figs/main/fig_v5_s1_table_size.png)
 
 *v5 clean table size：bigram-only 与 trigram-only 分支分别变化；横轴为物理行数 `R`，另一张表关闭。*
 
-![v5 clean double-table size log-log](../../figs/main/fig_v5_s1_table_size_loglog.png)
+![v5 clean table size log-log](../../figs/main/fig_v5_s1_table_size_loglog_clean.png)
 
-*v5 clean table size：正 gap 端点的双对数图；bigram / trigram 的 log-log 拟合摘要分别为 `+0.429` / `+0.658`。*
+*v5 clean table size：31+31 个 raw endpoint 的双对数图；空心小 R 点保留但不拟合；正式净 gap 局部拟合摘要为 `+0.576` / `+0.665`，raw-gap 敏感性为 `+0.501` / `+0.653`。*
 
 ![v5 clean table load proxy](../../figs/main/fig_v5_s1_table_load_proxy.png)
 
@@ -68,6 +68,10 @@ v5 的 trigram-only epoch-length 阵列只有单 seed。它用于把“频率效
 ![v5 epoch-length trajectories](../../figs/main/fig_v5_s1_epoch_length_trajectories.png)
 
 *v5 epoch-length trajectories：各 run 的原始在线 gap 与 epoch boundary 观察。*
+
+![v5 epoch-number relation](../../figs/main/fig_v5_s1_epoch_number.png)
+
+*v5 epoch-number relation：L4 长 replay 的 epoch-boundary gap 与逐 epoch 增量；原始记录不平滑。*
 
 <details>
 <summary>展开历史 S1 审计（261 个 compile run、旧表架构与旧拟合；保留，不作为页首结论）</summary>
