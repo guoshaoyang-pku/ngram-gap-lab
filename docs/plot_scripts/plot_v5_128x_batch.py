@@ -6,7 +6,7 @@ Figures:
   fig_v5_128x_injection_curves.png      M2 injection train/val/gap curves
   fig_v5_128x_injection_bars.png        M2 final gap bars (vs 2x historical)
   fig_v5_128x_dose_gap.png              M5 dose final gap vs dose
-  fig_v5_128x_causal_gap.png            causal 9-arm final gap bars
+  fig_v5_128x_causal_gap.png            causal 6-arm final gap bars
   fig_v5_128x_rowwidth_gap.png          X2 row width final gap
   fig_v5_128x_optimizer_gap.png         X1 optimizer final gap bars
 """
@@ -114,19 +114,17 @@ fig.savefig(os.path.join(OUT, "fig_v5_128x_dose_gap.png"), dpi=150)
 plt.close(fig)
 print("wrote fig_v5_128x_dose_gap.png")
 
-# ---------- Causal 9-arm gap ----------
+# ---------- Causal 6-arm gap ----------
 fig, ax = plt.subplots(figsize=(11, 4.5))
 causal = [
-    ("none", 2.724), ("reset_table_e1", 1.409), ("reset_table_e2", 0.075),
-    ("mask_readout_e1", 0.008), ("freeze_table_e1", 3.452),
+    ("none", 2.724), ("freeze_table_e1", 3.452),
     ("freeze_backbone_e1", 1.230), ("hash_reseed_e1", 1.354),
     ("mask_low_f200_e1", 0.101), ("mask_high_f200_e1", 2.808),
 ]
 names = [c[0] for c in causal]
 vals = [c[1] for c in causal]
-colors = ["#2d6f9f"] + ["#b67524"]*7 + ["#2d6f9f"]
+colors = ["#2d6f9f", "#b67524", "#b67524", "#b67524", "#0f766e", "#d97706"]
 bars = ax.bar(range(len(names)), vals, color=colors)
-bars[3].set_color("#c4493d")  # mask_readout destructive
 for i, v in enumerate(vals):
     ax.text(i, v + 0.08, f"{v:.2f}", ha="center", fontsize=9)
 ax.axhline(2.724, color="#2d6f9f", ls="--", lw=0.8, label="none baseline 2.72")

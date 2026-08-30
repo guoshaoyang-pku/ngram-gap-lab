@@ -5,8 +5,8 @@
 - Gap is fixed validation loss minus the same-step current-batch online train loss.
 
 ## Table-size axis
-- bigram: log-log slope `0.429009`, R² `0.976185`, rank correlation `0.997936`, n=`18`; K=`3541098`, and K/R is a load ratio only. Collision rate was not measured.
-- trigram: log-log slope `0.657470`, R² `0.995109`, rank correlation `1.000000`, n=`18`; K=`19027841`, and K/R is a load ratio only. Collision rate was not measured.
+- bigram: log-log slope `0.429009`, R² `0.976185`, rank correlation `0.991129`, fit n=`18` over R≥`16000`, all-point rank correlation `0.991129`; K=`3541098`, and K/R is a load ratio only. Collision rate was not measured.
+- trigram: log-log slope `0.657470`, R² `0.995109`, rank correlation `0.977016`, fit n=`18` over R≥`16000`, all-point rank correlation `0.977016`; K=`19027841`, and K/R is a load ratio only. Collision rate was not measured.
 
 ## Epoch-length axis
 - Quadratic descriptive fit in ln(L4 multiplier): vertex `0.411502×L4`, predicted gap `2.648528`, R² `0.774155`; this summarizes the observed U-shape and is not a mechanistic law.

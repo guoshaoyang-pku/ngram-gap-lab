@@ -350,7 +350,7 @@ def plot_table_size():
     save_figure(figure, "fig_v5_s1_table_size.png")
 
     positive_points = {
-        branch: [(row, gap) for row, gap in values if gap > 0]
+        branch: sorted((row, gap) for row, gap in values if gap > 0)
         for branch, values in branches.items()
     }
     if any(positive_points.values()):
@@ -406,7 +406,7 @@ def plot_table_size():
         figure.text(
             0.5,
             0.01,
-            "Raw endpoint points from 36 formal single-table runs; non-positive gaps are excluded from log(y) fits only.",
+            "Raw endpoint points from 62 formal single-table runs (31 per branch, R=1…2.35M); non-positive gaps are excluded from log(y) fits only.",
             ha="center",
             fontsize=8,
         )
@@ -755,9 +755,6 @@ def plot_curve_grid(run_ids, filename, title, boundary_runs=()):
 def plot_causal_refresh():
     run_ids = (
         "causalv5c_none",
-        "causalv5c_reset_table_e1",
-        "causalv5c_reset_table_e2",
-        "causalv5c_mask_readout_e1",
         "causalv5c_freeze_table_e1",
         "causalv5c_freeze_backbone_e1",
         "causalv5c_hash_reseed_e1",
@@ -766,7 +763,7 @@ def plot_causal_refresh():
     )
     curves = [(run_id, completed_curve(run_id, 1000)) for run_id in run_ids]
     if any(rows is None for _, rows in curves):
-        print("skip causal-refresh figures: nine-arm batch incomplete")
+        print("skip causal-refresh figures: six-arm batch incomplete")
         return
     colors = plt.get_cmap("tab10")(np.arange(len(curves)))
     figure, axes = plt.subplots(3, 1, figsize=(10.4, 8.8), sharex=True)
@@ -792,7 +789,7 @@ def plot_causal_refresh():
     axes[0].legend(ncol=3, fontsize=7, frameon=False)
     axes[-1].set_xlabel("optimizer step")
     figure.suptitle(
-        "V5 causal-refresh · nine matched intervention arms\n"
+        "V5 causal-refresh · six matched intervention arms\n"
         "points = raw online records; thin lines = 3-point visual connector; dotted lines = recorded intervention step"
     )
     figure.tight_layout()

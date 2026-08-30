@@ -1795,7 +1795,7 @@ table RMSProp 无动量 `(0.0,0.99)`、scale `2.0`（只在 optimizer 消融臂�
 | family | run_id 模式 | 数量 | steps | 唯一变量 | 状态 |
 |---|---|---:|---:|---|---|
 | optimizer full curves | `optv5c_*` | 11 | 1000 | table scale / β₂ / table optimizer | ✅ done (2026-08-26) |
-| causal refresh | `causalv5c_*` | 9 | 1000 | epoch 边界干预 | ✅ done (2026-08-26) |
+| causal refresh | `causalv5c_*` | 6 | 1000 | epoch 边界干预 | ✅ done (2026-08-26) |
 | M2 frequency refresh | `nglab1x_{input,y,v,nogram}_v5_freq10` | 4 | 2000 | injection position | ✅ done (2026-08-26) |
 | dose frequency refresh | `nglab{0_25x..8x}_input_v5_freq10` | 11 | 2000 | non-1x train-shard dose | ✅ done (2026-08-26) |
 | table occupancy backfill | `ctbl_v5_both_{R}` | 18 | no retraining | historical clean-table diagnostics | 🗄️ superseded by formal `s1v5_128_tbl_{bi2,tri2}_R*` load-proxy evidence |
@@ -1863,14 +1863,11 @@ same-step `fixed val − current-batch online train`。
 | `optv5c_adamw_b099_s2p0` | 同上 | 1000 | table AdamW `(0,.99)` | 10-step curves / ✅ done, gap 1.502 |
 | `optv5c_sgd_m0_s2p0` | 同上 | 1000 | table SGD momentum 0 | 10-step curves / ✅ done, gap 0.078 |
 | `causalv5c_none` | `1` → `2,3,4,5,6,7,8,9,10,6542` | 1000 | no intervention | 10-step curves / ✅ done, gap 1.544 |
-| `causalv5c_reset_table_e1` | 同上 | 1000 | reset table at epoch 2 | event step 338 / ✅ done, gap 0.704 |
-| `causalv5c_reset_table_e2` | 同上 | 1000 | reset table at epoch 3 | event step 675 / ✅ done, gap 0.068 |
-| `causalv5c_mask_readout_e1` | 同上 | 1000 | no-gram benchmark at epoch 2 | event step 338 / ✅ done, gap 0.016 |
 | `causalv5c_freeze_table_e1` | 同上 | 1000 | freeze table at epoch 2 | event step 338 / ✅ done, gap 1.133 |
 | `causalv5c_freeze_backbone_e1` | 同上 | 1000 | freeze backbone at epoch 2 | event step 338 / ✅ done, gap 0.821 |
 | `causalv5c_hash_reseed_e1` | 同上 | 1000 | reseed context→row hash at epoch 2 | state-preserved event step 338 / ✅ done, gap 0.637 |
-| `causalv5c_mask_low_f200_e1` | 同上 | 1000 | mask `f≤200` at epoch 2 | index provenance / ✅ done, gap 0.066 |
-| `causalv5c_mask_high_f200_e1` | 同上 | 1000 | mask `f>200` at epoch 2 | index provenance / ✅ done, gap 1.529 |
+| `causalv5c_mask_low_f200_e1` | 同上 | 1000 | mask `f<200`（旧语义 `f≤200`）at epoch 2 | index provenance / ✅ done（旧语义）, gap 0.066 |
+| `causalv5c_mask_high_f200_e1` | 同上 | 1000 | mask `f≥200`（旧语义 `f>200`）at epoch 2 | index provenance / ✅ done（旧语义）, gap 1.529 |
 | `nglab0_25x_input_v5_freq10` | `62` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.25x dose | 10-step curves + matching index / ✅ done, gap 11.536 |
 | `nglab0_5x_input_v5_freq10` | `60` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.5x dose | 10-step curves + matching index / ✅ done, gap 9.234 |
 | `nglab0_75x_input_v5_freq10` | `63` → `2,3,4,5,6,7,8,9,10,6542` | 2000 | 0.75x dose | 10-step curves + matching index / ✅ done, gap 7.792 |
@@ -1913,32 +1910,29 @@ frequency bins、exact frequency 与 table RMS，不能用 §24 的 sparse endpo
 证据，不能仅凭最大 gap 更改 v5 的预注册中心点；scale 2、β₂ .99 仍作为主线，
 其他臂仅承担消融比较。
 
-### Causal refresh（9 臂）
+### Causal refresh（6 臂）
 
-干预统一在 `intervention_epoch=1`（epoch 2 开始）触发，另保留 `reset_table`
-at epoch 2 的时点比较。所有事件必须写入 `summary.json.intervention.events`：
+干预统一在 `intervention_epoch=1`（epoch 2 开始）触发。所有事件必须写入
+`summary.json.intervention.events`：
 step、epoch、干预类型、hash identity 前后、频率阈值和索引 SHA256。
 
 | run_id | 干预语义 |
 |---|---|
 | `causalv5c_none` | 无边界干预 control |
-| `causalv5c_reset_table_e1` / `causalv5c_reset_table_e2` | 重新初始化 n-gram 表参数；hash 不变；检验已写入表内容 |
-| `causalv5c_mask_readout_e1` | 边界后关闭所有 n-gram residual；time-local no-gram 破坏性基准，不单列为 readout 机制证据 |
 | `causalv5c_freeze_table_e1` / `causalv5c_freeze_backbone_e1` | 停止表写入 / backbone 更新 |
 | `causalv5c_hash_reseed_e1` | 只替换 context→row hash identity；保留表权重与 RMSProp state |
-| `causalv5c_mask_low_f200_e1` / `causalv5c_mask_high_f200_e1` | 按 train-shard static frequency index 屏蔽互补集合 `f≤200` / `f>200` 的 n-gram residual |
+| `causalv5c_mask_low_f200_e1` / `causalv5c_mask_high_f200_e1` | 按 train-shard static frequency index 屏蔽互补集合 `f<200` / `f≥200` 的 n-gram residual（**2026-08-29 晚语义修正：边界从 `f>t` 改为 `f≥t`；下方回填数值为旧 `f≤200`/`f>200` 语义，需按新语义重刷**） |
 
 频率 mask 的静态 index 是测量与 intervention 的共同 provenance，但不可消费
 训练迭代器；训练仍只从主训练流取 batch。low/high mask 使用同一阈值且必须在单元测试中
 逐位置互补。
 
-**回填结果（2026-08-26，seed 42，step 1000）**：九臂均具备 `summary.json`
+**回填结果（2026-08-26，seed 42，step 1000）**：六臂均具备 `summary.json`
 与 100 条 step-10 `train_log.jsonl` / `freq_bin_loss.jsonl` /
 `exact_freq_loss.jsonl` / `table_norm.jsonl`，所有终值有限。final gap 依次为：
-control `1.543546`；reset-table e1/e2 `0.703685/0.067515`；mask-readout
-`0.016310`；freeze-table/backbone `1.133129/0.821469`；hash-reseed
+control `1.543546`；freeze-table/backbone `1.133129/0.821469`；hash-reseed
 `0.637072`；mask-low/high `0.065961/1.528893`。事件记录确认 e1 干预在
-step 338、reset e2 在 step 675；hash-reseed 改变 hash identity 且保留表参数和
+step 338；hash-reseed 改变 hash identity 且保留表参数和
 optimizer state。正式图 `fig_v5_causal_losses.png` 与
 `fig_v5_causal_frequency_effect.png` 只读取此批完整证据；后者排除 `novel`
 桶，因为它没有 train loss，不能定义 gap。
@@ -2075,7 +2069,7 @@ partial 目录则拒绝覆盖。
 | 注入点复现 | `nglab1x_{input,y,v,nogram}_v5_s{43,44}` | 8 | 2000；唯一变量为随机 seed | ✅ 8/8 完成；s43 input/y/v/nogram=5.811/3.277/2.881/0.253，s44=5.515/3.439/2.723/0.253 |
 | dose fixed-step | `nglab{0_25x..8x}_input_v5` | 11 | 2000；唯一变量为训练 shard 剂量 | ✅ 11/11 done；gap 从 0.25x 的 11.589 降至 8x 的 −0.077 |
 | epoch-aligned | `nglab{0_25x..4x}_e5_v5` | 9 | 5 epoch，420–6700；唯一变量为剂量、epoch 数恒定 | ✅ 9/9 done；gap 从 0.75x 的 4.511 至 4x 的 2.089 |
-| causal | `nglab1x_{reset,mask,freeze}_*_v5` | 5 | 1000；唯一变量为登记的 intervention | ✅ 5/5 done；reset e1/e2、mask、freeze-table/backbone 均有 summary |
+| causal | `nglab1x_{freeze,hash_reseed,mask_low/high}_*_v5` | 6 | 1000；唯一变量为登记的 intervention | ✅ 当前机制登记改由 v5-refresh 的 6 臂与 mask_high 阈值扫描承担 |
 | fixed probe | `nglab{1,2}x_input_rho_v5` | 2 | 2000；唯一新增诊断为 fixed probe | ✅ 2/2 done；1x gap 5.583、2x gap 1.249（以 ophis 权威 run 为准） |
 | backbone safety | `nglab1x_nogram_long_v5` | 1 | 8000；无 n-gram 的长训练保险对照 | ✅ 8000/8000 done；gap 1.102 |
 | table size | `ctbl_v5_both_{R}` | 18 | 1000 末端；唯一变量为 bigram/trigram 同步的 clean R | ✅ 18/18 done（权威目录在 360-1 `runs_scaling`） |
@@ -2854,23 +2848,27 @@ online train。
 gap 随剂量单调下降：小剂量（0.25x–0.75x）在 128× 下严重过拟合
 （val 8–11），高剂量（6x/8x）gap 转负、逼近 nogram 对照。
 
-### 35.3 Causal 干预（128×，1000 步，9 臂）— ✅ 完成 2026-08-29
+### 35.3 Causal 干预（128×，1000 步，6 臂登记）— ⚠️ mask 两臂为旧 f>200 语义，待重刷
+
+> 2026-08-29 更新：两种过强的早期干预按用户决定直接移除、不再登记。
+> 机制证据只保留 `hash_reseed` 与互补 `mask_low/high`；freeze 只作写入路径参考。
+> **2026-08-29 晚语义修正**：`mask_high` 边界改为 `f ≥ t`，`mask_low` 相应为
+> `f < t`（含 novel）。下表 mask 两臂的数值是旧 `f>200` / `f≤200` 语义，需按
+> 新语义重刷后更新；hash_reseed 与 freeze 两臂不受影响。
 
 | run_id | final gap | 语义 |
 |---|---|---|
 | `causalv5c_none_128x` | **2.724** | 无干预基线 |
-| `causalv5c_reset_table_e1_128x` | **1.409** | e1 重置表内容 |
-| `causalv5c_reset_table_e2_128x` | **0.075** | e2 重置表内容（更晚） |
-| `causalv5c_mask_readout_e1_128x` | **0.008** | 边界后移除全部 n-gram 输出（破坏性基准） |
 | `causalv5c_freeze_table_e1_128x` | **3.452** | e1 停止表更新 |
 | `causalv5c_freeze_backbone_e1_128x` | **1.230** | e1 停止 backbone 更新 |
 | `causalv5c_hash_reseed_e1_128x` | **1.354** | e1 仅重映射 context→row |
-| `causalv5c_mask_low_f200_e1_128x` | **0.101** | 屏蔽 f≤200 的 n-gram 输出 |
-| `causalv5c_mask_high_f200_e1_128x` | **2.808** | 屏蔽 f>200 的 n-gram 输出 |
+| `causalv5c_mask_low_f200_e1_128x` | 0.101（旧 f≤200） | 屏蔽 f<200 的 n-gram 输出（待重刷） |
+| `causalv5c_mask_high_f200_e1_128x` | 2.808（旧 f>200） | 屏蔽 f≥200 的 n-gram 输出（待重刷） |
 
-解读：low-freq 屏蔽几乎抹掉 gap（0.10），high-freq 屏蔽几乎不变（2.81≈基线）
-→ **gap 主要由低频率 context 的表记忆贡献**。freeze_table 反而升 gap（3.45），
-说明表仍在被 backbone 补偿；mask_readout 是最强破坏（0.01）。
+解读（量级参考）：low-freq 屏蔽几乎抹掉 gap（0.10），high-freq 屏蔽几乎不变
+（2.81≈基线）→ **gap 主要由低频率 context 的表记忆贡献**。freeze_table 反而
+升 gap（3.45），说明表仍在被 backbone 补偿。mask 两臂待按 `f≥200 / f<200`
+语义重刷后正式登记。
 
 ### 35.4 X2 表行宽（128×，1000 步）— ✅ 完成 2026-08-29
 
@@ -2896,3 +2894,115 @@ RMSProp 与 AdamW（均 128×）几乎相同；SGD 无动量几乎不学（0.05�
 
 ophis-gpu 6 张空闲卡（GPU 2/3/4/5/6/7）排队；360-1/360-2 待 VPN 恢复后
 加入。create-only 输出；partial 目录停止并人工检查；不覆盖旧 2× run。
+
+### 35.7 mask_high 阈值扫描（128×，1000 步，epoch 2 边界）— ⚠️ 旧 f>t 语义，待按 f≥t 重刷
+
+设计依据（用户 2026-08-29）：causal 干预收敛为两个干净 setting —— `hash_reseed`
+（只换 context→row 映射，保留表权重与 optimizer state）与 `mask_low/high_freq`
+（按 train-shard static frequency index 屏蔽 residual）。两种早期过强干预已从
+当前代码、登记和图表中删除。
+
+**2026-08-29 晚语义修正**：`mask_high` 边界从 `f > thr` 改为 **`f ≥ thr`**（含边界）；
+`mask_low` 相应为 `f < thr`（含 novel f=0）。本小节所有已完成 run 均为旧 `f > thr`
+语义，需按新语义重刷后重新登记；下方数值仅作量级参考，不作为正式证据。
+
+mask_high 阈值扫描：`--intervention mask_high_freq --intervention_epoch 1`，
+threshold 从高到低取
+`12800, 6400, 3200, 1600, 800, 400, 200(已有 f200 复用), 100, 50, 25, 10, 5, 2, 1`。
+语义：边界后屏蔽 `f ≥ thr` 的 n-gram 输出；thr 越低屏蔽越多，扫描止于
+`thr=1`，因为 novel（`f=0`）context 不属于 high 模式的 seen-context 集合。
+目的：定位 gap 贡献的频率段临界点（低频贡献假说下，gap 应在 thr 降到低频区时才骤降）。
+
+run_id：`causalv5m_mask_high_t{thr}_e1_128x`（f200 复用 `causalv5c_mask_high_f200_e1_128x`）。
+全部 input 注入、R=2^20 双表、RMSProp(0,0.99)、128×、warmup_constant(100)、
+bf16 no-compile、freq_index=本地 `freq_index.npz`（train shard 1）SHA256
+`763a5548...7673d`。启动队列见 `code/cluster/run_v5_128x_rerun.sh` GROUP=maskhigh。
+
+结果（旧 `f>thr` 语义，step 1000；点为 raw final gap，t=200 复用已完成 causal arm；
+**待按新 `f≥thr` 语义重刷**）：
+
+| threshold t | 12800 | 6400 | 3200 | 1600 | 800 | 400 | 200 | 100 | 50 | 25 | 10 | 5 | 2 | 1 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| final gap | 2.755 | 2.767 | 2.783 | 2.754 | 2.762 | 2.802 | 2.808 | 2.762 | 2.686 | 2.600 | 2.334 | 2.167 | 1.929 | 1.757 |
+
+图：`docs/figs/main/fig_v5_128x_mask_high_threshold_scan.png`；脚本：
+`docs/plot_scripts/plot_v5_mask_high_threshold_scan.py`（图内语义已更新为 `f ≥ t`，
+但当前曲线仍由旧 run 数据绘制，重刷后需重新生成）。阈值大于 100 时 gap
+基本维持在 2.75–2.80，阈值降至 100 及以下后才开始下降。mask 是 context 级
+屏蔽：high 模式只屏蔽训练集 seen context，**novel（f=0）context 永不屏蔽**，
+故扫描止于 t=1。t=0 已改为明确屏蔽所有 context（包括 novel），需要重新运行；
+旧 t=0 产物不再有效、不登记。全量屏蔽只消除 n-gram 贡献，gap 仍是 fixed
+validation 与当前 train batch 的分布差，预期接近同预算 no-gram 对照而非严格为 0。
+t=200 复用臂的配置完整记录在其
+`summary.json.config` 中，其他扫描臂另有 `config.json`。
+
+## §36 · S1 table-size 小 R 扩展批（R 从 1e4 扫到 1e0，2026-08-29 用户拍板）
+
+### 36.1 动机与设计
+
+用户 2026-08-29 指出：当前 table-size 双对数轴最小只到 R=16000
+（bigram K=3.54M 时 K/R 最大 221；trigram K=19.0M 时 1189），看不到
+极端 collision 区间的行为。本批把 R 向下扫到 1e0，负载率 K/R 跨越
+4 个多数量级，检验 gap 在极端碰撞下是否塌缩到 no-gram 水平。
+
+- R 点集（1/3 decade 间距，13 点）：
+  `10000, 4642, 2154, 1000, 464, 215, 100, 46, 22, 10, 5, 2, 1`
+- `table_size_bi1_small`：`--enable_bigram 1 --enable_trigram 0
+  --bigram_clean_table R --trigram_clean_table 0`
+- `table_size_tri1_small`：`--enable_bigram 0 --enable_trigram 1
+  --bigram_clean_table 0 --trigram_clean_table R`
+- 其余与 §34.1 完全同口径：1000 steps、val_steps 337,674,1000、
+  128×、warmup_constant(100)、bf16 no-compile、seed 42。
+- R=1 是合法端点：哈希 `% 1` 使所有 context 映射到同一行，
+  表退化为常数向量注入（无法记忆 context 特定信息）。
+
+### 36.2 run 登记
+
+| run_id 模式 | 数量 | 状态 | 结果目录 |
+|---|---:|---|---|
+| `s1v5_128_tbl_bi1_R{10000,4642,…,1}` | 13 | ✅ done 2026-08-30 | `data/runs_scaling/` |
+| `s1v5_128_tbl_tri1_R{10000,4642,…,1}` | 13 | ✅ done 2026-08-30 | `data/runs_scaling/` |
+
+调度：360-1 GPU2-7 跑 bi1_small，360-2 GPU0-7 跑 tri1_small；
+launcher `code/cluster/run_v5_s1_three_axis.sh`（GROUP=table_size_bi1_small /
+table_size_tri1_small）。结果已回填 §36.3，并已把小 R 点并入
+`fig_v5_s1_table_size_loglog_clean.png`。
+
+### 36.3 验收与结果
+
+26/26 runs 已完成，均达到 step 1000；每个目录均有
+`summary.json`、`train_log.jsonl`、`freq_bin_loss.jsonl`、
+`exact_freq_loss.jsonl` 和 `table_norm.jsonl`。R=215 与 R=2 的 bigram
+run 首次启动遇到 transient CUDA launch failure，已隔离 partial 目录并在
+GPU2 重跑；重跑结果才是下表与图的权威来源。所有 run 均为 seed 42、
+128× table LR、RMSProp `(0,.99)`、`warmup_constant(100)`、bf16、
+no-compile；gap 仍为同一步 fixed-val − current-batch online train。
+
+| physical rows R | bigram-only final gap | trigram-only final gap |
+|---:|---:|---:|
+| 10000 | 0.1194 | 0.0920 |
+| 4642 | 0.0819 | 0.0515 |
+| 2154 | 0.0611 | 0.0484 |
+| 1000 | 0.0760 | 0.0447 |
+| 464 | 0.0640 | 0.0271 |
+| 215 | 0.0611 | 0.0230 |
+| 100 | 0.0331 | −0.0317 |
+| 46 | −0.0062 | 0.0337 |
+| 22 | 0.0459 | 0.0619 |
+| 10 | 0.0310 | 0.0131 |
+| 5 | 0.0216 | 0.0228 |
+| 2 | −0.0043 | 0.0056 |
+| 1 | 0.0160 | 0.0182 |
+
+结果显示，R≤约 10³ 后两条单表轴都落入 no-gram floor 附近
+（约 `|gap|≲0.06`，并包含有限 batch 噪声）；R=1 时所有 context
+共享同一行，确实失去 context-specific memory。原 formal 大 R 区间的
+幂律仍保持：bigram `G∝R^0.429`、trigram `G∝R^0.657`，拟合只使用
+`R≥16000`，不把低 R collapse 硬拟合成幂律。
+
+权威数据已回填：
+`docs/appendices/s1_scaling_three_axis/s1_table_size_points.csv`、
+`s1_scaling_analysis.md`、`s1_scaling_fits.csv`；图为
+`docs/figs/main/fig_v5_s1_table_size_loglog_clean.png`。图中实心点是原
+formal grid，空心点是本次 `R=10^4…1` 扩展；细线仅为 3-point visual
+connector，虚线为大 R 描述性拟合。

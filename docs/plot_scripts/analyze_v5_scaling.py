@@ -186,9 +186,14 @@ def analyze_table_size():
             rows.append(row)
             branch_rows.append((physical_rows, current["final_gap"]))
         branch_rows.sort()
+        fit_branch_rows = [
+            (physical_rows, final_gap)
+            for physical_rows, final_gap in branch_rows
+            if physical_rows >= 16000 and final_gap > 0
+        ]
         fit = log_log_fit(
-            [x for x, y in branch_rows],
-            [y for x, y in branch_rows],
+            [x for x, _ in fit_branch_rows],
+            [y for _, y in fit_branch_rows],
         )
         fit.update(
             {
@@ -200,6 +205,7 @@ def analyze_table_size():
                     [x for x, _ in branch_rows],
                     [y for _, y in branch_rows],
                 ),
+                "fit_R_min": 16000,
                 "K": context_counts[branch],
                 "collision_rate_status": "not measured; do not infer from K/R",
                 "fixed_branch": fixed_branch,
@@ -540,8 +546,9 @@ def main():
         summary_lines.append(
             f"- {fit['branch']}: log-log slope `{fit['slope']:.6f}`, "
             f"R² `{fit['r2']:.6f}`, rank correlation `{fit['rank_corr_R_gap']:.6f}`, "
-            f"n=`{fit['n']}`; K=`{fit['K']}`, and K/R is a load ratio only. "
-            "Collision rate was not measured."
+            f"fit n=`{fit['n']}` over R≥`{fit['fit_R_min']}`, "
+            f"all-point rank correlation `{fit['rank_corr_R_gap']:.6f}`; "
+            f"K=`{fit['K']}`, and K/R is a load ratio only. Collision rate was not measured."
         )
     epoch_fit = epoch_fits[0]
     summary_lines.extend(
