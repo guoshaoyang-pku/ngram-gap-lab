@@ -3357,3 +3357,44 @@ input/no-gram 与 0.001 input 子进程继续训练，但父队列不会再发�
 三臂重启后 GPU0/1/2 分别占用约 50/70/50 GB，命令行实参复核 table scale
 768/1280 与 absolute table LR 0.0768。最终回收必须合并 ophis 的 11 个目录与
 360-2 的 3 个目录后再做 14-run QC 和拟合。
+
+## §43 · V5 净收益判决批（netv5，2026-08-31，用户拍板）
+
+### 43.1 科学问题
+
+指导大模型训练的核心问题：n-gram 模块是否**白忙活**。已有控制臂数据（128×，seed 42）
+显示 val loss 全面高于 nogram——step 1000：input +1.671 / y +1.252 / v +1.617；
+step 2000：+3.582 / +3.103 / +4.685。即无约束的表是纯记忆、净伤害 val。
+本批检验两种**约束条件**下 val loss 能否压到 nogram 之下（净收益 = val(arm) − val(nogram) < 0）：
+
+- **hash reseed 每个 epoch**：boundary 处重洗 context→row 映射，表内容随 epoch 重建，
+  推理用最后一个 table。若高频统计的单 epoch 重建有泛化价值，val 应低于 nogram。
+- **mask 低频 from start**（f ≤ 8 + novel，step 0 起）：表只学习高频 context，
+  从源头禁止低频记忆。
+
+### 43.2 代码变更（train.py md5 `d3a5a58464ac945d7963fcc804239038`，commit `f7ee97a`）
+
+- 频率掩码从 input-only 扩展到 y/v 注入路径（per-layer bgve/tgve 上 `masked_fill`），
+  解除 parser 的 input-only 限制。无掩码时 `_frequency_mask` 返回 None，默认路径不变。
+- CPU 冒烟（n_embd=768/n_head=6 真实维度）：input/y/v 三位置掩码前向/反向正常；
+  高频 context（key 5）三位置均正确穿透（1 行非零梯度），其余行零梯度。
+
+### 43.3 实验契约
+
+6 run，全部 128×、双表 R=2²⁰、train shard 1（1×L4，337 batches/epoch）、
+val 2-10+6542、2000 步（=6 epoch）、val/freq/exact/table-norm 全部 interval 10、
+seed 42、bf16 不 compile。唯一变量 = 注入位置 × 干预方式。
+
+| run_id | 注入 | 干预 |
+|---|---|---|
+| `netv5_input_reseed_eall_128x_fixed` | input | hash_reseed @ due epochs {1,2,3,4,5}（= epoch 2–6 起点，共 5 次） |
+| `netv5_y_reseed_eall_128x_fixed` | y | 同上 |
+| `netv5_v_reseed_eall_128x_fixed` | v | 同上 |
+| `netv5_input_masklowf8_e0_128x_fixed` | input | mask_low f≤8（inclusive）+ novel，epoch 0 起点 = step 0 起 |
+| `netv5_y_masklowf8_e0_128x_fixed` | y | 同上 |
+| `netv5_v_masklowf8_e0_128x_fixed` | v | 同上 |
+
+对照（已有，不重跑）：`nglab1x_{input,y,v,nogram}_v5_128x_freq10_fixed`。
+验收口径：每 10 步的 val(arm) − val(nogram matched step)；负 = 净收益。
+launcher `run_v5_128x_rerun.sh` GROUP=net，360-2 GPU 0–5 一卡一 run。
+状态：**planned**。
