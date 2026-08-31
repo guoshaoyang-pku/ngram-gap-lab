@@ -3292,13 +3292,13 @@ s_T=\frac{0.0768}{\eta_B},
 
 | backbone LR | table scale | input / nogram run_id | steps | 机器/GPU | 状态 |
 |---:|---:|---|---:|---|---|
-| 0.00006 | 1280 | `blrabs_{input,nogram}_lr0p00006_tlr0p0768_3k` | 3000 | ophis/5 | running |
-| 0.0001 | 768 | `blrabs_{input,nogram}_lr0p0001_tlr0p0768_3k` | 3000 | ophis/5 | running |
-| 0.0003 | 256 | `blrabs_{input,nogram}_lr0p0003_tlr0p0768_20k` | 20000 | ophis/2,4 | running |
-| 0.0006 | 128 | `blrabs_{input,nogram}_lr0p0006_tlr0p0768_10k` | 10000 | ophis/2,4 | running |
-| 0.001 | 76.8 | `blrabs_{input,nogram}_lr0p0010_tlr0p0768_6k` | 6000 | ophis/5 | running |
-| 0.002 | 38.4 | `blrabs_{input,nogram}_lr0p0020_tlr0p0768_3k` | 3000 | ophis/5 | running |
-| 0.004 | 19.2 | `blrabs_{input,nogram}_lr0p0040_tlr0p0768_3k` | 3000 | ophis/5 | running |
+| 0.00006 | 1280 | `blrabs_{input,nogram}_lr0p00006_tlr0p0768_3k` | 3000 | 360-2 GPU1 / GPU2 | running / running |
+| 0.0001 | 768 | `blrabs_{input,nogram}_lr0p0001_tlr0p0768_3k` | 3000 | ophis GPU0 / 360-2 GPU0 | done / running |
+| 0.0003 | 256 | `blrabs_{input,nogram}_lr0p0003_tlr0p0768_20k` | 20000 | ophis GPU2 / GPU4 | running / running |
+| 0.0006 | 128 | `blrabs_{input,nogram}_lr0p0006_tlr0p0768_10k` | 10000 | ophis GPU2 / GPU4 | done / done |
+| 0.001 | 76.8 | `blrabs_{input,nogram}_lr0p0010_tlr0p0768_6k` | 6000 | ophis GPU5 / GPU7 | done / running |
+| 0.002 | 38.4 | `blrabs_{input,nogram}_lr0p0020_tlr0p0768_3k` | 3000 | ophis GPU5 | done / done |
+| 0.004 | 19.2 | `blrabs_{input,nogram}_lr0p0040_tlr0p0768_3k` | 3000 | ophis GPU5 | done / done |
 
 GPU2/4 各 30k steps，先跑 0.0006 再跑 0.0003 的 input/nogram 分臂；GPU5 约
 36k steps，按 0.004→0.002→0.001→0.0001→0.00006 的顺序逐对运行，优先回答高 LR
@@ -3337,3 +3337,23 @@ G_e=G_\star+(G_2-G_\star)q^{e-2}.
   gap −0.0604、input 4e-3 gap −0.0072；GPU2/4/5 分别占用约 70/50/70 GB。
   `ps` 实参核验：6e-4×128=0.0768、4e-3×19.2=0.0768，且 val/freq/exact/table-norm
   的末次覆盖值均为 50。状态保持 running，完成前不填科学裁决。
+
+### 42.5 全并行重排（2026-08-31，用户指示）
+
+用户明确指出算力不缺，不应把独立 LR 臂串行排队。三条原队列父进程
+`2183222/2183223/2183224` 已仅作 `SIGSTOP`，因此当时正在运行的 0.0003
+input/no-gram 与 0.001 input 子进程继续训练，但父队列不会再发下一臂；没有中断、重启
+或覆盖 active artifact。其余待启动 run 改为直接 launcher 并行：
+
+- ophis GPU0：0.0001 input（已完成）；GPU7：0.001 no-gram（active）。
+- 360-2 GPU0：0.0001 no-gram；GPU1/2：0.00006 input/no-gram（三臂均 active）。
+- 原已 active 的 ophis GPU2/4 两个 0.0003 长臂继续运行。
+
+重排验收时状态为 **8 done + 6 active + 0 queued**，14 个 run_id 一一覆盖且无重复。
+360-2 的 `train.py/ngram_freq.py/run_v5_clean.sh` md5 与 ophis/local 权威版本完全一致；
+该机没有 repo `.venv`，故显式设置 `NGLAB_PY=python3`，实测 torch
+`2.13.0+cu130`、CUDA available、8 GPUs。第一次未设置 `NGLAB_PY` 的调用在基础 launcher
+检查 Python 路径时退出，发生于结果目录创建和 GPU 占用之前，不产生 partial artifact。
+三臂重启后 GPU0/1/2 分别占用约 50/70/50 GB，命令行实参复核 table scale
+768/1280 与 absolute table LR 0.0768。最终回收必须合并 ophis 的 11 个目录与
+360-2 的 3 个目录后再做 14-run QC 和拟合。
