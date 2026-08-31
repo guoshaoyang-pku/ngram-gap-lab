@@ -188,7 +188,8 @@ def main():
     fig2.update_layout(yaxis_title="gap (val − train probe) @ step 1000")
 
     html = OUT / "fig_v5_s1_frequency_exact_interactive.html"
-    div = fig2.to_html(full_html=False, include_plotlyjs="cdn", div_id="fig4x")
+    div = fig2.to_html(full_html=False, include_plotlyjs="plotly.min.js",
+                       div_id="fig4x")
     html.write_text(
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<style>body{margin:0;background:#fff}</style></head>"

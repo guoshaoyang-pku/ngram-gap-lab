@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Fig 1 (interactive v3): arms overlaid on one panel, train/val/gap per arm.
+"""Fig 1 (interactive v4): arms overlaid, custom controls, no CDN dependency.
 
-Layout: one panel.  For the selected LR x budget combo (dropdown), all four
-injection arms are overlaid; each arm draws three traces in the arm's color:
-  * train  = solid line (arm color), raw records as faint points
-  * val    = solid line, same hue semi-transparent (alpha .5)
-  * gap    = dashed line (arm color)
-Arms are shown/hidden by clicking the legend: input and nogram are on by
-default, y and v start as legend-only.
+One panel.  Controls above the plot:
+  * a <select> for LR x budget (128x/2x x 1k/2k steps);
+  * four checkboxes for the injection arms (input + nogram on by default) --
+    arms are overlaid, any subset can be shown.
+Each arm draws train = solid arm color, val = same hue alpha .5,
+gap = dashed arm color; raw records (every 10 steps) are faint points, lines
+are 3-point moving averages.
 
-Axis lines are drawn (showline), matching the static v5 figures.  Raw eval
-records (every 10 steps) are points; thin lines are a 3-point moving average.
-Self-contained HTML fragment (plotly via CDN) embedded via iframe.
+The plotly legend is reduced to a single vertical column of 3 style entries
+(train / val / gap) and is non-interactive; arm visibility is driven only by
+the checkboxes (a small inline script calls Plotly.restyle).  plotly.js is
+referenced as the sibling file `plotly.min.js` (no CDN, works offline and on
+GitHub Pages).
 
 Set NGLAB_RUNS_FIXED to the mirror containing the eight runs.
 """
@@ -33,6 +35,7 @@ ARM_COLORS = {
 }
 ARMS = ["input", "y", "v", "nogram"]
 DEFAULT_ON = {"input", "nogram"}
+KINDS = ["train", "val", "gap"]
 
 # (combo label, run dir pattern, max step)
 COMBOS = [
@@ -71,64 +74,111 @@ def movavg(y, w=3):
 
 
 fig = go.Figure()
-combo_vis = []  # per combo: flat visibility list over all traces
 
-for ci, (label, pattern, cap) in enumerate(COMBOS):
-    vis = []
+# --- 3 dummy legend traces (always visible, style guide only) ---
+for name, line in [
+    ("train", dict(color="#555", width=2.0)),
+    ("val", dict(color="rgba(85,85,85,0.5)", width=1.8)),
+    ("gap", dict(color="#555", width=1.6, dash="dash")),
+]:
+    fig.add_trace(go.Scatter(x=[], y=[], mode="lines", name=name,
+                             line=line, showlegend=True, hoverinfo="skip"))
+
+# --- data traces: combo -> arm -> kind -> (points, line) ---
+for label, pattern, cap in COMBOS:
     for arm in ARMS:
         s, tr, val, gap = load(pattern.format(arm=arm), cap)
         c = ARM_COLORS[arm]
-        on = True if arm in DEFAULT_ON else "legendonly"
-        first = (ci == 0)
-        specs = [
-            (s, tr, "markers", dict(size=3.5, color=c, opacity=0.22), None, False),
-            (s, movavg(tr), "lines", None, dict(color=c, width=2.0), True),
-            (s, val, "markers", dict(size=3.5, color=c, opacity=0.18), None, False),
-            (s, movavg(val), "lines", None, dict(color=rgba(c, 0.5), width=1.8), True),
-            (s, gap, "markers", dict(size=3.5, color=c, opacity=0.22), None, False),
-            (s, movavg(gap), "lines", None, dict(color=c, width=1.6, dash="dash"), True),
-        ]
-        kinds = ["train", "train", "val", "val", "gap", "gap"]
-        for (x, y, mode, marker, line, is_line), kind in zip(specs, kinds):
+        series = {"train": (tr, dict(color=c, width=2.0)),
+                  "val": (val, dict(color=rgba(c, 0.5), width=1.8)),
+                  "gap": (gap, dict(color=c, width=1.6, dash="dash"))}
+        for kind in KINDS:
+            y, line = series[kind]
             fig.add_trace(go.Scatter(
-                x=x, y=y, mode=mode, visible=on if ci == 0 else False,
-                showlegend=bool(is_line and first),
-                legendgroup=f"{arm}-{kind}", name=f"{arm} · {kind}",
-                marker=marker or {}, line=line or {},
-                hoverinfo="skip" if not is_line else None,
-                hovertemplate=("step %{x}<br>%{y:.3f}<extra>" +
-                               f"{arm} {kind}</extra>") if is_line else None))
-            vis.append(on)
-    combo_vis.append(vis)
+                x=s, y=y, mode="markers", showlegend=False, hoverinfo="skip",
+                marker=dict(size=3.5, color=c, opacity=0.22)))
+            fig.add_trace(go.Scatter(
+                x=s, y=movavg(y), mode="lines", showlegend=False,
+                line=line, hovertemplate=("step %{x}<br>%{y:.3f}<extra>" +
+                                          f"{arm} {kind}</extra>")))
 
-buttons = [
-    dict(label=label, method="update", args=[{"visible": v}])
-    for (label, _, _), v in zip(COMBOS, combo_vis)
-]
+N_DATA = len(COMBOS) * len(ARMS) * len(KINDS) * 2
+init = [True] * 3 + [False] * N_DATA
+for ai, arm in enumerate(ARMS):
+    if arm in DEFAULT_ON:
+        for k in range(len(KINDS)):
+            for p in range(2):
+                init[3 + ((0 * len(ARMS) + ai) * len(KINDS) + k) * 2 + p] = True
+for i, t in enumerate(fig.data):
+    t.visible = init[i]
 
 axis = dict(showline=True, linecolor="#555", linewidth=1.0, ticks="outside",
             gridcolor="#e6e6e6", zeroline=False)
 fig.update_layout(
-    updatemenus=[dict(active=0, buttons=buttons, x=0.0, xanchor="left",
-                      y=1.20, yanchor="top", bgcolor="#fff",
-                      bordercolor="#ccc")],
-    annotations=[dict(text="学习率 × 步数", x=0.0, xref="paper", xanchor="left",
-                      y=1.32, yref="paper", showarrow=False,
-                      font=dict(size=12, color="#666"))],
     xaxis=dict(title="step", **axis),
     yaxis=dict(title="loss / gap", **axis),
     plot_bgcolor="white", paper_bgcolor="white",
     font=dict(family="-apple-system, 'Helvetica Neue', Arial, sans-serif",
               size=12),
-    legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0.20,
-                title=dict(text="臂（点击显示/隐藏）", font=dict(size=11))),
-    margin=dict(l=60, r=20, t=105, b=45), height=500,
+    legend=dict(orientation="v", x=1.01, y=1.0, xanchor="left",
+                itemclick=False, itemdoubleclick=False),
+    margin=dict(l=60, r=80, t=20, b=45), height=470,
 )
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
-div = fig.to_html(full_html=False, include_plotlyjs="cdn", div_id="fig1x")
+div = fig.to_html(full_html=False, include_plotlyjs="plotly.min.js",
+                  div_id="fig1x")
+
+options = "".join(
+    f'<option value="{i}"{" selected" if i == 0 else ""}>{lb}</option>'
+    for i, (lb, _, _) in enumerate(COMBOS))
+boxes = "".join(
+    f'<label style="color:{ARM_COLORS[a]};font-weight:600;margin-right:10px">'
+    f'<input type="checkbox" class="fig1-arm" value="{ai}"'
+    f'{" checked" if a in DEFAULT_ON else ""}> {a}</label>'
+    for ai, a in enumerate(ARMS))
+
+n_arm, n_kind = len(ARMS), len(KINDS)
+script = f"""
+<script>
+(function() {{
+  var gd = document.getElementById('fig1x');
+  if (typeof Plotly === 'undefined') {{
+    gd.innerHTML = '<p style="color:#c00">plotly.min.js 未加载（应与 html 同目录）。</p>';
+    return;
+  }}
+  var NARM = {n_arm}, NKIND = {n_kind};
+  function apply() {{
+    var c = +document.getElementById('fig1-combo').value;
+    var arms = [];
+    document.querySelectorAll('.fig1-arm:checked').forEach(function(x) {{
+      arms.push(+x.value);
+    }});
+    var vis = [true, true, true];
+    for (var cc = 0; cc < {len(COMBOS)}; cc++)
+      for (var aa = 0; aa < NARM; aa++)
+        for (var kk = 0; kk < NKIND; kk++) {{
+          var on = (cc === c && arms.indexOf(aa) >= 0);
+          vis.push(on, on);
+        }}
+    Plotly.restyle(gd, 'visible', vis);
+  }}
+  document.getElementById('fig1-combo').addEventListener('change', apply);
+  document.querySelectorAll('.fig1-arm').forEach(function(x) {{
+    x.addEventListener('change', apply);
+  }});
+}})();
+</script>
+"""
+
 OUT.write_text(
     "<!doctype html><html><head><meta charset='utf-8'>"
-    "<style>body{margin:0;background:#fff}</style></head>"
-    f"<body>{div}</body></html>")
+    "<style>body{margin:0;background:#fff;font-family:-apple-system,"
+    "'Helvetica Neue',Arial,sans-serif;font-size:13px}"
+    "#fig1-controls{padding:6px 10px 0}"
+    "#fig1-controls select{font-size:13px;margin-left:4px}</style></head>"
+    "<body><div id='fig1-controls'>"
+    "学习率 × 步数：<select id='fig1-combo'>" + options + "</select>"
+    "&nbsp;&nbsp;臂（可叠加）：" + boxes +
+    "</div>" + div + script + "</body></html>")
 print(f"[saved] {OUT}")
