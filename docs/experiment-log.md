@@ -10,6 +10,8 @@
 |---|---|---|---|---|---|
 | `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **V5 backbone LR 扫描 × table LR 128× 固定 · A 因子判决批（12 run）** | ✅ done | net gap 峰 2.841@1e-3；1.94→2.84→2.28；**A 因子成立** | §39 |
 | `s1v5_128_epfx_tri_{2p0,3p0,4p0}xL4_3ep` | 2026-08-31 | **V5 epoch 长度轴修复批（多 shard 真实池，trigram 单支路）** | ✅ done | 1.955/1.519/1.267；U 形确认为 wrap 假象 | §40 |
+| `s1v5_128_ep_tri_1xL4_20ep` / `s1v5_128_ep1xL4_20ep_{both,nogram}` | 2026-08-31 | **V5 20-epoch 长 replay 批（shard-1 池 ×20 遍，tri-only / both / nogram 三臂）** | 🔄 running | 寻长程渐进行为（10ep 递推外推平台此前未验证） | §41 |
+| `causalv5m3_hash_reseed_e2{,e3}` | 2026-08-31 | **V5 二次 reseed 判决批（2022 步 6 pass：e2 单次 vs e2+e3 双次 reseed）** | 🔄 running | 检验重对齐是否可再学、二次 reseed 是否再击落 gap | §41 |
 | `optv5h_rms_b099_s2p0_warmstart0p1` | 2026-08-26 | V5 warmup 起始倍率 · 0.1× | ✅ done | +1.504498 @1000 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× | ⚠️ failed at initialization（360-1 GPU7 CUDA launch failure） | 无结果 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5_r1` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× retry | ⚠️ failed at initialization（GPU7 large-allocation launch failure） | 无结果 | §31 |
@@ -3221,3 +3223,29 @@ epoch 内部分重消费，语义不干净，旧点作废即可。输出 `data/r
 （`plot_v5_epoch_length_valid.py`，段边界 1×L4 处标注 val 组成切换）；主文档 §5 勘误框
 同步改为"已闭环"。train/val：2×L4 = 4.136/6.091，3×L4 = 4.209/5.728，4×L4 = 4.184/5.451
 （val 随池增大而降低是数据多样性效应，与 gap 下降同向）。
+
+---
+
+## §41 · V5 20-epoch 长 replay + 二次 reseed 判决批（2026-08-31，用户拍板）
+
+**动机**：① 主文档图 8（gap–epoch 编号）只有 3 个点（337/674/1000 步），10ep 递推的
+"平台 13.58" 纯外推未验证——直接把 replay 拉到 20 个 epoch，披露长程渐进行为；
+② §6 干预阵列缺关键臂：hash reseed 在 e2 击落后，e3 **再次** reseed——检验
+"重对齐是否可再学、二次 reseed 是否再击落 gap"（用户指出的判决性实验）。
+
+**设置**：360-2 GPU 0–4（全机空闲）；launcher `run_v5_clean.sh`（md5 未动，128× 写死）；
+train shard 1、val `2,3,4,5,6,7,8,9,10,6542`（与 m3/三轴批一致）；seed 42。
+
+| run_id | GPU | steps | 唯一变量 | 状态 |
+|---|---|---|---|---|
+| `s1v5_128_ep_tri_1xL4_20ep` | 0 | 6740 | trigram 单支路 R=2²⁰，`--epoch_batches 337`，val 每 337 步边界 | running |
+| `s1v5_128_ep1xL4_20ep_both` | 2 | 6740 | 双表（主线口径），同上 | running |
+| `s1v5_128_ep1xL4_20ep_nogram` | 1 | 6740 | nogram 对照，同上 | running |
+| `causalv5m3_hash_reseed_e2` | 3 | 2022 | `--intervention hash_reseed --intervention_epoch 2`（m3 批缺的单 reseed 臂） | running |
+| `causalv5m3_hash_reseed_e2e3` | 4 | 2022 | `--intervention hash_reseed --intervention_epochs 2,3`（二次 reseed） | running |
+
+**预登记判据**：20ep——若 net gap（tri−nogram）在 e>10 后进入平台，则单状态递推
+\(a_e=a_\infty(1-q^{e-1})\) 获支持且平台为实测；若继续近似线性增长，则递推模型
+缺慢变量，图 8b 的"平台"说法撤回。reseed——若 e2e3 臂在 e3 边界出现第二次幅度
+相近的击落，说明 re-alignment 可重复学习；若第二次击落显著更小/无，说明
+backbone scar 承担了不可恢复的读出成分。

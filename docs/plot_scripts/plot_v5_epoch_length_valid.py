@@ -19,6 +19,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import v5_style as S
+
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNS = Path(os.environ.get("NGLAB_RUNS_DIR", ROOT / "data" / "runs_scaling"))
@@ -41,6 +43,7 @@ RUNS_BY_LENGTH = [
 
 
 def main():
+    S.apply_style()
     points = []
     for length, label, run_id, segment in RUNS_BY_LENGTH:
         path = RUNS / f"{run_id}_fixed" / "summary.json"
@@ -73,10 +76,9 @@ def main():
         color="#475569",
     )
     fig.tight_layout()
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUTPUT, dpi=190, bbox_inches="tight")
-    plt.close(fig)
-    print(OUTPUT.relative_to(ROOT))
+    png, svg = S.save(fig, OUTPUT.parent, OUTPUT.stem)
+    print(png.relative_to(ROOT))
+    print(svg.relative_to(ROOT))
 
 
 if __name__ == "__main__":
