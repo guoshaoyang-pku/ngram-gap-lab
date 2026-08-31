@@ -77,9 +77,9 @@ fig = go.Figure()
 
 # --- 3 dummy legend traces (always visible, style guide only) ---
 for name, line in [
-    ("train", dict(color="#555", width=2.0)),
-    ("val", dict(color="rgba(85,85,85,0.5)", width=1.8)),
-    ("gap", dict(color="#555", width=1.6, dash="dash")),
+    ("train · 实线（臂色）", dict(color="#555", width=2.0)),
+    ("val · 半透明实线（同色）", dict(color="rgba(85,85,85,0.5)", width=1.8)),
+    ("gap = val − train · 虚线（臂色）", dict(color="#555", width=1.6, dash="dash")),
 ]:
     fig.add_trace(go.Scatter(x=[], y=[], mode="lines", name=name,
                              line=line, showlegend=True, hoverinfo="skip"))
@@ -122,7 +122,7 @@ fig.update_layout(
               size=12),
     legend=dict(orientation="v", x=1.01, y=1.0, xanchor="left",
                 itemclick=False, itemdoubleclick=False),
-    margin=dict(l=60, r=80, t=20, b=45), height=470,
+    margin=dict(l=60, r=210, t=20, b=45), height=470,
 )
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
