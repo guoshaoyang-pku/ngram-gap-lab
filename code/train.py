@@ -766,6 +766,12 @@ class NanoGPT(nn.Module):
                     torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1),
                     self.bigram_table_dim,
                 )
+                bmask = self._frequency_mask(
+                    "bigram",
+                    prev_idx.long() * self.config.vocab_size + idx.long(),
+                )
+                if bmask is not None:
+                    bgve = bgve.masked_fill(bmask.unsqueeze(-1), 0)
             tgve = None
             if self.config.enable_trigram_ve and i in self.trigram_ve_layers:
                 ti = trigram_indices[i]
@@ -774,6 +780,13 @@ class NanoGPT(nn.Module):
                     torch.cat([lvs[k](ti[k]) for k in range(self.trigram_K)], dim=-1),
                     self.trigram_table_dim,
                 )
+                tmask = self._frequency_mask(
+                    "trigram",
+                    prev2_idx.long() * (self.config.vocab_size * self.config.vocab_size)
+                    + prev_idx.long() * self.config.vocab_size + idx.long(),
+                )
+                if tmask is not None:
+                    tgve = tgve.masked_fill(tmask.unsqueeze(-1), 0)
             x = block(x, ve=ve, bigram_ve=bgve, trigram_ve=tgve)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
@@ -1530,8 +1543,6 @@ def main():
         parser.error(f"--intervention {args.intervention} requires an existing --freq_index")
     if args.intervention == "none" and args.intervention_epochs.strip():
         parser.error("--intervention_epochs requires --intervention hash_reseed (or another intervention)")
-    if args.intervention in {"mask_low_freq", "mask_high_freq"} and args.injection_position != "input":
-        parser.error(f"--intervention {args.intervention} currently requires --injection_position input")
 
     cfg = Config(
         vocab_size=args.vocab_size,

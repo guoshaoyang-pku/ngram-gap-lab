@@ -91,8 +91,24 @@ MASKHIGH=(
   "causalv5m_mask_high_t0_full_e1_128x|1|${VAL}|1000|--intervention mask_high_freq --intervention_epoch 1 --intervention_freq_threshold 0"
 )
 
+# Net-benefit batch (2026-08-31): does a constrained n-gram table beat nogram
+# on VAL loss (not gap)? 2000 steps = 6 epochs of shard 1, val/freq=10.
+#   *_reseed_eall: hash reseed at every epoch boundary (0-indexed due epochs
+#     1..5 = start of epochs 2..6); inference uses the last table.
+#   *_masklowf8_e0: mask f<=8 (+novel) from step 0; the table only ever learns
+#     high-frequency contexts. Works for input/y/v (mask extended to the
+#     per-layer y/v path in train.py, 2026-08-31).
+NET=(
+  "netv5_input_reseed_eall_128x|1|${VAL}|2000|--intervention hash_reseed --intervention_epoch 1 --intervention_epochs 2,3,4,5"
+  "netv5_y_reseed_eall_128x|1|${VAL}|2000|--injection_position y --intervention hash_reseed --intervention_epoch 1 --intervention_epochs 2,3,4,5"
+  "netv5_v_reseed_eall_128x|1|${VAL}|2000|--injection_position v --intervention hash_reseed --intervention_epoch 1 --intervention_epochs 2,3,4,5"
+  "netv5_input_masklowf8_e0_128x|1|${VAL}|2000|--intervention mask_low_freq --intervention_epoch 0 --intervention_freq_threshold 8 --intervention_low_inclusive 1"
+  "netv5_y_masklowf8_e0_128x|1|${VAL}|2000|--injection_position y --intervention mask_low_freq --intervention_epoch 0 --intervention_freq_threshold 8 --intervention_low_inclusive 1"
+  "netv5_v_masklowf8_e0_128x|1|${VAL}|2000|--injection_position v --intervention mask_low_freq --intervention_epoch 0 --intervention_freq_threshold 8 --intervention_low_inclusive 1"
+)
+
 case "$GROUP" in
-  all) SPECS=("${M2[@]}" "${DOSE[@]}" "${CAUSAL[@]}" "${X2[@]}" "${X1[@]}" "${MASKHIGH[@]}") ;;
+  all) SPECS=("${M2[@]}" "${DOSE[@]}" "${CAUSAL[@]}" "${X2[@]}" "${X1[@]}" "${MASKHIGH[@]}" "${NET[@]}") ;;
   *)
     SPECS=()
     IFS='+' read -ra PARTS <<< "$GROUP"
@@ -104,7 +120,8 @@ case "$GROUP" in
         x2) SPECS+=("${X2[@]}") ;;
         x1) SPECS+=("${X1[@]}") ;;
         maskhigh) SPECS+=("${MASKHIGH[@]}") ;;
-        *) echo "unknown GROUP part=$part (m2|dose|causal|x2|x1|maskhigh|all)" >&2; exit 2 ;;
+        net) SPECS+=("${NET[@]}") ;;
+        *) echo "unknown GROUP part=$part (m2|dose|causal|x2|x1|maskhigh|net|all)" >&2; exit 2 ;;
       esac
     done
     [[ "${#SPECS[@]}" -gt 0 ]] || { echo "empty GROUP=$GROUP" >&2; exit 2; }
