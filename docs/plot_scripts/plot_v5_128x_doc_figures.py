@@ -549,32 +549,34 @@ def plot_freeze_forking():
 
 # ---------- S1 epoch number: gap growth within one long replay ----------
 def plot_epoch_number():
-    """Gap at each epoch boundary of the 10-epoch L4 long replay.
+    """Gap at each epoch boundary of the 20-epoch L4 long replay (§41).
 
-    Left: raw gap vs epoch number for trigram-only, both-tables and the
-    no-gram control, with a linear reference over epochs 2-10 (trigram arm).
-    Right: per-epoch gap increments, showing the early-epoch peak and the
-    slow decay towards a smaller per-epoch gain (gradual saturation).
+    Source of truth: docs/appendices/s1_scaling_three_axis/
+    s1_epoch_long_replay_points.csv (20ep run rows).  Left: raw gap vs epoch
+    number for trigram-only, both-tables and the no-gram control.  Right:
+    per-epoch increments -- early peak then slow decay; still positive at
+    e20, i.e. sublinear growth, no observed plateau.
     """
+    import csv as _csv
+    csv_path = (ROOT / "docs" / "appendices" / "s1_scaling_three_axis"
+                / "s1_epoch_long_replay_points.csv")
+    by_arm = {}
+    for row in _csv.DictReader(csv_path.open()):
+        if "20ep" not in row["run_id"]:
+            continue
+        by_arm.setdefault(row["arm"], {})[int(row["epoch"])] = float(row["gap"])
     runs = (
-        ("trigram-only", "s1v5_128_ep_tri_1xL4_10ep", "#2d6f9f"),
-        ("bigram+trigram", "s1v5_128_ep1xL4_10ep_both", "#67439b"),
-        ("no-gram control", "s1v5_128_ep1xL4_10ep_nogram", "#686d73"),
+        ("trigram-only", "trigram-only", "#2d6f9f"),
+        ("bigram+trigram", "both-tables", "#67439b"),
+        ("no-gram control", "nogram", "#686d73"),
     )
     series = {}
-    for label, run_id, color in runs:
-        path = ROOT / "data" / "runs_scaling" / f"{run_id}_fixed" / "train_log.jsonl"
-        rows = read_jsonl(path)
-        gap = {
-            row["step"]: row["val_loss"] - row["train_loss"]
-            for row in rows
-            if row.get("val_loss") is not None and row.get("train_loss") is not None
-        }
-        epochs = [(e, gap[337 * e]) for e in range(1, 11) if 337 * e in gap]
-        if len(epochs) < 10:
-            print(f"skip epoch-number figure: {run_id} incomplete ({len(epochs)}/10)")
+    for label, arm, color in runs:
+        pts = sorted(by_arm.get(arm, {}).items())
+        if len(pts) < 20:
+            print(f"skip epoch-number figure: {arm} incomplete ({len(pts)}/20)")
             return
-        series[label] = (color, epochs)
+        series[label] = (color, pts)
 
     figure, axes = plt.subplots(1, 2, figsize=(12.6, 4.6))
     for label, (color, epochs) in series.items():
@@ -592,22 +594,24 @@ def plot_epoch_number():
     axes[0].plot([ref[0][0], ref[-1][0]],
                  [ref[0][1], ref[0][1] + slope * (ref[-1][0] - ref[0][0])],
                  color="#9ca3af", linestyle="--", linewidth=0.8,
-                 label=f"linear ref ≈ {slope:.2f}/epoch (e2–e10)")
+                 label=f"secant ref ≈ {slope:.2f}/epoch (e2–e20)")
     axes[0].axhline(0, color="#686d73", linewidth=0.6, linestyle=":")
     axes[0].set_xlabel("epoch number (L4 = 337 batches / epoch)")
     axes[0].set_ylabel("gap at epoch boundary")
-    axes[0].set_title("gap vs epoch number · 10-epoch L4 replay")
+    axes[0].set_title("gap vs epoch number · 20-epoch L4 replay")
+    axes[0].set_xticks(range(1, 21, 2))
     axes[1].axhline(0, color="#686d73", linewidth=0.6, linestyle=":")
     axes[1].set_xlabel("epoch boundary (e−1 → e)")
     axes[1].set_ylabel("per-epoch gap increment")
-    axes[1].set_title("per-epoch increment: early peak → slow decay")
+    axes[1].set_title("increment: early peak → slow decay, still > 0 at e20")
+    axes[1].set_xticks(range(2, 21, 2))
     for axis in axes:
         axis.grid(alpha=0.22)
         axis.legend(fontsize=8, frameon=False)
     figure.suptitle(
-        "S1 epoch-number relation · 128× · seed 42 · fixed replay of shard 1\n"
+        "S1 epoch-number relation · 128× · seed 42 · fixed replay of shard 1 · 20 epochs\n"
         "points = raw boundary records (gap = fixed val − online train); "
-        "no smoothing applied to boundary values",
+        "sublinear growth, no plateau observed up to e20",
         fontsize=10,
     )
     figure.tight_layout()
