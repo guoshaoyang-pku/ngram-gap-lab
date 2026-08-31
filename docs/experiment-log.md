@@ -3591,4 +3591,44 @@ novel 的表读出**不是零**，这正是 le0（仅屏蔽 novel 读出）step-
 
 判决口径：① tri 单表 step-1000 gap(t) vs tri 对照（动态去除率，对照静态归因 79.3%@f≤8）；
 ② lastep 终点 Δval vs nogram，与 reseed（y −0.108 / v −0.131）、masklowf8（+1.2~+2.7）对比。
-360-2 GPU 0–7（trim GPU0-4，lep GPU5-7）。状态：**planned**。
+360-2 GPU 0–7（trim GPU0-4，lep GPU5-7）。状态：**done（2026-09-01 回填）**。
+
+### 44.3 结果与判决
+
+**① trigram 单表动态 mask 扫描（step 1000，seed 42）**：
+
+| arm | train | val | gap | 动态去除率 |
+|---|---:|---:|---:|---:|
+| tri 对照（无干预） | 4.191 | 6.676 | 2.486 | — |
+| mask f≤1 from e2 | 3.834 | 4.858 | 1.023 | −58.8% |
+| mask f≤2 | 3.756 | 4.611 | 0.855 | −65.6% |
+| mask f≤4 | 3.744 | 4.369 | 0.626 | −74.8% |
+| mask f≤8 | 3.740 | 4.155 | 0.415 | **−83.3%** |
+
+动态去除（83.3%）陡于静态归因预期（79.3% → 残差 0.51），与双表批同向；mask 后 train
+loss 单调下降（4.19→3.74），因为低频 context 不再读到碰撞行噪声、表容量集中到高频。
+回答 44.1 问题 1：**trigram mask f≤8 一个变量就把单表 gap 从 2.49 压到 0.42**，
+但不能压到零——残余 0.42 来自 f>8 高频 context 的记忆。
+
+**② 仅末 epoch 用表（readout_last_epoch，step 2000 = epoch 6 末）**：
+
+| arm | train | val | Δval vs nogram | gap | reseed 对照 Δval（§43） |
+|---|---:|---:|---:|---:|---:|
+| lastep-input | 4.151 | 4.170 | **+0.822** | 0.019 | +0.807 |
+| lastep-y | 3.132 | 3.356 | **+0.008** | 0.224 | −0.108 |
+| lastep-v | 3.167 | 3.355 | **+0.006** | 0.187 | −0.131 |
+
+- lastep 与 reseed 同样把 gap 杀到 ≤0.22，再次确认**跨 epoch 记忆积累是 gap 主源**。
+- input 臂解除屏蔽后 val 立即冲到 +2.9（step ~1700），epoch 6 内单调回落到 +0.82，
+  终点与 reseed-input（+0.807）几乎相同：**input 位置的单 epoch 表读出一个 epoch 内
+  就造成 ~0.8 的 val 伤害**，backbone 在 epoch 内只能部分适应。
+- y/v 臂解除后 Δval 全程 ≈ 0（+0.006~0.008），无尖峰：y/v 位置的单 epoch 表对 val
+  基本中性（reseed 还略负）。净收益问题因此进一步定位为**注入位置敏感**：
+  input 单 epoch 也有害，y/v 中性至微收益。
+- 与 reseed 的差别：lastep 的表从 epoch 6 起点空白写入（前 5 epoch 零梯度），reseed
+  每个 epoch 重建；两者终点 Δval 相近说明对 val 而言关键是「表内容年龄 ≤1 epoch」，
+  与表如何被重置无关。
+
+图：`docs/figs/main/fig_v5_mask_sweep_lastep.{png,svg}`（脚本
+`plot_v5_mask_sweep_lastep.py`）。数据：360-2 `runs_fixed` 远端权威目录，
+本地分析镜像 `/tmp/ng_data/runs_fixed`。
