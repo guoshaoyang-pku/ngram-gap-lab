@@ -46,7 +46,7 @@ ACTUAL_TABLE_LR="$(awk -v b="$BACKBONE_LR" -v s="$TABLE_LR_SCALE" 'BEGIN { print
 echo "[blr-abslock] run=$RUN_ID arm=$ARM gpu=$GPU backbone_lr=$BACKBONE_LR table_lr_abs=$ACTUAL_TABLE_LR table_lr_scale=$TABLE_LR_SCALE steps=$STEPS"
 
 NGLAB_TABLE_LR_SCALE="$TABLE_LR_SCALE" \
-  "$SCRIPT_DIR/run_v5_clean.sh" \
+  bash "$SCRIPT_DIR/run_v5_clean.sh" \
   "$GPU" "$RUN_ID" \
   "1" "2,3,4,5,6,7,8,9,10,6542" "$STEPS" \
   --lr "$BACKBONE_LR" \
