@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Fig 1 (interactive): injection-point trajectories with a setting switcher.
+"""Fig 1 (interactive v2): one arm at a time, train+val+gap on a single axis.
 
-Three stacked panels (online train loss / fixed val loss / gap) x four arms
-(input, y, v, nogram); a dropdown switches between:
-  128x table LR @ 1k steps (default) / 128x @ 2k / 2x historical @ 1k / 2x @ 2k.
+View = one panel; traces = online train loss, fixed val loss, gap (all on the
+same y axis) for a single injection arm.  One dropdown switches among the 16
+arm x setting combos (input default / y / v / nogram) x
+(128x @ 1k default / 128x @ 2k / 2x @ 1k / 2x @ 2k).
 
-Raw eval records (every 10 steps) are shown as points; a thin 3-point moving
-average is drawn as the connecting line.  Output is a self-contained HTML
-fragment (plotly via CDN) embedded into the report via iframe.
+Raw eval records (every 10 steps) are points; a thin 3-point moving average is
+the connecting line.  Self-contained HTML fragment (plotly via CDN) embedded
+into the report via iframe.
 
 Set NGLAB_RUNS_FIXED to the mirror containing the eight runs.
 """
@@ -16,122 +17,113 @@ import os
 from pathlib import Path
 
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNS_FIXED = Path(os.environ.get("NGLAB_RUNS_FIXED", ROOT / "data" / "runs_fixed"))
-OUT = ROOT / "docs" / "figs" / "main"
+MIRROR = Path(os.environ.get("NGLAB_RUNS_FIXED", ROOT / "data" / "runs_fixed"))
+OUT = ROOT / "docs" / "figs" / "main" / "fig_v5_injection_interactive.html"
 
-ARMS = [("input", "#2d6f9f"), ("y", "#c4493d"), ("v", "#c58a0b"), ("nogram", "#686d73")]
-SETTINGS = [
-    ("128x · 1k steps", "nglab1x_{arm}_v5_128x_freq10", 1000),
-    ("128x · 2k steps", "nglab1x_{arm}_v5_128x_freq10", 2000),
-    ("2x historical · 1k steps", "nglab1x_{arm}_v5", 1000),
-    ("2x historical · 2k steps", "nglab1x_{arm}_v5", 2000),
+# (combo label, run dir name in the mirror, max step)
+COMBOS = [
+    ("input · 128× · 1k", "nglab1x_input_v5_128x_freq10_fixed", 1000),
+    ("input · 128× · 2k", "nglab1x_input_v5_128x_freq10_fixed", 2000),
+    ("input · 2× · 1k",   "nglab1x_input_v5_fixed", 1000),
+    ("input · 2× · 2k",   "nglab1x_input_v5_fixed", 2000),
+    ("y · 128× · 1k",     "nglab1x_y_v5_128x_freq10_fixed", 1000),
+    ("y · 128× · 2k",     "nglab1x_y_v5_128x_freq10_fixed", 2000),
+    ("y · 2× · 1k",       "nglab1x_y_v5_fixed", 1000),
+    ("y · 2× · 2k",       "nglab1x_y_v5_fixed", 2000),
+    ("v · 128× · 1k",     "nglab1x_v_v5_128x_freq10_fixed", 1000),
+    ("v · 128× · 2k",     "nglab1x_v_v5_128x_freq10_fixed", 2000),
+    ("v · 2× · 1k",       "nglab1x_v_v5_fixed", 1000),
+    ("v · 2× · 2k",       "nglab1x_v_v5_fixed", 2000),
+    ("nogram · 128× · 1k", "nglab1x_nogram_v5_128x_freq10_fixed", 1000),
+    ("nogram · 128× · 2k", "nglab1x_nogram_v5_128x_freq10_fixed", 2000),
+    ("nogram · 2× · 1k",   "nglab1x_nogram_v5_fixed", 1000),
+    ("nogram · 2× · 2k",   "nglab1x_nogram_v5_fixed", 2000),
 ]
-PANELS = [("train_loss", "online train loss"), ("val_loss", "fixed validation loss"),
-          ("gap", "gap = fixed val - online train")]
-EPOCH = 337
+
+TRAIN_C = "#14736f"   # bigram teal
+VAL_C = "#b3402e"     # val red
+GAP_C = "#444444"
+MEAN = "#000000"
 
 
-def smooth3(vals):
-    out = list(vals)
-    for i in range(1, len(vals) - 1):
-        out[i] = (vals[i - 1] + vals[i] + vals[i + 1]) / 3.0
+def load(run_id, cap):
+    tr_s, tr, val_s, val = [], [], [], []
+    with open(MIRROR / run_id / "train_log.jsonl") as fh:
+        for ln in fh:
+            e = json.loads(ln)
+            if e.get("kind") == "train" and e["step"] <= cap:
+                tr_s.append(e["step"]); tr.append(e["loss"])
+            elif e.get("kind") == "val" and e["step"] <= cap:
+                val_s.append(e["step"]); val.append(e["loss"])
+    # gap at matched steps
+    tm = dict(zip(tr_s, tr))
+    g_s = [s for s in val_s if s in tm]
+    gap = [v - tm[s] for s, v in zip(val_s, val) if s in tm]
+    return tr_s, tr, val_s, val, g_s, gap
+
+
+def movavg(y, w=3):
+    out = []
+    for i in range(len(y)):
+        seg = y[max(0, i - w // 2):i + w // 2 + 1]
+        out.append(sum(seg) / len(seg))
     return out
 
 
-def load(run_id):
-    rows = [json.loads(l) for l in (RUNS_FIXED / f"{run_id}_fixed" / "train_log.jsonl").open()]
-    return rows
+fig = go.Figure()
+for label, rid, cap in COMBOS:
+    tr_s, tr, val_s, val, g_s, gap = load(rid, cap)
+    # raw points (faint)
+    for x, y, name, c in [(tr_s, tr, "train (online)", TRAIN_C),
+                          (val_s, val, "val (fixed)", VAL_C),
+                          (g_s, gap, "gap", GAP_C)]:
+        fig.add_trace(go.Scatter(
+            x=x, y=y, mode="markers", visible=False, showlegend=False,
+            marker=dict(size=3.5, color=c, opacity=0.35),
+            legendgroup=name, name=name, hoverinfo="skip"))
+    # smoothed lines
+    for x, y, name, c in [(tr_s, movavg(tr), "train (online)", TRAIN_C),
+                          (val_s, movavg(val), "val (fixed)", VAL_C),
+                          (g_s, movavg(gap), "gap", GAP_C)]:
+        fig.add_trace(go.Scatter(
+            x=x, y=y, mode="lines", visible=False, legendgroup=name, name=name,
+            line=dict(color=c, width=2.0),
+            hovertemplate="step %{x}<br>%{y:.3f}<extra>" + name + "</extra>"))
 
+PER = 6  # 3 raw + 3 lines per combo
+vis = []
+for i in range(len(COMBOS)):
+    v = [False] * (len(COMBOS) * PER)
+    for j in range(i * PER, (i + 1) * PER):
+        v[j] = True
+    vis.append(v)
+for j in range(PER):
+    fig.data[j].visible = True  # default: input · 128x · 1k
 
-def main():
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.055,
-                        subplot_titles=[p[1] for p in PANELS])
+buttons = []
+for (label, _, _), v in zip(COMBOS, vis):
+    buttons.append(dict(label=label, method="update", args=[{"visible": v}]))
 
-    # traces: setting -> list of trace indices
-    setting_traces = []
-    for label, pattern, cutoff in SETTINGS:
-        idxs = []
-        for arm, color in ARMS:
-            rows = [r for r in load(pattern.format(arm=arm)) if r["step"] <= cutoff]
-            steps = [r["step"] for r in rows]
-            for row_i, (key, _pname) in enumerate(PANELS):
-                vals = [r[key] for r in rows]
-                # thin smoothed line
-                fig.add_trace(go.Scatter(
-                    x=steps, y=smooth3(vals), mode="lines",
-                    line=dict(color=color, width=1.1),
-                    legendgroup=arm, name=arm, showlegend=(row_i == 0),
-                    hovertemplate=f"{arm} %{{x}}: %{{y:.3f}}<extra></extra>",
-                ), row=row_i + 1, col=1)
-                idxs.append(len(fig.data) - 1)
-                # raw points
-                fig.add_trace(go.Scatter(
-                    x=steps, y=vals, mode="markers",
-                    marker=dict(color=color, size=3, opacity=0.35),
-                    legendgroup=arm, name=arm, showlegend=False,
-                    hovertemplate=f"{arm} raw %{{x}}: %{{y:.3f}}<extra></extra>",
-                ), row=row_i + 1, col=1)
-                idxs.append(len(fig.data) - 1)
-        setting_traces.append(idxs)
+fig.update_layout(
+    updatemenus=[dict(active=0, buttons=buttons, x=0.02, xanchor="left",
+                      y=1.16, yanchor="top", bgcolor="#fff", bordercolor="#ccc")],
+    annotations=[dict(text="臂 · table LR · 步数预算", x=0.02, xref="paper",
+                      xanchor="left", y=1.30, yref="paper", showarrow=False,
+                      font=dict(size=12, color="#666"))],
+    xaxis=dict(title="step", gridcolor="#e6e6e6", zeroline=False),
+    yaxis=dict(title="loss / gap", gridcolor="#e6e6e6", zeroline=False),
+    plot_bgcolor="white", paper_bgcolor="white",
+    font=dict(family="-apple-system, 'Helvetica Neue', Arial, sans-serif", size=12),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0.35),
+    margin=dict(l=55, r=20, t=90, b=45), height=460,
+)
 
-    total = len(fig.data)
-    buttons = []
-    for si, ((label, _p, cutoff), idxs) in enumerate(zip(SETTINGS, setting_traces)):
-        vis = [False] * total
-        for i in idxs:
-            vis[i] = True
-        layout_update = {
-            "xaxis3.range": [0, cutoff * 1.02],
-            "xaxis.range": [0, cutoff * 1.02],
-            "xaxis2.range": [0, cutoff * 1.02],
-        }
-        buttons.append(dict(label=label, method="update",
-                            args=[{"visible": vis}, layout_update]))
-
-    # default: setting 0
-    default_vis = [False] * total
-    for i in setting_traces[0]:
-        default_vis[i] = True
-    for tr, v in zip(fig.data, default_vis):
-        tr.visible = v
-
-    # epoch boundaries on all panels (up to 2k; 1k view crops by range)
-    shapes = []
-    for row in (1, 2, 3):
-        yref = "y" + ("" if row == 1 else str(row))
-        xref = "x" + ("" if row == 1 else str(row))
-        for e in range(EPOCH, 2001, EPOCH):
-            shapes.append(dict(type="line", x0=e, x1=e, y0=0, y1=1,
-                               xref=xref, yref=f"{yref} domain",
-                               line=dict(color="#b0b7bf", width=0.7, dash="dot")))
-
-    fig.update_layout(
-        height=760, margin=dict(l=60, r=20, t=60, b=40),
-        template="plotly_white",
-        updatemenus=[dict(buttons=buttons, direction="down", showactive=True,
-                          x=0.0, xanchor="left", y=1.16, yanchor="top",
-                          bgcolor="#f0f4f8", bordercolor="#dde5ec")],
-        shapes=shapes,
-        legend=dict(orientation="h", x=0.3, xanchor="left", y=1.13, yanchor="top"),
-        annotations=[dict(text="setting:", x=0, xref="paper", y=1.19, yref="paper",
-                          showarrow=False, font=dict(size=12), xanchor="left")] + [
-            dict(text="<b>online train loss</b>", xref="paper", yref="paper",
-                 x=0.0, y=1.0, showarrow=False, xanchor="left", font=dict(size=12))],
-    )
-    fig.update_xaxes(title_text="optimizer step", row=3, col=1, range=[0, 1020])
-    fig.update_xaxes(range=[0, 1020])
-    fig.update_annotations(font=dict(size=12))
-    fig.layout.annotations[-1].text = ""
-
-    OUT.mkdir(parents=True, exist_ok=True)
-    path = OUT / "fig_v5_injection_interactive.html"
-    fig.write_html(path, include_plotlyjs="cdn", full_html=True,
-                   config=dict(displaylogo=False, responsive=True))
-    print(path.relative_to(ROOT))
-
-
-if __name__ == "__main__":
-    main()
+OUT.parent.mkdir(parents=True, exist_ok=True)
+div = fig.to_html(full_html=False, include_plotlyjs="cdn", div_id="fig1x")
+OUT.write_text(
+    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<style>body{margin:0;background:#fff}</style></head>"
+    f"<body>{div}</body></html>")
+print(f"[saved] {OUT}")
