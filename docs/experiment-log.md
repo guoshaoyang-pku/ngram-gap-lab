@@ -3632,3 +3632,52 @@ loss 单调下降（4.19→3.74），因为低频 context 不再读到碰撞行�
 图：`docs/figs/main/fig_v5_mask_sweep_lastep.{png,svg}`（脚本
 `plot_v5_mask_sweep_lastep.py`）。数据：360-2 `runs_fixed` 远端权威目录，
 本地分析镜像 `/tmp/ng_data/runs_fixed`。
+
+## §45 · freeze 四因子长程批 + pass 混匀判决批（2026-09-01，用户「继续排任务」批）
+
+**科学问题**：§42 判定一状态递推被推翻、模型升级为「快速 table 记忆 + 慢速 backbone
+共适应」两状态后，缺的最关键拼图是四因子长程分离；另一会话指出的锋利判别是
+pass 混匀（shard×3 全局 shuffle vs 分块 replay）——若终点 gap 显著变化，说明模型
+缺「重复间隔」变量。
+
+### 45.1 FFQ：freeze 四因子长程批（3 run，3370 步 = 10 epoch）
+
+从同一 e2 边界（0-indexed epoch 2 = step 675，§38 语义）做长程四因子分离；
+对照复用已有 `s1v5_128_ep1xL4_10ep_{both,nogram}`（同契约、无干预，不重跑）。
+
+| run_id | 单变量 | 预期 |
+|---|---|---|
+| `ffqv5_freeze_table_e2_10ep` | e2 后冻结表 | gap 继续增长但慢于对照（§38 @2022 保留 94%）|
+| `ffqv5_freeze_backbone_e2_10ep` | e2 后冻结 backbone | gap 增长大幅压低（A(t) 形状全窗）|
+| `ffqv5_freeze_both_e2_10ep` | e2 后全冻结 | gap 应在边界后**完全停长**——两状态模型的硬预言 |
+
+固定契约 = §33 长训契约 + 128× 标准：train shard 1、val 2,3,4,5,6,7,8,9,10,6542、
+`epoch_batches 337`、双表 `2^20`、RMSProp `(0,0.99)` ×128、`warmup_constant(100)`、
+seed 42、bf16、val/freq/exact/table-RMS 每 10 步 + epoch 边界显式 `--val_steps`。
+
+代码改动（`code/train.py`，新 run_id 前缀 `ffqv5_`/`mixv5_`）：
+1. `intervention` 新增 `freeze_both`（表 ∪ backbone 参数全部 `requires_grad=False`）；
+   全冻结时图无 grad_fn，backward 按守卫跳过（优化器对 None 梯度本就 no-op）。
+2. 新旗标 `--replay_mix_passes N`：一次性消费 N pass 的全局 chunk 置换流
+   （chunk 级置换保 n-gram 连续性，token 级会破坏）；`_epoch` 恒 0，该臂禁用
+   边界干预。CPU 单测通过：3×12 prefix 多重集相等、确定性置换、chunk 内连续性、
+   有序 replay 回归不变、freeze_both 分区完备且无梯度流动。
+
+验收：4 臂（含两个既有对照）到 step 3370，边界事件 `freeze_both` 落盘
+`intervention_events`；freeze_both 臂边界后 train/val 曲线**平坦**（表 RMS 也不变）；
+nogram 对照差值有限。状态：🚀 running（360-2 GPU 0/1/2）。
+
+### 45.2 MIX：pass 混匀判决批（2 run，1011 步 = 3 pass，trigram-only）
+
+| run_id | 数据流 | 语义 |
+|---|---|---|
+| `mixv5_tri_replay_3pass` | 标准 fixed replay：3 个有序 epoch（337×3 步）| 分块 replay 对照 |
+| `mixv5_tri_mixed_3pass` | `--replay_mix_passes 3`：同 3×24264 chunk 全局置换一次消费 | 无 epoch 结构 |
+
+trigram 单表（`TRI_FLAGS`，同 §44 tri-only 批），val 于 337/674/1011。两臂 chunk
+多重集完全相同，唯一变量 = 重复的时间结构。H-DILUTE 预言：终点 gap 不变、epoch 齿
+消失；若 mixed 终点显著更低（重复间隔短→记忆弱）或更高，模型需加入重复间隔变量，
+用户「熵正则/确信度」直觉获得支持。状态：🚀 running（360-2 GPU 4/5）。
+
+启动器：`GROUP=ffq NGLAB_PY=python3 bash run_v5_128x_rerun.sh 0 1 2`（360-2）；
+`GROUP=mix ... 4 5`。代码 commit 后同步 360-2 并 md5 核对。

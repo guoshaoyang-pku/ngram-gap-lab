@@ -10,7 +10,7 @@
 #   X2 row width        ctbl_dim{192,48,12,768}_input_v5_128x           (1000 steps)
 #   X1 optimizer        optv5c_{rms,adamw,sgd}_s128x                    (1000 steps)
 #
-# Usage: GROUP=<m2|dose|causal|x2|x1|all|m2+causal|...> NGLAB_PY=python3 bash run_v5_128x_rerun.sh <gpu> [<gpu> ...]
+# Usage: GROUP=<m2|dose|causal|x2|x1|maskhigh|net|trim|lep|ffq|mix|all|m2+causal|...> NGLAB_PY=python3 bash run_v5_128x_rerun.sh <gpu> [<gpu> ...]
 # Each GPU owns a disjoint slice of the selected group's spec list
 # (create-only: skips existing). GROUP may be a '+' separated list of groups.
 set -euo pipefail
@@ -131,8 +131,33 @@ LEP=(
   "netv5_v_lastep_128x|1|${VAL}|2000|--injection_position v --intervention readout_last_epoch --intervention_epoch 5 --intervention_epochs 0"
 )
 
+# Freeze four-factor long-range batch (2026-09-01): control / freeze_table /
+# freeze_backbone / freeze_both from the SAME e2 boundary, 10 full epochs
+# (3370 steps). Separates table-environment vs backbone-active contributions
+# over the full long-run window. Controls reuse the existing
+# s1v5_128_ep1xL4_10ep_{both,nogram} runs (identical contract, no
+# intervention). e2 = 0-indexed epoch 2 = step 675 (§38 semantics).
+FFQ_VALSTEPS="337,674,1011,1348,1685,2022,2359,2696,3033,3370"
+FFQ=(
+  "ffqv5_freeze_table_e2_10ep|1|${VAL}|3370|--epoch_batches 337 --intervention freeze_table --intervention_epoch 2 --val_steps ${FFQ_VALSTEPS}"
+  "ffqv5_freeze_backbone_e2_10ep|1|${VAL}|3370|--epoch_batches 337 --intervention freeze_backbone --intervention_epoch 2 --val_steps ${FFQ_VALSTEPS}"
+  "ffqv5_freeze_both_e2_10ep|1|${VAL}|3370|--epoch_batches 337 --intervention freeze_both --intervention_epoch 2 --val_steps ${FFQ_VALSTEPS}"
+)
+
+# Shuffle experiment (2026-09-01, §38 planned): same shard-1 tokens x3 passes.
+#   replay arm: standard fixed-order epoch replay (3 epochs of 337 batches).
+#   mixed arm:  --replay_mix_passes 3 consumes ONE globally chunk-shuffled
+#               stream (chunk-level permutation preserves n-gram continuity)
+#               with NO epoch structure. H-DILUTE predicts the same endpoint
+#               gap and no epoch teeth; a significant endpoint shift means the
+#               model is missing a repeat-interval variable.
+MIX=(
+  "mixv5_tri_replay_3pass|1|${VAL}|1011|${TRI_FLAGS} --epoch_batches 337 --val_steps 337,674,1011"
+  "mixv5_tri_mixed_3pass|1|${VAL}|1011|${TRI_FLAGS} --epoch_batches 337 --replay_mix_passes 3 --val_steps 337,674,1011"
+)
+
 case "$GROUP" in
-  all) SPECS=("${M2[@]}" "${DOSE[@]}" "${CAUSAL[@]}" "${X2[@]}" "${X1[@]}" "${MASKHIGH[@]}" "${NET[@]}" "${TRIM[@]}" "${LEP[@]}") ;;
+  all) SPECS=("${M2[@]}" "${DOSE[@]}" "${CAUSAL[@]}" "${X2[@]}" "${X1[@]}" "${MASKHIGH[@]}" "${NET[@]}" "${TRIM[@]}" "${LEP[@]}" "${FFQ[@]}" "${MIX[@]}") ;;
   *)
     SPECS=()
     IFS='+' read -ra PARTS <<< "$GROUP"
@@ -147,7 +172,9 @@ case "$GROUP" in
         net) SPECS+=("${NET[@]}") ;;
         trim) SPECS+=("${TRIM[@]}") ;;
         lep) SPECS+=("${LEP[@]}") ;;
-        *) echo "unknown GROUP part=$part (m2|dose|causal|x2|x1|maskhigh|net|trim|lep|all)" >&2; exit 2 ;;
+        ffq) SPECS+=("${FFQ[@]}") ;;
+        mix) SPECS+=("${MIX[@]}") ;;
+        *) echo "unknown GROUP part=$part (m2|dose|causal|x2|x1|maskhigh|net|trim|lep|ffq|mix|all)" >&2; exit 2 ;;
       esac
     done
     [[ "${#SPECS[@]}" -gt 0 ]] || { echo "empty GROUP=$GROUP" >&2; exit 2; }

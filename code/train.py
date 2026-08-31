@@ -84,7 +84,7 @@ class Config:
     trigram_table_dim: int = 0        # same rule for the trigram branch
     bigram_perfect_map: str = ""      # npz with packed-bigram->row map: collision-free table (rows = n_distinct+1)
     bigram_single_layer: bool = False # restrict bigram table to the first ngram layer only
-    intervention: str = "none"        # none | freeze_table | freeze_backbone | hash_reseed | mask_low_freq | mask_high_freq
+    intervention: str = "none"        # none | freeze_table | freeze_backbone | freeze_both | hash_reseed | mask_low_freq | mask_high_freq
     intervention_epoch: int = 1       # fire when 0-indexed epoch reaches this value (1 = start of epoch 2)
     intervention_epochs: tuple = ()   # extra 0-indexed due epochs for multi-fire interventions (e.g. (1, 2))
     intervention_freq_threshold: int = 200
@@ -114,6 +114,8 @@ class Config:
     data_seed: int = 42
     epoch_batches: int = 0      # >0: fix one epoch to exactly this many device batches
                                 # (nested-prefix length control); 0 = use full shard length
+    replay_mix_passes: int = 0  # >0: one globally chunk-shuffled stream of N passes
+                                # (shuffle experiment mixed arm); overrides epoch replay
     # output
     out_dir: str = ""
 
@@ -582,6 +584,11 @@ class NanoGPT(nn.Module):
             for p in self._ngram_params():
                 p.requires_grad_(False)
         elif self.config.intervention == "freeze_backbone":
+            for p in self._backbone_params():
+                p.requires_grad_(False)
+        elif self.config.intervention == "freeze_both":
+            for p in self._ngram_params():
+                p.requires_grad_(False)
             for p in self._backbone_params():
                 p.requires_grad_(False)
         elif self.config.intervention == "hash_reseed":
@@ -1094,7 +1101,8 @@ class TokenizedShardDataset:
     """
 
     def __init__(self, data_dir: str, shard_ids: list, sequence_len: int,
-                 device_batch_size: int, seed: int = 42, epoch_batches: int = 0):
+                 device_batch_size: int, seed: int = 42, epoch_batches: int = 0,
+                 replay_mix_passes: int = 0):
         self.data_dir = data_dir
         self.shard_ids = list(shard_ids)
         self.sequence_len = sequence_len
@@ -1102,6 +1110,8 @@ class TokenizedShardDataset:
         self.device_batch_size = device_batch_size
         self.seed = seed
         self.epoch_batches = epoch_batches
+        self.replay_mix_passes = replay_mix_passes
+        self._mix_order = None
         self._buffers = {}
         self._epoch = 0
         self._batch_in_epoch = 0
@@ -1138,7 +1148,25 @@ class TokenizedShardDataset:
 
         With epoch_batches > 0, only the first `epoch_batches * device_batch_size`
         chunks of the train prefix are yielded each epoch (nested-prefix control).
+
+        With replay_mix_passes > 0, yield ONE globally chunk-shuffled stream of
+        replay_mix_passes passes instead of ordered replay (shuffle experiment
+        mixed arm). Chunk-level permutation preserves n-gram continuity within
+        each chunk while removing epoch structure; the stream has no epoch
+        boundaries, so `_epoch` stays 0 (no boundary interventions allowed on
+        this arm).
         """
+        if self.replay_mix_passes > 0:
+            per_pass = (self.epoch_batches * self.device_batch_size
+                        if self.epoch_batches > 0 else self.total_chunks())
+            n_stream = self.replay_mix_passes * per_pass
+            if self._mix_order is None:
+                rng = np.random.default_rng(self.seed)
+                self._mix_order = rng.permutation(n_stream)
+            for g in self._mix_order:
+                _, local = divmod(int(g), per_pass)
+                yield self.get_chunk(local)
+            return
         budget = self.epoch_batches * self.device_batch_size if self.epoch_batches > 0 else None
         emitted = 0
         for sid in self.shard_ids:
@@ -1479,7 +1507,7 @@ def main():
                         help="restrict the bigram table to the first ngram layer "
                              "(control arm for the collision-free perfect-map run)")
     parser.add_argument("--intervention", default="none",
-                        choices=["none", "freeze_table", "freeze_backbone", "hash_reseed",
+                        choices=["none", "freeze_table", "freeze_backbone", "freeze_both", "hash_reseed",
                                  "mask_low_freq", "mask_high_freq", "readout_last_epoch"],
                         help="causal intervention fired at intervention_epoch boundary")
     parser.add_argument("--intervention_epoch", type=int, default=1,
@@ -1527,6 +1555,10 @@ def main():
     parser.add_argument("--epoch_batches", type=int, default=0,
                         help=">0: fix one epoch to exactly this many device batches "
                              "(nested-prefix epoch length); 0 = full shard length")
+    parser.add_argument("--replay_mix_passes", type=int, default=0,
+                        help=">0: shuffle experiment mixed arm — consume ONE globally "
+                             "chunk-shuffled stream of N passes (chunk-level permutation "
+                             "preserves n-gram continuity) instead of ordered epoch replay")
     parser.add_argument("--fixed_train_probe", type=int, default=0,
                         help="number of fixed train batches to hold for the "
                              "fixed-train probe (0 disables)")
@@ -1607,6 +1639,7 @@ def main():
         train_shards=[int(x) for x in args.train_shards.split(",") if x.strip()],
         val_shards=[int(x) for x in args.val_shards.split(",") if x.strip()],
         epoch_batches=args.epoch_batches,
+        replay_mix_passes=args.replay_mix_passes,
         out_dir=os.path.join(args.out_dir, args.run_id),
     )
 
@@ -1635,7 +1668,8 @@ def main():
     # data
     train_ds = TokenizedShardDataset(cfg.data_dir, cfg.train_shards, cfg.sequence_len,
                                      cfg.device_batch_size, cfg.data_seed,
-                                     epoch_batches=cfg.epoch_batches)
+                                     epoch_batches=cfg.epoch_batches,
+                                     replay_mix_passes=cfg.replay_mix_passes)
     val_ds = TokenizedShardDataset(cfg.data_dir, cfg.val_shards, cfg.sequence_len,
                                    cfg.device_batch_size, cfg.data_seed)
     train_iter = train_ds.iter_batches(device)
@@ -1794,7 +1828,10 @@ def main():
                     loss = loss / grad_accum
                 else:
                     loss = model(inp, targets=tgt) / grad_accum
-            loss.backward()
+            # freeze_both freezes every parameter: the graph then has no
+            # grad_fn, so backward is skipped entirely (optimizer no-ops).
+            if loss.requires_grad:
+                loss.backward()
             accum_loss += loss.item()
         train_loss = accum_loss
         if cfg.lr_schedule_epochs > 0:
@@ -2004,6 +2041,7 @@ def main():
         "steps": cfg.max_steps,
         "seed": cfg.seed,
         "epoch_batches": cfg.epoch_batches,
+        "replay_mix_passes": cfg.replay_mix_passes,
         "fixed_train_probe_sha256": probe_hash if args.fixed_train_probe > 0 else None,
         "fixed_train_probe_batches": len(fixed_train_probe),
         "train_probe_mode": args.train_probe_mode if args.fixed_train_probe > 0 else None,
