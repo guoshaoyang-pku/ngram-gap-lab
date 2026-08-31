@@ -9,6 +9,7 @@
 | run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
 |---|---|---|---|---|---|
 | `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **V5 backbone LR 扫描 × table LR 128× 固定 · A 因子判决批（12 run）** | ✅ done | net gap 峰 2.841@1e-3；1.94→2.84→2.28；**A 因子成立** | §39 |
+| `s1v5_128_epfx_tri_{2p0,3p0,4p0}xL4_3ep` | 2026-08-31 | **V5 epoch 长度轴修复批（多 shard 真实池，trigram 单支路）** | 🔄 running | — | §40 |
 | `optv5h_rms_b099_s2p0_warmstart0p1` | 2026-08-26 | V5 warmup 起始倍率 · 0.1× | ✅ done | +1.504498 @1000 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× | ⚠️ failed at initialization（360-1 GPU7 CUDA launch failure） | 无结果 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5_r1` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× retry | ⚠️ failed at initialization（GPU7 large-allocation launch failure） | 无结果 | §31 |
@@ -3170,3 +3171,32 @@ run_v5_clean.sh=1c1ad9c2…，与本地 commit 一致）。⚠️ 360-1 GPU7 初
 4. provenance：`run_v5_clean.sh` 不写 config.json，参数核验依赖启动时 `ps` 检查（5 臂 --lr
    覆盖生效）+ summary.json（steps=1000, seed 42）+ nogram 臂 gap≈0 交叉验证开关生效；
    360-1 上 GPU7 失败遗留的 2 个空壳目录（input_lr0p0040/nogram_lr0p0001）保留未删（P5）。
+
+## §40 · V5 epoch 长度轴修复批（epfx，2026-08-31，用户拍板）
+
+**背景与 bug 裁定**：旧 >1×L4 点（`s1v5_128_ep*_tri_{1p25,1p5,1p75,2p0}xL4_3ep`）作废——
+`run_v5_s1_three_axis.sh` 的 `run_one` 把 train shards 硬编码为 `1`，而
+`--epoch_batches 421..674` 超出 shard-1 池（337 batches）⇒ dataloader 在 shard-1 内
+wrap-around 重复消费（用户诊断确认）。修复 = 扩大 train 池，使每 epoch 恰好一遍。
+
+**协议**：trigram 单支路（`--enable_bigram 0 --enable_trigram 1`，trigram R=2²⁰，
+bigram 关），table ×128，seed 42，3 epochs，val/freq=10；launcher `run_v5_clean.sh`
+（按 shard 列表自动绑定 train-set 频率索引：`1,2→train2x_fine`、`1,2,3→train3x`、
+`1,2,3,4→train4x`，与 dose 刷新批同索引）。**epoch_batches 取实际池大小**
+（train.py 逐 shard floor 后求和，与 dose 日志对账：shard 批数 337/333/330/330）：
+2 shards=670、3 shards=1000、4 shards=1330 batches；steps = 3×epoch_batches。
+val 固定 `5,6,7,8,9,10,6542`（与全部 train 池不重叠；≤1×L4 段用旧 val 集，
+段边界存在 val 组成切换，图注注明）。名义倍率按实际 batches/337 折算：
+1.99×/2.97×/3.95×L4。小数倍率（1.25/1.5/1.75×）不重做：池>epoch 会引入
+epoch 内部分重消费，语义不干净，旧点作废即可。输出 `data/runs_scaling/`（s1 轴命名空间）。
+机器 360-1 GPU 3/4/5（shard 1–4 与三个频率索引均在位；train.py/launcher md5 未改动）。
+
+| run_id | train shards | epoch_batches | steps | 状态 |
+|---|---|---|---|---|
+| `s1v5_128_epfx_tri_2p0xL4_3ep` | 1,2 | 670 | 2010 | running |
+| `s1v5_128_epfx_tri_3p0xL4_3ep` | 1,2,3 | 1000 | 3000 | running |
+| `s1v5_128_epfx_tri_4p0xL4_3ep` | 1,2,3,4 | 1330 | 3990 | running |
+
+**预期（假设）**：若 gap 由「distinct 数据量」驱动，>1×L4 段应延续 ≤1×L4 段的温和
+下降/平台趋势（每 epoch 见新数据、3 epochs 总曝光=3×pool）；若被 wrap 旧点误导的
+"增长"消失，则确认旧 U 形纯属 artifact。
