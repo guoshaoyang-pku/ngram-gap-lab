@@ -176,12 +176,15 @@ def main():
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0.3),
         margin=dict(l=60, r=20, t=90, b=50), height=470,
     )
+    axis_line = dict(showline=True, linecolor="#555", linewidth=1.0,
+                     ticks="outside", gridcolor="#e6e6e6",
+                     exponentformat="power", dtick=1)
     for ax in ("xaxis", "xaxis2"):
-        fig2.update_layout({ax: dict(type="log", gridcolor="#e6e6e6",
-                                     title="exact train hit-count per context f")})
+        fig2.update_layout({ax: dict(type="log",
+                                     title="exact train hit-count per context f",
+                                     **axis_line)})
     for ax in ("yaxis", "yaxis2"):
-        fig2.update_layout({ax: dict(type="log", range=window,
-                                     gridcolor="#e6e6e6")})
+        fig2.update_layout({ax: dict(type="log", range=window, **axis_line)})
     fig2.update_layout(yaxis_title="gap (val − train probe) @ step 1000")
 
     html = OUT / "fig_v5_s1_frequency_exact_interactive.html"

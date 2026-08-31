@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Fig 1 (interactive v2): one arm at a time, train+val+gap on a single axis.
+"""Fig 1 (interactive v3): arms overlaid on one panel, train/val/gap per arm.
 
-View = one panel; traces = online train loss, fixed val loss, gap (all on the
-same y axis) for a single injection arm.  One dropdown switches among the 16
-arm x setting combos (input default / y / v / nogram) x
-(128x @ 1k default / 128x @ 2k / 2x @ 1k / 2x @ 2k).
+Layout: one panel.  For the selected LR x budget combo (dropdown), all four
+injection arms are overlaid; each arm draws three traces in the arm's color:
+  * train  = solid line (arm color), raw records as faint points
+  * val    = solid line, same hue semi-transparent (alpha .5)
+  * gap    = dashed line (arm color)
+Arms are shown/hidden by clicking the legend: input and nogram are on by
+default, y and v start as legend-only.
 
-Raw eval records (every 10 steps) are points; a thin 3-point moving average is
-the connecting line.  Self-contained HTML fragment (plotly via CDN) embedded
-into the report via iframe.
+Axis lines are drawn (showline), matching the static v5 figures.  Raw eval
+records (every 10 steps) are points; thin lines are a 3-point moving average.
+Self-contained HTML fragment (plotly via CDN) embedded via iframe.
 
 Set NGLAB_RUNS_FIXED to the mirror containing the eight runs.
 """
@@ -22,46 +25,41 @@ ROOT = Path(__file__).resolve().parents[2]
 MIRROR = Path(os.environ.get("NGLAB_RUNS_FIXED", ROOT / "data" / "runs_fixed"))
 OUT = ROOT / "docs" / "figs" / "main" / "fig_v5_injection_interactive.html"
 
-# (combo label, run dir name in the mirror, max step)
+ARM_COLORS = {
+    "input": "#2d6f9f",
+    "y": "#c4493d",
+    "v": "#c58a0b",
+    "nogram": "#686d73",
+}
+ARMS = ["input", "y", "v", "nogram"]
+DEFAULT_ON = {"input", "nogram"}
+
+# (combo label, run dir pattern, max step)
 COMBOS = [
-    ("input · 128× · 1k", "nglab1x_input_v5_128x_freq10_fixed", 1000),
-    ("input · 128× · 2k", "nglab1x_input_v5_128x_freq10_fixed", 2000),
-    ("input · 2× · 1k",   "nglab1x_input_v5_fixed", 1000),
-    ("input · 2× · 2k",   "nglab1x_input_v5_fixed", 2000),
-    ("y · 128× · 1k",     "nglab1x_y_v5_128x_freq10_fixed", 1000),
-    ("y · 128× · 2k",     "nglab1x_y_v5_128x_freq10_fixed", 2000),
-    ("y · 2× · 1k",       "nglab1x_y_v5_fixed", 1000),
-    ("y · 2× · 2k",       "nglab1x_y_v5_fixed", 2000),
-    ("v · 128× · 1k",     "nglab1x_v_v5_128x_freq10_fixed", 1000),
-    ("v · 128× · 2k",     "nglab1x_v_v5_128x_freq10_fixed", 2000),
-    ("v · 2× · 1k",       "nglab1x_v_v5_fixed", 1000),
-    ("v · 2× · 2k",       "nglab1x_v_v5_fixed", 2000),
-    ("nogram · 128× · 1k", "nglab1x_nogram_v5_128x_freq10_fixed", 1000),
-    ("nogram · 128× · 2k", "nglab1x_nogram_v5_128x_freq10_fixed", 2000),
-    ("nogram · 2× · 1k",   "nglab1x_nogram_v5_fixed", 1000),
-    ("nogram · 2× · 2k",   "nglab1x_nogram_v5_fixed", 2000),
+    ("128× · 1k steps", "nglab1x_{arm}_v5_128x_freq10_fixed", 1000),
+    ("128× · 2k steps", "nglab1x_{arm}_v5_128x_freq10_fixed", 2000),
+    ("2× · 1k steps", "nglab1x_{arm}_v5_fixed", 1000),
+    ("2× · 2k steps", "nglab1x_{arm}_v5_fixed", 2000),
 ]
 
-TRAIN_C = "#14736f"   # bigram teal
-VAL_C = "#b3402e"     # val red
-GAP_C = "#444444"
-MEAN = "#000000"
+
+def rgba(hexc, a):
+    h = hexc.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{a})"
 
 
-def load(run_id, cap):
-    tr_s, tr, val_s, val = [], [], [], []
-    with open(MIRROR / run_id / "train_log.jsonl") as fh:
+def load(run_dir, cap):
+    s, tr, val, gap = [], [], [], []
+    with open(MIRROR / run_dir / "train_log.jsonl") as fh:
         for ln in fh:
             e = json.loads(ln)
-            if e.get("kind") == "train" and e["step"] <= cap:
-                tr_s.append(e["step"]); tr.append(e["loss"])
-            elif e.get("kind") == "val" and e["step"] <= cap:
-                val_s.append(e["step"]); val.append(e["loss"])
-    # gap at matched steps
-    tm = dict(zip(tr_s, tr))
-    g_s = [s for s in val_s if s in tm]
-    gap = [v - tm[s] for s, v in zip(val_s, val) if s in tm]
-    return tr_s, tr, val_s, val, g_s, gap
+            if e["step"] <= cap:
+                s.append(e["step"])
+                tr.append(e["train_loss"])
+                val.append(e["val_loss"])
+                gap.append(e["gap"])
+    return s, tr, val, gap
 
 
 def movavg(y, w=3):
@@ -73,51 +71,58 @@ def movavg(y, w=3):
 
 
 fig = go.Figure()
-for label, rid, cap in COMBOS:
-    tr_s, tr, val_s, val, g_s, gap = load(rid, cap)
-    # raw points (faint)
-    for x, y, name, c in [(tr_s, tr, "train (online)", TRAIN_C),
-                          (val_s, val, "val (fixed)", VAL_C),
-                          (g_s, gap, "gap", GAP_C)]:
-        fig.add_trace(go.Scatter(
-            x=x, y=y, mode="markers", visible=False, showlegend=False,
-            marker=dict(size=3.5, color=c, opacity=0.35),
-            legendgroup=name, name=name, hoverinfo="skip"))
-    # smoothed lines
-    for x, y, name, c in [(tr_s, movavg(tr), "train (online)", TRAIN_C),
-                          (val_s, movavg(val), "val (fixed)", VAL_C),
-                          (g_s, movavg(gap), "gap", GAP_C)]:
-        fig.add_trace(go.Scatter(
-            x=x, y=y, mode="lines", visible=False, legendgroup=name, name=name,
-            line=dict(color=c, width=2.0),
-            hovertemplate="step %{x}<br>%{y:.3f}<extra>" + name + "</extra>"))
+combo_vis = []  # per combo: flat visibility list over all traces
 
-PER = 6  # 3 raw + 3 lines per combo
-vis = []
-for i in range(len(COMBOS)):
-    v = [False] * (len(COMBOS) * PER)
-    for j in range(i * PER, (i + 1) * PER):
-        v[j] = True
-    vis.append(v)
-for j in range(PER):
-    fig.data[j].visible = True  # default: input · 128x · 1k
+for ci, (label, pattern, cap) in enumerate(COMBOS):
+    vis = []
+    for arm in ARMS:
+        s, tr, val, gap = load(pattern.format(arm=arm), cap)
+        c = ARM_COLORS[arm]
+        on = True if arm in DEFAULT_ON else "legendonly"
+        first = (ci == 0)
+        specs = [
+            (s, tr, "markers", dict(size=3.5, color=c, opacity=0.22), None, False),
+            (s, movavg(tr), "lines", None, dict(color=c, width=2.0), True),
+            (s, val, "markers", dict(size=3.5, color=c, opacity=0.18), None, False),
+            (s, movavg(val), "lines", None, dict(color=rgba(c, 0.5), width=1.8), True),
+            (s, gap, "markers", dict(size=3.5, color=c, opacity=0.22), None, False),
+            (s, movavg(gap), "lines", None, dict(color=c, width=1.6, dash="dash"), True),
+        ]
+        kinds = ["train", "train", "val", "val", "gap", "gap"]
+        for (x, y, mode, marker, line, is_line), kind in zip(specs, kinds):
+            fig.add_trace(go.Scatter(
+                x=x, y=y, mode=mode, visible=on if ci == 0 else False,
+                showlegend=bool(is_line and first),
+                legendgroup=f"{arm}-{kind}", name=f"{arm} · {kind}",
+                marker=marker or {}, line=line or {},
+                hoverinfo="skip" if not is_line else None,
+                hovertemplate=("step %{x}<br>%{y:.3f}<extra>" +
+                               f"{arm} {kind}</extra>") if is_line else None))
+            vis.append(on)
+    combo_vis.append(vis)
 
-buttons = []
-for (label, _, _), v in zip(COMBOS, vis):
-    buttons.append(dict(label=label, method="update", args=[{"visible": v}]))
+buttons = [
+    dict(label=label, method="update", args=[{"visible": v}])
+    for (label, _, _), v in zip(COMBOS, combo_vis)
+]
 
+axis = dict(showline=True, linecolor="#555", linewidth=1.0, ticks="outside",
+            gridcolor="#e6e6e6", zeroline=False)
 fig.update_layout(
-    updatemenus=[dict(active=0, buttons=buttons, x=0.02, xanchor="left",
-                      y=1.16, yanchor="top", bgcolor="#fff", bordercolor="#ccc")],
-    annotations=[dict(text="臂 · table LR · 步数预算", x=0.02, xref="paper",
-                      xanchor="left", y=1.30, yref="paper", showarrow=False,
+    updatemenus=[dict(active=0, buttons=buttons, x=0.0, xanchor="left",
+                      y=1.20, yanchor="top", bgcolor="#fff",
+                      bordercolor="#ccc")],
+    annotations=[dict(text="学习率 × 步数", x=0.0, xref="paper", xanchor="left",
+                      y=1.32, yref="paper", showarrow=False,
                       font=dict(size=12, color="#666"))],
-    xaxis=dict(title="step", gridcolor="#e6e6e6", zeroline=False),
-    yaxis=dict(title="loss / gap", gridcolor="#e6e6e6", zeroline=False),
+    xaxis=dict(title="step", **axis),
+    yaxis=dict(title="loss / gap", **axis),
     plot_bgcolor="white", paper_bgcolor="white",
-    font=dict(family="-apple-system, 'Helvetica Neue', Arial, sans-serif", size=12),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0.35),
-    margin=dict(l=55, r=20, t=90, b=45), height=460,
+    font=dict(family="-apple-system, 'Helvetica Neue', Arial, sans-serif",
+              size=12),
+    legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0.20,
+                title=dict(text="臂（点击显示/隐藏）", font=dict(size=11))),
+    margin=dict(l=60, r=20, t=105, b=45), height=500,
 )
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
