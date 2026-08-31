@@ -3681,3 +3681,36 @@ trigram 单表（`TRI_FLAGS`，同 §44 tri-only 批），val 于 337/674/1011�
 
 启动器：`GROUP=ffq NGLAB_PY=python3 bash run_v5_128x_rerun.sh 0 1 2`（360-2）；
 `GROUP=mix ... 4 5`。代码 commit 后同步 360-2 并 md5 核对。
+
+### 45.3 零 GPU：g(f) 快照的 e·f 重标度检验（challenge ① κ(f) 微观起源）
+
+**数据**：`s1v5_128_ep1xL4_10ep_{both,nogram}_fixed` 的 10 个 epoch 边界 exact-f
+快照（337/674/…/3370 步），g(f) = val_both − val_nogram，逐 branch 逐 epoch。
+
+**检验设计**（H-DILUTE 的 challenge ①）：若 epoch 增长主要来自 κ(f) 沿 f 轴平移
+（每个 context 的有效重复次数 e·f 增加），则第 e 个快照应与 e=1 快照在水平重标度
+f → e·f 后重合；若 κ(f) 形状固定、增长只是乘性放大，则垂直重标度 g → g/A_e 即可塌缩。
+
+**判决（token 加权 log-RMSE，仅 g>0 且 f∈[8,512] 窗口，MIN_TOKENS=200）**：
+
+| branch | 垂直重标度 RMSE（e=3→10） | 水平 e·f 重标度 RMSE | A_e（锚点起算） |
+|---|---|---|---|
+| bigram | 0.62–0.71（好） | 1.57→4.00（单调变差） | A_10 = 28.6（锚 e=1） |
+| trigram | 0.73–0.90（好） | 3.09→4.79（单调变差） | A_10 = 66.4（锚 e=2） |
+
+- **e·f 水平平移被彻底否定**：RMSE 随 epoch 单调恶化，κ(f) 并不沿 f 轴移动。
+- **垂直乘性塌缩成立**：一个 A_e 就能把各 epoch 快照压回参照快照，κ(f) 形状在
+  f 轴上稳定。
+- 结论：**κ(f) 是空间形状（f 的函数），epoch 增长是纯乘性放大 A(e)**。表内容
+  1 个 pass 内近饱和、后续增长来自 backbone 读出放大——直接支持两状态模型，
+  同时否定「多 epoch = 每条 context 有效重复 e 次所以 κ(e·f)」的单变量图像。
+- 图/CSV：`docs/figs/theory/fig_v5_epoch_kernel_rescale.{png,svg}`、
+  `theory_epoch_kernel_rescale.csv`；脚本 `docs/plot_scripts/plot_v5_epoch_kernel_rescale.py`。
+- 注意：log 轴上 g(f) 变号的桶呈梳齿伪影，判定只在 g>0 窗口内做，不影响结论。
+
+**45.3 附记（§45.1 首批终点，全部 3370 步 = 10 epoch，e2=step 675 冻结）**：
+- `ffqv5_freeze_both_e2_10ep`：final gap **+3.0759** —— 全冻结后 10 个 epoch 只长到
+  边界后不久的水平（对照臂同期 ≈7.3+），两状态模型「无 backbone 更新则无放大」硬预言命中。
+- `ffqv5_freeze_backbone_e2_10ep`：final gap **+2.7268**（train 2.2360 / val 4.9627）
+  —— backbone 停更后 gap 锁死在冻结时刻附近，与 freeze_table（gap 继续增长到
+  +6.1 量级，见 §45.1 回填）形成对照：后期增长主要由 backbone 读出放大驱动。
