@@ -8,7 +8,8 @@
 
 | run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
 |---|---|---|---|---|---|
-| `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **V5 backbone LR 扫描 × table LR 128× 固定 · A 因子判决批（12 run）** | ✅ done | net gap 峰 2.841@1e-3；1.94→2.84→2.28；**A 因子成立** | §39 |
+| `blrabs_{input,nogram}_lr*_tlr0p0768_*` | 2026-08-31 | **纯 backbone LR 扫描：绝对 table LR 锁定 0.0768（14 run）** | 🔄 running（ophis GPU2/4/5） | 待测：短程高 LR 判混淆；长程拟合时间常数/准平衡 | §42 |
+| `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **耦合 LR 扫描（原误标 backbone-only；12 run）** | ⚠️ done but confounded | scale=128 导致绝对 table LR 0.0128→0.512；不得作纯 backbone 因果结论 | §39、§42 |
 | `s1v5_128_epfx_tri_{2p0,3p0,4p0}xL4_3ep` | 2026-08-31 | **V5 epoch 长度轴修复批（多 shard 真实池，trigram 单支路）** | ✅ done | 1.955/1.519/1.267；U 形确认为 wrap 假象 | §40 |
 | `s1v5_128_ep_tri_1xL4_20ep` / `s1v5_128_ep1xL4_20ep_{both,nogram}` | 2026-08-31 | **V5 20-epoch 长 replay 批（shard-1 池 ×20 遍，tri-only / both / nogram 三臂）** | 🔄 running | 寻长程渐进行为（10ep 递推外推平台此前未验证） | §41 |
 | `causalv5m3_hash_reseed_e2{,e3}` | 2026-08-31 | **V5 二次 reseed 判决批（2022 步 6 pass：e2 单次 vs e2+e3 双次 reseed）** | 🔄 running | 检验重对齐是否可再学、二次 reseed 是否再击落 gap | §41 |
@@ -3148,6 +3149,13 @@ trigram-only 1011 步对照一对；需 `--replay_mix_passes` 新旗标（train.
 
 ## §39 · V5 backbone LR 扫描 · A 因子判决批（blrv5，2026-08-30 深夜，用户拍板）
 
+> **2026-08-31 硬勘误**：本节原来把“固定 `table_lr_scale=128`”误写成
+> “固定 table LR”。实际实现为
+> `table_lr(t) = backbone_lr(t) × table_lr_scale`，所以六个点的绝对 table LR
+> 同时从 0.0128 扫到 0.512。以下数据仍是有效的**耦合 LR 扫描**，但撤回
+> “差异全部来自 backbone”“高 LR 回落证明 backbone 读出受损”等因果裁决。
+> 纯 backbone 判决由绝对 table LR 锁定为 0.0768 的 §42 承担。
+
 **科学问题**：H-DILUTE v2 把 gap 的后期增长归到 backbone 读出放大 A(t,passes)。直接判决：
 固定 table LR ×128 与全部表侧参数不动，只扫 backbone `--lr`——若 net gap（input − nogram）随
 backbone LR 变化，A 因子成立；若纹丝不动，A 解释被证伪。
@@ -3179,12 +3187,10 @@ run_v5_clean.sh=1c1ad9c2…，与本地 commit 一致）。⚠️ 360-1 GPU7 初
 | net gap | 1.940 | 2.486 | 2.696 | **2.841（峰）** | 2.793 | 2.277 |
 
 **对预登记预言的裁决**：
-1. ✅ **主预言命中**：net gap 随 backbone LR 强响应（1.94→2.84，+47%）后饱和回落——table 侧
-   全程锁 128× 不动，gap 差异全部来自 backbone 侧 ⇒ **A 因子（backbone 读出放大）成立**，
-   「table LR 128× 后表侧不再是瓶颈」自洽。
-2. ⚠️ 次预言「过高 LR 抬高 nogram 自身 gap」未观察到：nogram 全程平坦（0.011–0.041），
-   4e-3 的回落来自 input 臂自身退化（2.85→2.30）——backbone 过快反而损害读出巩固，
-   更支持「读出增益存在最优点」而非单调放大。
+1. ⚠️ **因果裁决撤回**：net gap 的 1.94→2.84→2.28 是可靠描述性结果，但 backbone LR
+   与绝对 table LR 同时变化，不能据此拆分 A 因子与表写入/过冲。
+2. ⚠️ nogram gap 全程平坦（0.011–0.041），说明回落位于 input 路径；但它既可能来自
+   backbone 读出动力学，也可能来自绝对 table LR=0.512 时的表侧过冲，现有批次不可辨识。
 3. lr=1e-3 峰值 2.841 比主线 6e-4（2.696）高 +5.4%（单 seed，不据此改标准；6e-4 为
    vanilla nanoGPT 沿用值，改标准须用户拍板）。6e-4 点与 `s1v5_128_frequency_main` 同
    setting 跨批一致性检查通过（2.718，量级吻合）。
@@ -3249,3 +3255,70 @@ train shard 1、val `2,3,4,5,6,7,8,9,10,6542`（与 m3/三轴批一致）；seed
 缺慢变量，图 8b 的"平台"说法撤回。reseed——若 e2e3 臂在 e3 边界出现第二次幅度
 相近的击落，说明 re-alignment 可重复学习；若第二次击落显著更小/无，说明
 backbone scar 承担了不可恢复的读出成分。
+
+---
+
+## §42 · 纯 backbone LR 动力学：绝对 table LR 锁定批（blrabs，2026-08-31）
+
+### 42.1 混淆修复与科学问题
+
+§39 固定的是倍率 128，而代码实际使用
+
+\[
+\eta_T(t)=s_T\,\eta_B(t).
+\]
+
+因此扫 backbone `--lr` 时，table 的绝对 LR 与 warmup 轨迹也同时改变。本批固定
+\(\eta_T^{\max}=0.0768\)，逐点反算
+
+\[
+s_T=\frac{0.0768}{\eta_B},
+\]
+
+使整个 warmup 中都满足相同的绝对 table-LR 轨迹，只留下 backbone LR 一个训练变量。
+科学问题有两个：① §39 的高 LR 回落在去混淆后是否仍存在；② 不同 LR 只是改变达到
+同一准平衡的速度，还是连准平衡位置也改变。
+
+### 42.2 完整实验契约
+
+- 主臂：input 注入、bigram+trigram clean 单表，R 均为 2²⁰；matched 对照关闭两张表。
+- train shard 1；fixed val shards `2,3,4,5,6,7,8,9,10,6542`；`epoch_batches=337`。
+- seed 42；bf16；no compile；backbone AdamW `(0.8,0.95)`、wd 0.1；
+  table RMSProp 无动量 `(0,0.99)`；`warmup_constant(100)`。
+- 绝对 table LR 恒为 0.0768；val / freq-bin / exact-freq / table-norm 全部每 50 步。
+- launcher：`code/cluster/run_v5_backbone_lr_abslock.sh`；三队列：
+  `code/cluster/queue_v5_backbone_lr_abslock.sh {2,4,5}`。
+- 输出：`data/runs_fixed/<run_id>_fixed/`；gap 仍是同一步 fixed-val − 当前 batch online train。
+
+| backbone LR | table scale | input / nogram run_id | steps | 机器/GPU | 状态 |
+|---:|---:|---|---:|---|---|
+| 0.00006 | 1280 | `blrabs_{input,nogram}_lr0p00006_tlr0p0768_3k` | 3000 | ophis/5 | running |
+| 0.0001 | 768 | `blrabs_{input,nogram}_lr0p0001_tlr0p0768_3k` | 3000 | ophis/5 | running |
+| 0.0003 | 256 | `blrabs_{input,nogram}_lr0p0003_tlr0p0768_20k` | 20000 | ophis/2,4 | running |
+| 0.0006 | 128 | `blrabs_{input,nogram}_lr0p0006_tlr0p0768_10k` | 10000 | ophis/2,4 | running |
+| 0.001 | 76.8 | `blrabs_{input,nogram}_lr0p0010_tlr0p0768_6k` | 6000 | ophis/5 | running |
+| 0.002 | 38.4 | `blrabs_{input,nogram}_lr0p0020_tlr0p0768_3k` | 3000 | ophis/5 | running |
+| 0.004 | 19.2 | `blrabs_{input,nogram}_lr0p0040_tlr0p0768_3k` | 3000 | ophis/5 | running |
+
+GPU2/4 各 30k steps，先跑 0.0006 再跑 0.0003 的 input/nogram 分臂；GPU5 约
+36k steps，按 0.004→0.002→0.001→0.0001→0.00006 的顺序逐对运行，优先回答高 LR
+回落是否为表侧混淆。总计 14 run；no-ngram 虽无表，仍保留同一调度与记录字段作 matched control。
+
+### 42.3 预登记的定量判据
+
+定义净 gap \(G_e=G_e^{input}-G_e^{nogram}\)。每个 LR 在 pass 2 以后拟合
+
+\[
+G_e=G_\star+(G_2-G_\star)q^{e-2}.
+\]
+
+若最小一阶读出动力学成立，则稳定 LR 区间应同时满足：
+
+1. 以累计 backbone dose \(D_t=\sum_{i\le t}\eta_B(i)\) 为横轴后，早期曲线近似折叠；
+2. \(-\log q/\eta_B\) 近似常数；
+3. 各 LR 的 \(G_\star\) 在误差内相同，只是到达速度不同。
+
+若锁定绝对 table LR 后 0.004 的回落消失，§39 的回落主要是 table 过冲；若仍回落但
+\(G_\star\) 相同，是离散优化造成的速度/稳定性效应；若长期 \(G_\star\) 也系统变化，
+则“唯一标准平衡位置”被证伪，模型必须引入 LR-dependent 的 backbone–table 共适应状态。
+本批只在 run 完成并通过 summary、曲线连续性、参数乘积与 artifact QC 后作结论。
