@@ -3244,17 +3244,46 @@ train shard 1、val `2,3,4,5,6,7,8,9,10,6542`（与 m3/三轴批一致）；seed
 
 | run_id | GPU | steps | 唯一变量 | 状态 |
 |---|---|---|---|---|
-| `s1v5_128_ep_tri_1xL4_20ep` | 0 | 6740 | trigram 单支路 R=2²⁰，`--epoch_batches 337`，val 每 337 步边界 | running |
-| `s1v5_128_ep1xL4_20ep_both` | 2 | 6740 | 双表（主线口径），同上 | running |
-| `s1v5_128_ep1xL4_20ep_nogram` | 1 | 6740 | nogram 对照，同上 | running |
-| `causalv5m3_hash_reseed_e2` | 3 | 2022 | `--intervention hash_reseed --intervention_epoch 2`（m3 批缺的单 reseed 臂） | running |
-| `causalv5m3_hash_reseed_e2e3` | 4 | 2022 | `--intervention hash_reseed --intervention_epochs 2,3`（二次 reseed） | running |
+| `s1v5_128_ep_tri_1xL4_20ep` | 0 | 6740 | trigram 单支路 R=2²⁰，`--epoch_batches 337`，val 每 337 步边界 | ✅ done（final gap 15.552） |
+| `s1v5_128_ep1xL4_20ep_both` | 2 | 6740 | 双表（主线口径），同上 | ✅ done（final gap 12.674） |
+| `s1v5_128_ep1xL4_20ep_nogram` | 1 | 6740 | nogram 对照，同上 | ✅ done（final gap 1.012） |
+| `causalv5m3_hash_reseed_e2` | 3 | 2022 | `--intervention hash_reseed --intervention_epoch 2`（m3 批缺的单 reseed 臂） | ✅ done（final gap 4.202） |
+| `causalv5m3_hash_reseed_e2e3` | 4 | 2022 | `--intervention hash_reseed --intervention_epochs 2,3`（二次 reseed） | ✅ done（final gap 2.881） |
 
 **预登记判据**：20ep——若 net gap（tri−nogram）在 e>10 后进入平台，则单状态递推
 \(a_e=a_\infty(1-q^{e-1})\) 获支持且平台为实测；若继续近似线性增长，则递推模型
 缺慢变量，图 8b 的"平台"说法撤回。reseed——若 e2e3 臂在 e3 边界出现第二次幅度
 相近的击落，说明 re-alignment 可重复学习；若第二次击落显著更小/无，说明
 backbone scar 承担了不可恢复的读出成分。
+
+
+
+### 41.1 回填与判决（2026-08-31 22:20 CST）
+
+五 run 全部完成（6740 / 2022 步，summary.json 齐），360-2 数据已核对。
+
+**20-epoch gap 轨迹**（epoch 边界点，gap = fixed val − online train）：
+
+| epoch | tri 单支路 | 双表 | nogram |
+|---|---|---|---|
+| 1 | −0.043 | −0.062 | −0.050 |
+| 3 | 2.516 | 2.730 | −0.029 |
+| 6 | 5.596 | 5.681 | 0.186 |
+| 10 | 8.611 | 8.988 | 0.479 |
+| 15 | 12.406 | 11.088 | 0.779 |
+| 20 | **15.552** | **12.674** | **1.012** |
+
+- **判决一（递推模型）**：未进平台——tri 单支路 e19→20 增量仍 +0.57，双表 +0.24；
+  但增量从 e2–3 的 ~1.5 单调衰减，是**亚线性增长**而非平台也非线性。预登记的
+  「平台 13.58」外推说法**撤回**：单状态递推 \(a_e=a_\infty(1-q^{e-1})\) 缺慢变量。
+  tri 净 gap（tri−nogram）e20 = 14.54 仍在增长。
+- **nogram 自身**：e4 起 gap 转正，20 epoch 缓涨到 1.012（增量 ~0.05/epoch 近恒定）；
+  **val 在 e6（3.323）后单调上升至 e20 3.564**——backbone 也有慢速过拟合，
+  多 epoch replay 对 val 的伤害不是表独有。
+- **判决二（二次 reseed）**：对照（同口径 input 128×，2022 步）gap 5.672；
+  e2 单次 reseed → 4.202（击落 −1.47）；e2e3 二次 reseed → 2.881（再击落 −1.32）。
+  **两次击落幅度相近 ⇒ 重对齐可重复学习**，支持表内容逐 epoch 重建的图景；
+  残存 2.88 = backbone scar + 当 epoch 内重建的记忆。
 
 ---
 
