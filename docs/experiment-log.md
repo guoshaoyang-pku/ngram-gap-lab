@@ -3665,7 +3665,7 @@ seed 42、bf16、val/freq/exact/table-RMS 每 10 步 + epoch 边界显式 `--val
 
 验收：4 臂（含两个既有对照）到 step 3370，边界事件 `freeze_both` 落盘
 `intervention_events`；freeze_both 臂边界后 train/val 曲线**平坦**（表 RMS 也不变）；
-nogram 对照差值有限。状态：🚀 running（360-2 GPU 0/1/2）。
+nogram 对照差值有限。状态：**done（2026-09-01 回填，见 45.3 附记）**。
 
 ### 45.2 MIX：pass 混匀判决批（2 run，1011 步 = 3 pass，trigram-only）
 
@@ -3677,7 +3677,23 @@ nogram 对照差值有限。状态：🚀 running（360-2 GPU 0/1/2）。
 trigram 单表（`TRI_FLAGS`，同 §44 tri-only 批），val 于 337/674/1011。两臂 chunk
 多重集完全相同，唯一变量 = 重复的时间结构。H-DILUTE 预言：终点 gap 不变、epoch 齿
 消失；若 mixed 终点显著更低（重复间隔短→记忆弱）或更高，模型需加入重复间隔变量，
-用户「熵正则/确信度」直觉获得支持。状态：🚀 running（360-2 GPU 4/5）。
+用户「熵正则/确信度」直觉获得支持。
+
+**回填（360-2 GPU 4/5，均已完成，1011 步）**：
+
+| run_id | step 337 | step 674 | step 1011 |
+|---|---|---|---|
+| `mixv5_tri_replay_3pass` | −0.0557 | +0.9901 | **+2.4738** |
+| `mixv5_tri_mixed_3pass` | +0.8919 | +1.5369 | **+2.2880** |
+
+- **epoch 齿消失**：replay 臂 step 337 gap ≈ 0（online 语义：pass 1 无记忆收益），
+  边界后跳起；mixed 臂 step 337 即 +0.89 —— 全局置换流中窗口内已有重复曝光。
+  「完成 pass 数」确实不是底层变量，重复曝光本身才是。
+- **终点 gap −0.19（−7.5%）**：naive 预言「终点不变」近似成立但不精确。方向解释
+  （假设级，待检验）：置换流中大量 chunk 两次出现间隔很短（massed repeats），此时
+  行还很新鲜、第二次写入边际收益小；有序 replay 的间隔固定 337 步，行已被 336 次
+  写入碰撞稀释，重写恢复更多——**间隔分布影响记忆效率**，支持把「重复间隔」加进
+  状态变量（用户的熵/确信度直觉）。
 
 启动器：`GROUP=ffq NGLAB_PY=python3 bash run_v5_128x_rerun.sh 0 1 2`（360-2）；
 `GROUP=mix ... 4 5`。代码 commit 后同步 360-2 并 md5 核对。
@@ -3708,9 +3724,55 @@ f → e·f 后重合；若 κ(f) 形状固定、增长只是乘性放大，则�
   `theory_epoch_kernel_rescale.csv`；脚本 `docs/plot_scripts/plot_v5_epoch_kernel_rescale.py`。
 - 注意：log 轴上 g(f) 变号的桶呈梳齿伪影，判定只在 g>0 窗口内做，不影响结论。
 
-**45.3 附记（§45.1 首批终点，全部 3370 步 = 10 epoch，e2=step 675 冻结）**：
-- `ffqv5_freeze_both_e2_10ep`：final gap **+3.0759** —— 全冻结后 10 个 epoch 只长到
-  边界后不久的水平（对照臂同期 ≈7.3+），两状态模型「无 backbone 更新则无放大」硬预言命中。
+**45.3 附记（§45.1 终点回填，全部 3370 步 = 10 epoch，e2=step 675 冻结）**：
+- `ffqv5_freeze_both_e2_10ep`：final gap **+3.0759，且 8 个 epoch 位点 bit-exact 不变**
+  （train 1.6898 / val 4.7656 每次完全相同）——两状态模型硬预言命中：无任何参数更新
+  则 val 与 gap 完全冻结。注意边界处 gap 从 +1.18 跳到 +3.08 **不是 val 增长**：
+  val=4.7656 与冻结值 bit-exact 相同，跳变全部来自 train 侧 online 口径——同一边界
+  batch 在其自身最后一次 128× 写入前测得 3.586、写入后重放测得 1.690（单次 self-write
+  对自身 batch 降 1.90 nats），正是用户早期预言的「自身 loss 结结实实下降」。
 - `ffqv5_freeze_backbone_e2_10ep`：final gap **+2.7268**（train 2.2360 / val 4.9627）
-  —— backbone 停更后 gap 锁死在冻结时刻附近，与 freeze_table（gap 继续增长到
-  +6.1 量级，见 §45.1 回填）形成对照：后期增长主要由 backbone 读出放大驱动。
+  —— 仅表继续写 8 个 epoch，val 只从 4.7577 涨到 4.9627（+0.21，对照同期 +4.55）：
+  **表写入本身几乎不产生 val 伤害，backbone 更新才是放大器**（晚期 val 增长 ≥95%
+  需要 backbone 参与）。train 从 2.855 缓降到 2.236：冻结 backbone 下表逐 pass 收敛
+  到该 backbone 的最优行。
+- `ffqv5_freeze_table_e2_10ep`：final gap **+6.3991** = 对照 8.9167 的 71.8% —— 表
+  内容在 e2 冻结后，backbone 单独继续适应即可带走约 3/4 的长程 gap。
+- train 侧反直觉发现：freeze_table 的 online train @e3 = 1.35 **远低于**对照 2.54 ——
+  冻结表反而**保住**了边界 batch 的 self-write；对照中后续 336 个 batch 的继续写入
+  会通过碰撞**擦除/稀释**已写行（与 §46 实测 71.5%/94.5% context 碰撞率一致）。
+- MIX 见 §45.2 回填。
+
+## §46 · 零 GPU：offline hash collision 实测 owned token mass vs R（2026-09-01）
+
+**动机**：H-DILUTE 的 s_c(R)=f_c/(f_c+T/R) 此前从未有过直接碰撞测量；模型用
+「context 数碰撞率」外推 token 质量保留率，需实测校准。
+
+**方法**（零 GPU，`docs/plot_scripts/offline_hash_collision.py`）：读
+`data/freq_index.npz`（shard-1 exact context 计数，bigram K=3,541,098 / trigram
+K=19,027,841，T=49,716,935），**用 train.py 的真实 hash（第一 hash 族，clean K=1）**
+把每个 context 映到行：bigram `((prev·p1)^(cur·p2)) % R`，trigram
+`((p2·q1)^(p1·q2)^(cur·q3)) % R`。对 R∈{2¹⁰,…,2²⁰} 统计：
+context 碰撞率 (K−occupied)/K、solo token mass（行内仅 1 个 context）、
+owner token mass（行内 dominant context 持有份额）。
+
+**关键数字（R=2²⁰，主线 setting）**：
+
+| branch | context 碰撞率 | solo token mass | owner token mass |
+|---|---|---|---|
+| bigram | 71.5% | 3.3% | **86.5%** |
+| trigram | 94.5% | ≈0% | **43.7%** |
+
+- **口径分离是全部重点**：按 context 数算碰撞很严重（trigram 94.5%），但按 token
+  质量算，bigram 的 86.5% 仍由「行主」控制——gap ∝ token mass，所以高频 context
+  在碰撞下依旧保有私有通道；trigram 只有 43.7%，私有通道减半，这正是 trigram 对 R
+  更敏感（γ 0.665 > 0.576）的碰撞侧解释素材。
+- solo（零碰撞）token mass 在主线 R 几乎为 0：**「collision rate」若用 (K−occupied)/K
+  或 solo mass 口径都会严重夸大碰撞对 gap 的影响**；owner-mass 才是和 gap 同口径的量。
+- owner_frac vs R 在 log-log 上近乎直线（bigram 0.14→0.86 / trigram 0.03→0.44 跨
+  2¹⁰→2²⁰，斜率 ≈0.8–0.9），为 s_c(R) 的经验替代提供了直接可拟合对象——后续建模
+  应以 owner_frac(R) 替换解析式 f/(f+T/R)。
+- 图/CSV：`docs/figs/theory/fig_v5_hash_collision_mass.{png,svg}`、
+  `theory_hash_collision_mass.csv`。注意：freq_index.npz 的 key 是 packed context id
+  （prev·V+cur 等），不是表行——必须先分解回 token id 再过 hash，直接 key%R 会低估
+  occupied（错把均匀 id 分布当 hash 分布）。
