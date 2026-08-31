@@ -3426,4 +3426,37 @@ seed 42、bf16 不 compile。唯一变量 = 注入位置 × 干预方式。
 对照（已有，不重跑）：`nglab1x_{input,y,v,nogram}_v5_128x_freq10_fixed`。
 验收口径：每 10 步的 val(arm) − val(nogram matched step)；负 = 净收益。
 launcher `run_v5_128x_rerun.sh` GROUP=net，360-2 GPU 0–5 一卡一 run。
-状态：**planned**。
+状态：**done（2026-08-31 23:20 回填）**。
+
+### 43.4 结果与判决（核心交付）
+
+验收口径 = 每 10 步 val(arm) − val(nogram, matched step)；负 = 净收益。
+
+**step 2000（6 epoch 末）**：
+
+| arm | train | val | Δval | gap |
+|---|---|---|---|---|
+| masklow-input | 2.347 | 4.674 | **+1.326** | 2.327 |
+| masklow-y | 2.224 | 4.582 | **+1.234** | 2.358 |
+| masklow-v | 1.368 | 6.019 | **+2.671** | 4.651 |
+| reseed-input | 4.114 | 4.156 | **+0.807** | 0.041 |
+| reseed-y | 3.075 | 3.240 | **−0.108** | 0.166 |
+| reseed-v | 3.021 | 3.217 | **−0.131** | 0.196 |
+| control-input | 1.259 | 6.930 | +3.582 | 5.672 |
+| control-y | 1.203 | 6.451 | +3.103 | 5.248 |
+| control-v | 0.385 | 8.033 | +4.685 | 7.648 |
+| nogram | 3.121 | 3.348 | 0 | 0.227 |
+
+**判决**：
+1. **mask_low f≤8 打不过 nogram**——但 val 伤害比无约束小 60–75%；残余伤害来自
+   高频 context（f>8）的跨 epoch 记忆。低频屏蔽 ≠ 净收益。
+2. **hash reseed 每 epoch：y/v 打赢、input 打不赢**。reseed-v 稳定净收益
+   （e3–e6 每 epoch 中点 Δval ≈ −0.09，91% 的步为负）；reseed-y 边际净收益
+   （终点 −0.108，后三 epoch 均值 −0.037，接近噪声）；reseed-input +0.807 且每个
+   boundary 有 +2~+3 的 val 尖峰（input 读出对重映射极敏感，epoch 内才逐步重写回来）。
+3. reseed 把 gap 杀到 0.04–0.20（对照 5.7–7.6）：**伤害的主要来源是跨 epoch 的
+   记忆积累，而非低频或高频本身**；且 reseed-y/v 的 train loss（3.08/3.02）
+   略优于 nogram（3.12）——不能记忆化时表提供的是真实有用的共现特征。
+   这是「n-gram 不白忙活」的第一个正证据，但量级小（~−0.1）且注入位置敏感。
+4. 图：`docs/figs/main/fig_v5_netval_benefit.{png,svg}`（三面板 Δval 轨迹，
+   脚本 `plot_v5_netval_benefit.py`）。
