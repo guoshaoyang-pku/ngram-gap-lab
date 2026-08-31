@@ -9,7 +9,7 @@
 | run_id | 日期 | 实验 | 状态 | gap 关键值 | 详情 |
 |---|---|---|---|---|---|
 | `blrv5_{input,nogram}_lr{0p0001..0p0040}` | 2026-08-30 | **V5 backbone LR 扫描 × table LR 128× 固定 · A 因子判决批（12 run）** | ✅ done | net gap 峰 2.841@1e-3；1.94→2.84→2.28；**A 因子成立** | §39 |
-| `s1v5_128_epfx_tri_{2p0,3p0,4p0}xL4_3ep` | 2026-08-31 | **V5 epoch 长度轴修复批（多 shard 真实池，trigram 单支路）** | 🔄 running | — | §40 |
+| `s1v5_128_epfx_tri_{2p0,3p0,4p0}xL4_3ep` | 2026-08-31 | **V5 epoch 长度轴修复批（多 shard 真实池，trigram 单支路）** | ✅ done | 1.955/1.519/1.267；U 形确认为 wrap 假象 | §40 |
 | `optv5h_rms_b099_s2p0_warmstart0p1` | 2026-08-26 | V5 warmup 起始倍率 · 0.1× | ✅ done | +1.504498 @1000 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× | ⚠️ failed at initialization（360-1 GPU7 CUDA launch failure） | 无结果 | §31 |
 | `optv5h_rms_b099_s2p0_warmstart0p5_r1` | 2026-08-26 | V5 warmup 起始倍率 · 0.5× retry | ⚠️ failed at initialization（GPU7 large-allocation launch failure） | 无结果 | §31 |
@@ -3209,12 +3209,15 @@ val 固定 `5,6,7,8,9,10,6542`（与全部 train 池不重叠；≤1×L4 段用�
 epoch 内部分重消费，语义不干净，旧点作废即可。输出 `data/runs_scaling/`（s1 轴命名空间）。
 机器 360-1 GPU 3/4/5（shard 1–4 与三个频率索引均在位；train.py/launcher md5 未改动）。
 
-| run_id | train shards | epoch_batches | steps | 状态 |
-|---|---|---|---|---|
-| `s1v5_128_epfx_tri_2p0xL4_3ep` | 1,2 | 670 | 2010 | running |
-| `s1v5_128_epfx_tri_3p0xL4_3ep` | 1,2,3 | 1000 | 3000 | running |
-| `s1v5_128_epfx_tri_4p0xL4_3ep` | 1,2,3,4 | 1330 | 3990 | running |
+| run_id | train shards | epoch_batches | steps | final gap @3ep | 状态 |
+|---|---|---|---|---|---|
+| `s1v5_128_epfx_tri_2p0xL4_3ep` | 1,2 | 670 | 2010 | **1.9548** | ✅ done |
+| `s1v5_128_epfx_tri_3p0xL4_3ep` | 1,2,3 | 1000 | 3000 | **1.5192** | ✅ done |
+| `s1v5_128_epfx_tri_4p0xL4_3ep` | 1,2,3,4 | 1330 | 3990 | **1.2675** | ✅ done |
 
-**预期（假设）**：若 gap 由「distinct 数据量」驱动，>1×L4 段应延续 ≤1×L4 段的温和
-下降/平台趋势（每 epoch 见新数据、3 epochs 总曝光=3×pool）；若被 wrap 旧点误导的
-"增长"消失，则确认旧 U 形纯属 artifact。
+**结果判决（2026-08-31 回填）**：>1×L4 段 gap 1.955 → 1.519 → 1.267，延续 ≤1×L4 段
+（3.552 → 2.469）的**全程单调下降**；旧 wrap 批的"U 形增长"消失，确认纯属 artifact，
+预登记假设成立。图 7（`fig_v5_s1_epoch_length_valid.png`）已并入 11 点全程版
+（`plot_v5_epoch_length_valid.py`，段边界 1×L4 处标注 val 组成切换）；主文档 §5 勘误框
+同步改为"已闭环"。train/val：2×L4 = 4.136/6.091，3×L4 = 4.209/5.728，4×L4 = 4.184/5.451
+（val 随池增大而降低是数据多样性效应，与 gap 下降同向）。
