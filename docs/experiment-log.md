@@ -3322,3 +3322,18 @@ G_e=G_\star+(G_2-G_\star)q^{e-2}.
 \(G_\star\) 相同，是离散优化造成的速度/稳定性效应；若长期 \(G_\star\) 也系统变化，
 则“唯一标准平衡位置”被证伪，模型必须引入 LR-dependent 的 backbone–table 共适应状态。
 本批只在 run 完成并通过 summary、曲线连续性、参数乘积与 artifact QC 后作结论。
+
+### 42.4 启动与首轮验收（2026-08-31 17:23 CST）
+
+- source commits：`2afc905`（登记与两条 launcher）+ `8c260b9`（显式以 `bash`
+  调用远端 0644 基础 launcher）；远端 `train.py` md5=`b5910b0b7d948ee567ca4aba7e28d8db`，
+  abs-lock launcher md5=`0c96e4d1bcb9df214613cc9c6102c276`，queue launcher
+  md5=`51d7c514f24ed908749e5e6fee7f1e7c`。
+- 三条后台队列已启动：GPU2 PID 2183222、GPU4 PID 2183223、GPU5 PID 2183224；
+  日志 `data/queue_logs/blrabs_gpu{2,4,5}.log`。14 个 run_id 均已入队。
+- 首次调用暴露基础 `run_v5_clean.sh` 为 0644，所有 arm 在进入基础 launcher、创建结果目录
+  和占用 GPU **之前**以 rc=126 退出；修复后重新启动，因此没有 partial run artifact 或数据污染。
+- 修复后首批三臂均通过 step 50：input 6e-4 gap −0.0434、matched nogram 6e-4
+  gap −0.0604、input 4e-3 gap −0.0072；GPU2/4/5 分别占用约 70/50/70 GB。
+  `ps` 实参核验：6e-4×128=0.0768、4e-3×19.2=0.0768，且 val/freq/exact/table-norm
+  的末次覆盖值均为 50。状态保持 running，完成前不填科学裁决。
