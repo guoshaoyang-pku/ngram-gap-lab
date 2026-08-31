@@ -3119,7 +3119,25 @@ input 双表 1x，val=2,…,10,6542，freq10）：
 | causalv5m3_freeze_backbone_e1/e2/e3 | epoch 1/2/3 边界冻结 backbone（A(t) 形状）|
 | causalv5m3_freeze_table_e2 | epoch 2 边界冻结表（补 e1@1000 已有点）|
 | causalv5m3_wd0 / causalv5m3_wd03 | backbone weight decay 0.0 / 0.3（A 饱和预测）|
-状态：planned→running（本节回填 final gap）。
+状态：✅ done（2026-08-31 回填；7/7 均到 step 2022，seed 42）。远端权威 artifact：
+`360-2:~/ngram-gap-lab/data/runs_fixed/<run_id>_fixed/`；逐 run 已核对 `summary.json`、
+`train_log.jsonl`、`freq_bin_loss.jsonl`、`exact_freq_loss.jsonl`、`table_norm.jsonl`，并确认
+128×、RMSProp `(0,0.99)`、2022 steps 与 intervention event。
+
+| run_id | 实际事件 | train @2022 | fixed val @2022 | gap @2022 |
+|---|---:|---:|---:|---:|
+| `causalv5m3_none_2022` | none | 1.218 | 6.951 | **5.733** |
+| `causalv5m3_freeze_backbone_e1` | step 338 | 3.279 | 4.865 | **1.585** |
+| `causalv5m3_freeze_backbone_e2` | step 675 | 2.407 | 4.912 | **2.505** |
+| `causalv5m3_freeze_backbone_e3` | step 1012 | 1.876 | 5.264 | **3.389** |
+| `causalv5m3_freeze_table_e2` | step 675 | 1.180 | 6.566 | **5.386** |
+| `causalv5m3_wd0` | wd 0.0 | 1.168 | 7.001 | **5.833** |
+| `causalv5m3_wd03` | wd 0.3 | 1.284 | 6.893 | **5.609** |
+
+**窄结论**：freeze-backbone 的终点 gap 随冻结时刻 e1→e3 单调上升，直接支持 backbone
+读出能力跨 pass 累积；e2 后 freeze-table 仍保留对照的 93.95%，说明后半程不依赖继续写表。
+wd 方向为 0.0 > 0.1 > 0.3，但只有单 seed 且相对对照差值约 ±0.12，只记弱支持，不据此声称
+已观测长期平台。
 CPU job（360-2）：`compute_fourgram_missing_mass.py` 产 trigram 支路 M(f)
 → `theory_missing_mass_trigram.csv`（回传后并入 H-KAPPA 图）。
 混匀（pass 交错 replay）实验：规格=同 shard-1 tokens×3 pass 全局 sample 级 shuffle vs 分块 replay，

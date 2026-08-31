@@ -54,6 +54,7 @@
 | **V5-refresh** | 完整曲线证据刷新 | 把 M2、optimizer、causal、dose × frequency 统一到 current-batch / freq=10 口径 | `nglab1x_{input,y,v,nogram}_v5_freq10`；`optv5c_*`；`causalv5c_*`；`nglab*_input_v5_freq10` | `run_v5_optimizer_sweep.sh`；`V5_GROUP={inj_freq10,causal_refresh,dose_freq10} run_v5_main_manifest.sh` | `plot_v5_registry_figures.py` | `figs/main/` | §24b | ✅ 35/35 已验收：M2 4/4 + optimizer 11/11 + causal 6/6（另有 mask_high 阈值扫描 14/14）+ dose 11/11；只使用 `_fixed` 小型证据和 current-batch train loss |
 | **X1** | optimizer × seed 复现 | v5 table optimizer 的三 seed final gap 与完整 step-10 曲线 | `optv5c_{rms,adamw,sgd}_*_s{43,44}`；seed 42 复用 | `run_v5_clean.sh` | `gen_theory_x1x2_verdict_figs.py` | `figs/theory/` | §27 | ✅ 完成；三臂三 seed 均值/SD 已回填 |
 | **X2** | clean 表行宽扫描 | 同步改变 bigram/trigram row width `d`，观察 gap 是否向 no-gram 塌缩 | `ctbl_dim{192,48,12}_input_v5`；d=768 复用基线 | `run_v5_clean.sh` | `gen_theory_x1x2_verdict_figs.py` | `figs/theory/` | §28 | ✅ 完成；step-1000 final gap=0.803/0.364/0.157 |
+| **M8** | replay 读出动力学 | gap 跨 pass 增长主要依赖继续写表，还是 backbone 逐轮学会读表 | `causalv5m3_*` | `V5_GROUP=causal_dynamics run_v5_main_manifest.sh` | `plot_v5_epoch_kernel_dynamics.py`（配套 10-epoch replay） | `figs/theory/` | §38 | ✅ 7/7 done @2022；freeze-backbone e1/e2/e3 gap=1.585/2.505/3.389，对照 5.733；freeze-table e2 保留 93.95% |
 
 **历史 M6 的缺口已不再是当前待办**：§12 的「对齐 epoch 后单调关系消失」仍只由
 8/12 个旧点支撑；缺失的大 shard 端（4x/5x/6x/8x）不补入当前证据，结论仅作

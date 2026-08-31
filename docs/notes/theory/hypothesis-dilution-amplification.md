@@ -1,4 +1,4 @@
-# 假说 H-DILUTE：碰撞稀释的逐 context 记忆 × backbone 读出放大（v0，2026-08-30）
+# 假说迭代笔记：逐 context 记忆 × backbone replay 读出（v3，2026-08-31）
 
 > 状态：**假设**（待挑战）。本笔记是主报告 §6 的完整版，供后续 challenge 迭代。
 > 证据输入全部来自已登记 run 与 `data/freq_index.npz`（seed-42 1x shard，sha256 见脚本输出）；
@@ -7,7 +7,58 @@
 > `docs/figs/main/fig_v5_pass_collapse.png`、`theory_zipf_triangle.csv`、`theory_interference_scan.csv`、
 > `docs/appendices/s1_scaling_three_axis/s1_dose_points_128x.csv`。
 
-## 1. 模型
+> **阅读顺序**：下面的 v3 是当前主模型；原 §1–5（v0）和文末 v2 保留为 challenge 轨迹，
+> 其中 `f/(f+T/R)`、两分量 B/V 主公式和“pass 1 恒为 0”均已退出主结论。
+
+## v3 当前核心模型（主报告采用）
+
+只建模减去 matched no-gram 后的 net n-gram gap：
+
+```text
+G_e := Gap_ngram,e - Gap_nogram,e
+g_e(f) ≈ a_e M(f)
+G_e ≈ a_e Q,        Q = Σ_f μ_f M(f)
+G_e(R) ≈ ρ(R) a_e Q     （只有讨论 table-size 时才加入 ρ）
+```
+
+- `M(f)=N1(f)/(f n(f))` 是 Good–Turing 缺失延续质量，纯语料计数、零拟合；
+- `μ_f` 是 val token 的频率质量，`Q` 因而也是固定记账量；
+- `a_e` 是完成 e 个 fixed replay pass 后，backbone 对表内训练集采样残差的可用读出强度；
+- `ρ(R_ref)=1`，在当前 R 中段作为 f-平坦的经验容量修正；其微观来源仍开放。
+
+kernel 的动机是：对 context c，有限训练条件分布 `p_hat_c` 与真实 `p_c` 的差
+`δ_c=p_hat_c-p_c` 是训练集特有残差。表行能快速写入这个私有方向；同一 fixed train 样本重现时
+与它相关，独立 val 样本不相关。交叉熵局部二阶展开给出
+
+```text
+g_e(c) ≈ a_e ||p_hat_c-p_c||^2_{H_c}.
+```
+
+未知平方残差用可观测的 `M(f)` 代理。核心 bigram 区间 `f≤721` 中，实测斜率 −0.2551、
+`M(f)` 斜率 −0.2547；单幅度 token-mass 加权 `R²=.964`。只在 `f≤100` 拟合幅度并外推
+`100<f≤721`，`R²=.885`。trigram 实测/计数斜率 −0.318/−0.319。
+
+epoch 只通过一个状态进入：
+
+```text
+a_{e+1}-a_e = η_b(s-λa_e)
+q = 1-η_bλ,  a_inf=s/λ
+a_e = a_inf(1-q^(e-1)),    G_e = G_inf(1-q^(e-1)).
+```
+
+pass 1 主要写入；pass 2 起，样本在预测前已经能读到上一轮与自身训练残差相关的表内容。
+表 LR 只控制写入速度，不能制造“再次见到同一样本”，也不能替代 backbone 跨 pass 学会读表。
+`λ` 表示原交叉熵曲率、shared-parameter interference 与已有 weight decay 的有效恢复力，
+不是代码中虚构的熵正则项。10-epoch net 曲线的区间内拟合为 `q=.904, R²=.9986`；由短窗口
+外推的 `G_inf=13.58` 与 `τ=9.88 epoch` 未被观测，不能写成平台结论。
+
+直接因果证据（`causalv5m3_*`，seed 42，step 2022）：freeze-backbone e1/e2/e3 的 gap
+`1.585/2.505/3.389`，control `5.733`；freeze-table e2 为 `5.386`（control 的 93.95%）。
+因此当前协议内，后期增长需要 backbone 更新，而 e2 后继续写表不是主要必要条件。
+
+完整、面向读者的推导和证据边界以 `docs/report/index.html` §6 为准。
+
+## 1. v0 历史模型（已被 v3 取代，仅保留审计）
 
 对每个 branch（bigram / trigram）：
 

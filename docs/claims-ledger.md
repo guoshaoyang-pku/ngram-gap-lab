@@ -13,6 +13,7 @@
 | C7 | matched vanilla Transformer + hashed n-gram graft 在 3 seeds 下重现了明显 gap，且 full 相对 disabled/frozen 的 onset 和 final contrasts 通过 formal QC。 | `SUPPORTED_LOCAL_WITH_CEILING` | formal report 为 9 runs、QC PASS；参数量和 runtime 不匹配，结论只覆盖该 paired protocol，不是对所有 vanilla/Engram 设计的普遍证明。 |
 | C8 | bottom-up shell ablation 已经证明各 current-shell 组件的必要性。 | `UNRUN` | positive control + 14 个 ablation 只有 runner，没有正式结果；建议先归档/标记 superseded。 |
 | C9 | n-gram 表大小与 gap 的关系在不同 setting 下不能合并成单一饱和律；当前 S1 历史 compile 波次在预先限定的低 multiplier table 窗口内可见局部正双对数斜率，但不能写成全区间幂律，也不能把旧 4-layer/2-hash 结果冒充 clean 单表结果。 | `SUPPORTED_LOCAL_WITH_CEILING` | S1 历史 `data/runs_scaling/*_fixed/`：seed 42/43/44 共 261 个 run，online gap、table occupancy 和多 seed 关系图；table slope audit 见注册表 `#registry-s1-table`，clean 单表见 `#registry-s1-table-clean`。所有历史 S1 run 使用 `torch_compile=true`，必须在当前 bf16/no-compile 标准下重跑后才能进入主线 scaling 结论。原 C9 的 t5_low 证据属于 current-shell 历史 setting，不能作为极简主线证据。 |
+| C10 | 在 v5 128× fixed replay 协议内，表内容很早可用，而 net n-gram gap 的后续增长需要 backbone 跨 pass 累积读出能力。 | `SUPPORTED_LOCAL_WITH_CEILING` | `causalv5m3_*` 7-run、seed 42、step 2022：freeze-backbone e1/e2/e3 final gap 1.585/2.505/3.389 < control 5.733；freeze-table e2 为 5.386（control 的 93.95%）。只支持该协议内“backbone 更新是后期增长的必要因素、继续写表不是主要必要因素”；不能推出表已严格收敛、最终平台位置或跨架构普适动力学。 |
 
 ## 台账冲突
 
