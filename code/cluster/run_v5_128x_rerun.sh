@@ -107,8 +107,32 @@ NET=(
   "netv5_v_masklowf8_e0_128x|1|${VAL}|2000|--injection_position v --intervention mask_low_freq --intervention_epoch 0 --intervention_freq_threshold 8 --intervention_low_inclusive 1"
 )
 
+# Trigram-only mask-low sweep (2026-08-31, user): separate the branches.
+# Single trigram table (bigram disabled), 1000 steps, val/freq=10, mask from
+# epoch 2 (due epoch 1, inclusive f<=t) -- comparable to the joint causalv5m
+# sweep. Control included so removal % is measured against a tri-only
+# baseline with identical eval cadence.
+TRI_FLAGS="--enable_bigram 0 --enable_trigram 1 --bigram_clean_table 0 --trigram_clean_table 1048576"
+TRIM=(
+  "s1v5_128_tri_masklow_ctl|1|${VAL}|1000|${TRI_FLAGS}"
+  "s1v5_128_tri_masklowf1_e1|1|${VAL}|1000|${TRI_FLAGS} --intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 1 --intervention_low_inclusive 1"
+  "s1v5_128_tri_masklowf2_e1|1|${VAL}|1000|${TRI_FLAGS} --intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 2 --intervention_low_inclusive 1"
+  "s1v5_128_tri_masklowf4_e1|1|${VAL}|1000|${TRI_FLAGS} --intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 4 --intervention_low_inclusive 1"
+  "s1v5_128_tri_masklowf8_e1|1|${VAL}|1000|${TRI_FLAGS} --intervention mask_low_freq --intervention_epoch 1 --intervention_freq_threshold 8 --intervention_low_inclusive 1"
+)
+
+# Last-epoch-only table (2026-08-31, user): readout fully masked for epochs
+# 1-5 (table gets no gradient, backbone sees no table), unmasked at the start
+# of epoch 6 (step 1686). 2000 steps, val/freq=10. Tests whether a table
+# trained only in the final epoch beats reseed-every-epoch (§43).
+LEP=(
+  "netv5_input_lastep_128x|1|${VAL}|2000|--intervention readout_last_epoch --intervention_epoch 5 --intervention_epochs 0"
+  "netv5_y_lastep_128x|1|${VAL}|2000|--injection_position y --intervention readout_last_epoch --intervention_epoch 5 --intervention_epochs 0"
+  "netv5_v_lastep_128x|1|${VAL}|2000|--injection_position v --intervention readout_last_epoch --intervention_epoch 5 --intervention_epochs 0"
+)
+
 case "$GROUP" in
-  all) SPECS=("${M2[@]}" "${DOSE[@]}" "${CAUSAL[@]}" "${X2[@]}" "${X1[@]}" "${MASKHIGH[@]}" "${NET[@]}") ;;
+  all) SPECS=("${M2[@]}" "${DOSE[@]}" "${CAUSAL[@]}" "${X2[@]}" "${X1[@]}" "${MASKHIGH[@]}" "${NET[@]}" "${TRIM[@]}" "${LEP[@]}") ;;
   *)
     SPECS=()
     IFS='+' read -ra PARTS <<< "$GROUP"
@@ -121,7 +145,9 @@ case "$GROUP" in
         x1) SPECS+=("${X1[@]}") ;;
         maskhigh) SPECS+=("${MASKHIGH[@]}") ;;
         net) SPECS+=("${NET[@]}") ;;
-        *) echo "unknown GROUP part=$part (m2|dose|causal|x2|x1|maskhigh|net|all)" >&2; exit 2 ;;
+        trim) SPECS+=("${TRIM[@]}") ;;
+        lep) SPECS+=("${LEP[@]}") ;;
+        *) echo "unknown GROUP part=$part (m2|dose|causal|x2|x1|maskhigh|net|trim|lep|all)" >&2; exit 2 ;;
       esac
     done
     [[ "${#SPECS[@]}" -gt 0 ]] || { echo "empty GROUP=$GROUP" >&2; exit 2; }

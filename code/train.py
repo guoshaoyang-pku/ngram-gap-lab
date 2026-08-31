@@ -602,6 +602,24 @@ class NanoGPT(nn.Module):
                 mode == "low"
                 or (mode == "high" and self.config.intervention_freq_threshold == 0)
             )
+        elif self.config.intervention == "readout_last_epoch":
+            # Table used ONLY in the final epoch: fully masked from step 0
+            # (rows receive no gradient, backbone sees no table signal), then
+            # unmasked at the start of epoch intervention_epoch. Due epochs
+            # must include 0 and intervention_epoch.
+            if epoch0 == 0:
+                if freq_index is None:
+                    raise RuntimeError(
+                        "readout_last_epoch requires --freq_index at step 0")
+                event["frequency_mask"] = self.set_frequency_mask(
+                    freq_index, "high", 0)
+                event["frequency_mask"]["novel_contexts_masked"] = True
+                event["phase"] = "mask_all_from_start"
+            elif epoch0 == self.config.intervention_epoch:
+                self._freq_mask_index = None
+                self._freq_mask_mode = "none"
+                self._freq_mask_threshold = 0
+                event["phase"] = "unmask_last_epoch"
         event["hash_identity_after"] = self.hash_identity()
         return event
 
@@ -1462,7 +1480,7 @@ def main():
                              "(control arm for the collision-free perfect-map run)")
     parser.add_argument("--intervention", default="none",
                         choices=["none", "freeze_table", "freeze_backbone", "hash_reseed",
-                                 "mask_low_freq", "mask_high_freq"],
+                                 "mask_low_freq", "mask_high_freq", "readout_last_epoch"],
                         help="causal intervention fired at intervention_epoch boundary")
     parser.add_argument("--intervention_epoch", type=int, default=1,
                         help="0-indexed epoch at which the intervention fires (1 = start of epoch 2)")

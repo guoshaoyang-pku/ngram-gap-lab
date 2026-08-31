@@ -3460,3 +3460,39 @@ launcher `run_v5_128x_rerun.sh` GROUP=net，360-2 GPU 0–5 一卡一 run。
    这是「n-gram 不白忙活」的第一个正证据，但量级小（~−0.1）且注入位置敏感。
 4. 图：`docs/figs/main/fig_v5_netval_benefit.{png,svg}`（三面板 Δval 轨迹，
    脚本 `plot_v5_netval_benefit.py`）。
+
+## §44 · 分 branch mask 扫描 + 仅末 epoch 用表（2026-08-31 23:45，用户拍板）
+
+### 44.0 前置事实（代码确认，§44.4）
+
+**默认 readout 无任何预处理 mask**：`_freq_mask_index is None` 时 `_frequency_mask`
+返回 None，任何 context——包括 train 从未出现的 novel（f=0）——都经 hash 映射读出行内容
+（novel 读到的是碰撞行里别的 train context 写入的内容）。频率 mask 只在显式
+`--intervention mask_low/high_freq`（或 readout_last_epoch）时在 boundary 启用，
+一旦启用对 train forward 与 val forward 同一生效（无 train/eval 分支）。含义：
+novel 的表读出**不是零**，这正是 le0（仅屏蔽 novel 读出）step-1000 gap 反升
+（2.945 > 2.724）的原因——novel 行读出对 val 是净正贡献。
+
+### 44.1 科学问题
+
+1. **分 branch 的 mask trade-off**：trigram 静态归因 gap 摊在 f 上（f≤8 贡献 79.3%，
+   质量保留仅 44%），bigram 集中（f≤8 贡献 33.8%，质量保留 87.6%）。
+   「trigram mask 少量低频是否 gap 就很小」需要 trigram 单表动态实测。
+2. **仅最后一个 epoch 用表**（readout_last_epoch）：epoch 1–5 全屏蔽（表零梯度、
+   backbone 不见表），epoch 6 起点解除。对比 reseed-every-epoch（§43：reseed 后
+   旧表内容变噪声）与 mask_low_f8——第三条约束路线。
+
+### 44.2 实验契约
+
+全部 128×、train shard 1、val 2-10+6542、val/freq=10、seed 42。
+代码 commit（readout_last_epoch 干预 + launcher trim/lep 组）。
+
+| run_id | setting | 预算 |
+|---|---|---|
+| `s1v5_128_tri_masklow_ctl` | trigram 单表对照（bigram 关），无干预 | 1000 步 |
+| `s1v5_128_tri_masklowf{1,2,4,8}_e1` | 同上 + mask_low f≤t（inclusive）from epoch 2 | 1000 步 ×4 |
+| `netv5_{input,y,v}_lastep_128x` | 双表 + readout 全屏蔽 epoch 1–5、epoch 6 解除 | 2000 步 ×3 |
+
+判决口径：① tri 单表 step-1000 gap(t) vs tri 对照（动态去除率，对照静态归因 79.3%@f≤8）；
+② lastep 终点 Δval vs nogram，与 reseed（y −0.108 / v −0.131）、masklowf8（+1.2~+2.7）对比。
+360-2 GPU 0–7（trim GPU0-4，lep GPU5-7）。状态：**planned**。
