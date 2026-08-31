@@ -64,6 +64,7 @@ log 图只使用 train 和 validation 都有 token 且 gap 为正的 bucket。
 | `plot_v5_128x_doc_figures.py` | 当前 v5 主报告图：128× 注入点、frequency、optimizer、causal、clean table-size，以及 L4 10-epoch 的 epoch-number / per-epoch increment 原始边界图 |
 | `plot_v5_epoch_length_valid.py` | 只画 `≤1×L4` 的 nested-prefix epoch-length 有效段；明确排除会把 replay pass 混入数据长度轴的 `>1×L4` wrap-around runs |
 | `plot_v5_epoch_kernel_dynamics.py` | 从已追踪的 trigram/no-gram 10-epoch 边界 CSV 计算 net n-gram gap，并用单状态递推作区间内描述性检验；外推平台明确不作观测结论 |
+| `plot_v5_backbone_lr_epoch_dynamics.py` | 从 14 条固定绝对 table-LR 的 paired `_fixed` JSONL 生成 input/no-gram/net gap 的 epoch 与累计 backbone-dose 曲线，并审计 pass-2 一阶递推；支持 `--runs-dir` 显式指定跨机回收目录 |
 | `summarize_good_turing_kernel.py` | 从已提交的 missing-mass 与 exact-frequency 统计复算 Good–Turing 核指数、bigram 单幅度拟合和样本外检验；显式标记 trigram 的窗口/权重不对齐 |
 | `plot_v5_beta_by_R.py` | 用 62 条 formal single-branch table-size run 的 exact-frequency 日志重算 `β(R)`，输出完整 CSV，并显式降级 low-gap / low-R² 不可辨识点 |
 | `plot_l6_residual_response.py` | 读取两个 L6 exact-enumeration run 的 `metrics.csv` / `summary.json`，生成 count-table 渐近与 residual-response 矩对照图 |

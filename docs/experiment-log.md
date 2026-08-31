@@ -3321,11 +3321,11 @@ s_T=\frac{0.0768}{\eta_B},
 
 | backbone LR | table scale | input / nogram run_id | steps | 机器/GPU | 状态 |
 |---:|---:|---|---:|---|---|
-| 0.00006 | 1280 | `blrabs_{input,nogram}_lr0p00006_tlr0p0768_3k` | 3000 | 360-2 GPU1 / GPU2 | running / running |
-| 0.0001 | 768 | `blrabs_{input,nogram}_lr0p0001_tlr0p0768_3k` | 3000 | ophis GPU0 / 360-2 GPU0 | done / running |
-| 0.0003 | 256 | `blrabs_{input,nogram}_lr0p0003_tlr0p0768_20k` | 20000 | ophis GPU2 / GPU4 | running / running |
+| 0.00006 | 1280 | `blrabs_{input,nogram}_lr0p00006_tlr0p0768_3k` | 3000 | 360-2 GPU1 / GPU2 | done / done |
+| 0.0001 | 768 | `blrabs_{input,nogram}_lr0p0001_tlr0p0768_3k` | 3000 | ophis GPU0 / 360-2 GPU0 | done / done |
+| 0.0003 | 256 | `blrabs_{input,nogram}_lr0p0003_tlr0p0768_20k` | 20000 | ophis GPU2 / GPU4 | done / done |
 | 0.0006 | 128 | `blrabs_{input,nogram}_lr0p0006_tlr0p0768_10k` | 10000 | ophis GPU2 / GPU4 | done / done |
-| 0.001 | 76.8 | `blrabs_{input,nogram}_lr0p0010_tlr0p0768_6k` | 6000 | ophis GPU5 / GPU7 | done / running |
+| 0.001 | 76.8 | `blrabs_{input,nogram}_lr0p0010_tlr0p0768_6k` | 6000 | ophis GPU5 / GPU7 | done / done |
 | 0.002 | 38.4 | `blrabs_{input,nogram}_lr0p0020_tlr0p0768_3k` | 3000 | ophis GPU5 | done / done |
 | 0.004 | 19.2 | `blrabs_{input,nogram}_lr0p0040_tlr0p0768_3k` | 3000 | ophis GPU5 | done / done |
 
@@ -3386,6 +3386,102 @@ input/no-gram 与 0.001 input 子进程继续训练，但父队列不会再发�
 三臂重启后 GPU0/1/2 分别占用约 50/70/50 GB，命令行实参复核 table scale
 768/1280 与 absolute table LR 0.0768。最终回收必须合并 ophis 的 11 个目录与
 360-2 的 3 个目录后再做 14-run QC 和拟合。
+
+### 42.6 完成、QC 与动力学判决（2026-08-31）
+
+14/14 run 全部到达预定终点。逐 run 核验 `summary.json`、`train_log.jsonl`、
+`freq_bin_loss.jsonl`、`exact_freq_loss.jsonl`、`table_norm.jsonl`：五类文件均存在且
+末条 step 等于预算；seed/data_seed=42，fixed replay，bf16/no-compile，val/freq/exact/
+table-norm cadence=50，input/no-gram 开关与 clean-table 容量正确；七点均严格满足
+`backbone_lr × table_lr_scale = 0.0768`。权威目录是 ophis 的 11 条与 360-2 的 3 条
+远端 `_fixed` 目录。因本地 `data` 指向当时未挂载的 Extreme SSD，本次只把小型证据
+暂存到 `/private/tmp/ngram-gap-lab-backbone-lr-artifacts/runs_fixed/` 作可复现分析；没有
+传输合计数 GB 的 exact-frequency 日志，也没有改动悬空符号链接。
+
+**各预算终点（seed 42）**：
+
+| backbone LR | endpoint epoch | input gap | no-gram gap | net gap |
+|---:|---:|---:|---:|---:|
+| 0.00006 | 9 | 4.065 | 0.040 | **4.025** |
+| 0.0001 | 9 | 4.750 | 0.095 | **4.655** |
+| 0.0003 | 60 | 17.043 | 2.108 | **14.935** |
+| 0.0006 | 30 | 14.485 | 1.398 | **13.087** |
+| 0.001 | 18 | 12.240 | 0.779 | **11.461** |
+| 0.002 | 9 | 8.556 | 0.056 | **8.500** |
+| 0.004 | 9 | 0.076 | 0.041 | **0.035** |
+
+**判决一：高 LR 回落不是 table-LR 共变造成的。** 绝对 table LR 锁定后，
+`4e-3` 的 net gap 仍塌到 0.035；此时 input/no-gram 的 train loss 分别为 6.714/6.331，
+val loss 为 6.790/6.372，说明这是 backbone 训练本身接近失效的优化区，不是“更快到达
+一个低 gap 平衡”。因此 §39 高 LR 回落不能再归因于 table 的绝对 LR 被同步放大。
+
+**判决二：累计 backbone dose 不足以解释 epoch 动力学。** 对 `3e-4/6e-4/1e-3/2e-3`
+四点取共同可达 dose \(D=5.925\)，线性插值得：
+
+| backbone LR | 该 dose 对应 pass | net gap |
+|---:|---:|---:|
+| 0.0003 | 58.72 | **14.735** |
+| 0.0006 | 29.41 | **13.050** |
+| 0.001 | 17.69 | **11.451** |
+| 0.002 | 8.90 | **8.500** |
+
+同 dose 的跨 LR gap 变异系数为 0.193，并且**经历更多 replay pass 的低 LR 臂 gap
+系统性更大**。预登记判据 1（dose collapse）被证伪：epoch/replay 次数是独立状态变量，
+不能只把它看成累计梯度步长的另一种计量单位。
+
+**判决三：一阶递推只能作窗口内描述，不能给“标准平衡位置”。** 用每个 epoch 的
+最后一个 50-step checkpoint，在 epoch 2 后拟合
+\(G_e=G_\star+(G_2-G_\star)q^{e-2}\)：
+
+| LR | q | τ(epoch) | −log(q)/LR | G★（外推） | R² | 最后观测增量 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.00006 | .851 | 6.22 | 2680 | 5.54 | .9993 | +.289 |
+| 0.0001 | .836 | 5.58 | 1791 | 6.11 | .9994 | +.347 |
+| 0.0003 | .930 | 13.75 | 243 | 14.33 | .9880 | +.149 |
+| 0.0006 | .897 | 9.16 | 182 | 13.37 | .9974 | +.176 |
+| 0.001 | .880 | 7.81 | 128 | 13.06 | .9987 | +.079 |
+| 0.002 | .892 | 8.72 | 57 | 14.10 | .9927 | +.747 |
+| 0.004 | ≈0 | 0.09 | — | 0.03 | .0645 | +.040 |
+
+稳定臂的 \(-\log q/\eta_B\) 跨约 47 倍，不是常数；`2e-3` 的半窗口/full-window
+\(G_\star\) 更从 7.50 漂到 14.10，`3e-4` 从 12.78 漂到 14.33。所有非失败臂最后
+增量仍为正，尤其最长 `3e-4` 的观测终点 14.935 已高于其 full-window 外推 14.33。
+因此 R² 高只说明有限窗口内曲线平滑，**不等于观测到平台**。当前数据既不支持共享的
+唯一 \(G_\star\)，也不足以断言每个 LR 各有真实平衡；更窄的结论是“一状态、LR 只改
+时间常数”的模型被证伪，平台/平衡位置仍未识别。
+
+**为什么多 epoch 会把 gap 拉得很大。** 配对恒等式把净 gap 精确拆成
+
+\[
+G_e=\underbrace{L_{tr}^{0}-L_{tr}^{table}}_{M_e\;\text{(train benefit)}}+
+\underbrace{L_{val}^{table}-L_{val}^{0}}_{X_e\;\text{(validation penalty)}}.
+\]
+
+在最长 `3e-4` 臂的 epoch 60，\(M=2.119\)，\(X=12.816\)，合计 \(G=14.935\)；
+**85.8% 的净 gap 来自 validation 被伤害，而不是 train loss 还能继续下降**。train
+benefit 在约 10–15 epoch 已接近 2.5 后缓慢回落，但 validation penalty 继续跨 pass
+累积。这与 §38 的因果证据合并后，最小机制必须至少有两个状态：
+
+\[
+z_{e+1}=F_T(z_e,\theta_e;D_{train}),\qquad
+\theta_{e+1}=\theta_e-\eta_B\!\sum_{i\in e}\nabla_\theta
+\ell_i(\theta_e,z_e),\qquad G_e=M(z_e,\theta_e)+X(z_e,\theta_e).
+\]
+
+\(z_e\) 是快速写入、下一 pass 可复用的 table 记忆；
+\(\theta_e\) 是共享 backbone/readout。第一 pass 主要写入；从第二 pass 起，同一个
+train-specific residual 再次出现，table 方向成为可预测输入，backbone 每轮都收到同向
+共适应梯度。独立 val 不共享这份残差，于是后期主要表现为 \(X_e\) 累积。§38 的
+freeze-table@e2 仍保留 93.95% gap，支持“table 可在后期近似成已写好的环境”；但 table
+norm 仍随训练变化，所以**环境只是准静态近似，不是 table 已严格收敛**。要把主动项彻底
+分开，仍需同一 e2 checkpoint 的 `control / freeze-table / freeze-backbone / freeze-both`
+长程四因子（最好加 `(θ30,z2)` 与 `(θ2,z30)` cross-swap）。
+
+复现脚本：`docs/plot_scripts/plot_v5_backbone_lr_epoch_dynamics.py`；图：
+`docs/figs/theory/fig_v5_backbone_lr_epoch_dynamics.{png,svg}` 与
+`fig_v5_backbone_lr_recurrence_diagnostics.{png,svg}`；逐点、拟合与 matched-dose 数据分别为
+`theory_backbone_lr_epoch_points.csv`、`theory_backbone_lr_epoch_fits.csv`、
+`theory_backbone_lr_matched_dose.csv`。所有数值均从 `_fixed` JSONL 读取，未手填进图。
 
 ## §43 · V5 净收益判决批（netv5，2026-08-31，用户拍板）
 
