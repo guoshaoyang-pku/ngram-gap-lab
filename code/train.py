@@ -1760,6 +1760,8 @@ def main():
     freq_bin_log = None
     exact_freq_log = None
     freq_index_obj = None
+    diag_amp_dtype = None
+    diag_pool = None
     if args.freq_index and os.path.exists(args.freq_index):
         from ngram_freq import GlobalFrequencyIndex
         freq_index_obj = GlobalFrequencyIndex.load(args.freq_index)
@@ -1788,6 +1790,36 @@ def main():
             exact_freq_train_batches = [next(freq_train_iter) for _ in range(4)]
         else:
             exact_freq_train_batches = fixed_train_probe
+        # Async diagnostics: the main process does ONE bf16-autocast forward per
+        # fixed batch per eval block; hit-count lookup + exact-f/bin aggregation
+        # run in a background CPU worker (diag_worker.py) and never block the
+        # training loop. NGLAB_ASYNC_DIAG=0 falls back to the sync path.
+        diag_amp_dtype = {"bf16": torch.bfloat16, "fp8": torch.bfloat16}.get(args.dtype)
+        if os.environ.get("NGLAB_ASYNC_DIAG", "1") != "0":
+            try:
+                import diag_worker as dw
+                dw.GLOBAL_INDEX = freq_index_obj
+                diag_pool = dw.DiagPool(args.freq_index, cfg.vocab_size,
+                                        inherited_index=freq_index_obj)
+                print("[nglab] async diag worker started "
+                      f"(diagnostic forwards: {args.dtype})")
+            except Exception as e:
+                print(f"[nglab] async diag unavailable ({e!r}); using sync path")
+                diag_pool = None
+
+    def on_diag_rows(rstep, repoch, sha, exact, fb):
+        """Write one finished diagnostics block (async worker or sync path)."""
+        if exact_freq_log is not None:
+            exact_freq_log.write(json.dumps({
+                "step": rstep, "epoch": repoch,
+                "train": exact["train"], "val": exact["val"], "shared": exact["shared"],
+                "probe_batch_sha256": sha,
+            }) + "\n")
+        if freq_bin_log is not None and fb.get("train"):
+            freq_bin_log.write(json.dumps({
+                "step": rstep, "epoch": repoch,
+                "train": fb["train"], "val": fb["val"],
+            }) + "\n")
     last_val_loss = float("nan")
     last_train_loss = float("nan")
     last_fixed_train_loss = float("nan")
@@ -1939,60 +1971,46 @@ def main():
                 "probe_batch_sha256": probe_hash,
             }) + "\n")
             fixed_train_freq_log.flush()
-        exact_freq_due = (
-            ((cfg.val_steps and (step + 1) in cfg.val_steps)
-             or (not cfg.val_steps
-                 and ((step + 1) % args.exact_freq_eval_interval == 0
-                      or step == cfg.max_steps - 1)))
+        # Unified periodic diagnostics (exact-freq + freq-bin). ONE bf16
+        # forward per fixed batch on the main process; hit-count lookup and
+        # per-exact-f / per-bucket aggregation run in the background CPU
+        # worker, overlapping training. Cadence follows val_interval_steps
+        # (exact_freq_eval_interval / freq_eval_interval default to the same 10).
+        diag_due = (
+            (cfg.val_steps and (step + 1) in cfg.val_steps)
+            or (not cfg.val_steps
+                and ((step + 1) % cfg.val_interval_steps == 0
+                     or step == cfg.max_steps - 1))
         )
-        if exact_freq_log is not None and exact_freq_due:
-            # exact-frequency marginal on the fixed diagnostic train batches and
-            # the fixed val batches, plus context-matched gap statistics.
-            ef_train = {b: evaluate_exact_freq(
-                model, exact_freq_train_batches, freq_index_obj,
-                len(exact_freq_train_batches), cfg.vocab_size, b)
-                for b in ("bigram", "trigram")}
-            ef_val = {b: evaluate_exact_freq(
-                model, validation_batches, freq_index_obj,
-                len(validation_batches), cfg.vocab_size, b)
-                for b in ("bigram", "trigram")}
-            shared = {b: compute_shared_contexts(
-                model, exact_freq_train_batches, validation_batches,
-                freq_index_obj, cfg.vocab_size, b)
-                for b in ("bigram", "trigram")}
-            exact_freq_log.write(json.dumps({
-                "step": step + 1,
-                "epoch": train_ds._epoch + 1,
-                "train": ef_train,
-                "val": ef_val,
-                "shared": shared,
-                "probe_batch_sha256": probe_hash,
-            }) + "\n")
-            exact_freq_log.flush()
-
-        # periodic freq-bin eval (train + val)
-        if freq_bin_log is not None and (
-            ((cfg.val_steps and (step + 1) in cfg.val_steps)
-             or (not cfg.val_steps
-                 and ((step + 1) % args.freq_eval_interval == 0
-                      or step == cfg.max_steps - 1)))
-        ):
-            # train freq-bin: reuse the CURRENT training batch's per-token
-            # loss (pre-update, identical to the online train_loss) — no extra
-            # forward, no diagnostic iterator, no training-stream consumption.
-            train_freq = accumulate_freq_bins(freq_index_obj, cur_inp, cur_tgt,
-                                              cur_ptl, cfg.vocab_size)
-            # val freq-bin (same fixed val data every eval)
-            val_freq = evaluate_freq_bins(model, fixed_freq_val_batches, freq_index_obj,
-                                          args.freq_eval_batches, cfg.vocab_size)
-            fb_entry = {
-                "step": step + 1,
-                "epoch": train_ds._epoch + 1,
-                "train": train_freq,
-                "val": val_freq,
-            }
-            freq_bin_log.write(json.dumps(fb_entry) + "\n")
-            freq_bin_log.flush()
+        if diag_due and (exact_freq_log is not None or freq_bin_log is not None):
+            import diag_worker as diag_worker_mod
+            train_pairs = diag_worker_mod.make_pair_payloads(
+                exact_freq_train_batches, model, diag_amp_dtype, cfg.vocab_size)
+            val_pairs_all = diag_worker_mod.make_pair_payloads(
+                fixed_val_batches, model, diag_amp_dtype, cfg.vocab_size)
+            val_exact_pairs = val_pairs_all[:cfg.val_batches]
+            val_fb_pairs = val_pairs_all[:args.freq_eval_batches]
+            cur_pair = None
+            if freq_bin_log is not None and cur_inp is not None:
+                from ngram_freq import compute_context_keys
+                cb_keys, ct_keys = compute_context_keys(cur_inp, cfg.vocab_size)
+                cur_pair = (cb_keys.cpu().numpy().ravel(),
+                            ct_keys.cpu().numpy().ravel(),
+                            cur_ptl.detach().float().cpu().numpy().ravel())
+            if diag_pool is not None and diag_pool.alive:
+                diag_pool.submit(step + 1, train_ds._epoch + 1, probe_hash,
+                                 train_pairs, val_exact_pairs, val_fb_pairs, cur_pair)
+                diag_pool.drain(on_diag_rows)
+            else:
+                exact_payload, fb_payload = diag_worker_mod.process_job(
+                    freq_index_obj, cfg.vocab_size, train_pairs,
+                    val_exact_pairs, val_fb_pairs, cur_pair)
+                on_diag_rows(step + 1, train_ds._epoch + 1, probe_hash,
+                             exact_payload, fb_payload)
+            if exact_freq_log is not None:
+                exact_freq_log.flush()
+            if freq_bin_log is not None:
+                freq_bin_log.flush()
 
         # periodic table norm
         if (step + 1) % cfg.table_norm_interval_steps == 0:
@@ -2000,6 +2018,14 @@ def main():
             tn_entry = {"step": step + 1, **tn}
             table_log.write(json.dumps(tn_entry) + "\n")
             table_log.flush()
+
+    # flush any diagnostics still queued in the background worker
+    if diag_pool is not None:
+        diag_pool.close_and_drain(on_diag_rows)
+        if exact_freq_log is not None:
+            exact_freq_log.flush()
+        if freq_bin_log is not None:
+            freq_bin_log.flush()
 
     train_log.close()
     table_log.close()
@@ -2076,6 +2102,9 @@ def main():
         },
         "compute_dtype": args.dtype,
         "torch_compile": args.compile,
+        "diag_forward_dtype": ("bf16" if diag_amp_dtype is not None else "fp32")
+                              if (exact_freq_log is not None or freq_bin_log is not None) else None,
+        "diag_async": diag_pool is not None,
         "final_train_loss": last_train_loss,
         "final_val_loss": last_val_loss,
         "final_gap": last_val_loss - last_train_loss,

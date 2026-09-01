@@ -257,6 +257,25 @@ class GlobalFrequencyIndex:
         tbl = self.bigram if branch == "bigram" else self.trigram
         return tbl.get(int(row), 0)
 
+    def hit_count_numpy(self, branch: str, key_np: np.ndarray) -> np.ndarray:
+        """Vectorized hit count lookup on numpy context keys (worker/CPU path).
+
+        Exact-match semantics identical to hit_count_tensor: novel keys -> 0.
+        Uses np.searchsorted over the pre-sorted key arrays.
+        """
+        self._ensure_sorted()
+        if branch == "bigram":
+            keys_sorted = self._bigram_keys_sorted
+            counts_sorted = self._bigram_counts_sorted
+        else:
+            keys_sorted = self._trigram_keys_sorted
+            counts_sorted = self._trigram_counts_sorted
+        k = np.ascontiguousarray(key_np, dtype=np.int64).ravel()
+        pos = np.searchsorted(keys_sorted, k)
+        np.clip(pos, 0, len(keys_sorted) - 1, out=pos)
+        hit = keys_sorted[pos] == k
+        return np.where(hit, counts_sorted[pos], 0).astype(np.int64)
+
     def hit_count_tensor(self, branch: str, rows: torch.Tensor) -> torch.Tensor:
         """Vectorized hit count lookup. rows: (B,T) long tensor -> (B,T) int32.
 
@@ -330,12 +349,12 @@ class FreqBinLossAccumulator:
         """Accumulate one batch. inp: (B,T), per_token_loss: (B,T) float."""
         keys = self._compute_keys(inp)  # (B,T) long
         hits = self.freq_index.hit_count_tensor(self.branch, keys)  # (B,T) int32
-        # map to bucket labels
-        hits_np = hits.cpu().numpy().astype(np.int64)
-        loss_np = per_token_loss.detach().cpu().numpy().astype(np.float64)
-        # flatten
-        hits_flat = hits_np.ravel()
-        loss_flat = loss_np.ravel()
+        self.update_numpy(hits.cpu().numpy(), per_token_loss)
+
+    def update_numpy(self, hits_np: np.ndarray, loss_np: np.ndarray):
+        """Accumulate from precomputed hit counts (torch-free, worker path)."""
+        hits_flat = np.asarray(hits_np).astype(np.int64).ravel()
+        loss_flat = np.asarray(loss_np, dtype=np.float64).ravel()
         for lo, hi, label in BUCKET_EDGES:
             mask = (hits_flat >= lo) & (hits_flat <= hi)
             n = int(mask.sum())
@@ -397,18 +416,22 @@ class ExactFreqLossAccumulator:
         return FreqBinLossAccumulator._compute_keys(self, inp)
 
     def update(self, inp: torch.Tensor, per_token_loss: torch.Tensor):
-        """Accumulate one batch. inp: (B,T) token ids, per_token_loss: (B,T).
-
-        Vectorized accumulation: counts / loss sums use np.bincount per exact
-        f; distinct-context counts use a single lexsort over (f, key) so the
-        whole batch is handled in numpy, not per-token Python loops.
-        """
+        """Accumulate one batch. inp: (B,T) token ids, per_token_loss: (B,T)."""
         keys = self._compute_keys(inp)                    # (B,T) long
         key_np = keys.cpu().numpy().ravel()
         loss_np = per_token_loss.detach().cpu().numpy().astype(np.float64).ravel()
-        counts = self.freq_index.bigram if self.branch == "bigram" else self.freq_index.trigram
-        get = np.vectorize(lambda r: counts.get(int(r), 0))
-        freq_np = get(key_np).astype(np.int64)
+        self.update_numpy(key_np, loss_np)
+
+    def update_numpy(self, key_np: np.ndarray, loss_np: np.ndarray):
+        """Accumulate from precomputed context keys (torch-free, worker path).
+
+        Vectorized accumulation: hit counts via searchsorted, loss sums via
+        np.bincount per exact f; distinct-context counts via a single lexsort
+        over (f, key) — the whole batch is handled in numpy.
+        """
+        key_np = np.ascontiguousarray(key_np).ravel()
+        loss_np = np.asarray(loss_np, dtype=np.float64).ravel()
+        freq_np = self.freq_index.hit_count_numpy(self.branch, key_np)
         self._total_tokens += len(loss_np)
 
         # distinct (f, key) pairs -> distinct contexts per f
@@ -470,10 +493,72 @@ class ExactFreqLossAccumulator:
 # ---------------------------------------------------------------------------
 
 
+def compute_context_keys(inp: torch.Tensor, vocab_size: int):
+    """Module-level context keys for one batch: returns (bigram_keys, trigram_keys),
+    each (B,T) long, on the same device as inp. Encoding matches
+    GlobalFrequencyIndex.build / FreqBinLossAccumulator._compute_keys."""
+    prev = torch.cat([inp[:, :1], inp[:, :-1]], dim=1)
+    b_keys = prev.long() * vocab_size + inp.long()
+    prev2 = torch.cat([inp[:, :2], inp[:, :-2]], dim=1)
+    prev1 = torch.cat([inp[:, :1], inp[:, :-1]], dim=1)
+    t_keys = (prev2.long() * (vocab_size * vocab_size)
+              + prev1.long() * vocab_size + inp.long())
+    return b_keys, t_keys
+
+
+def compute_shared_from_keys(train_key_np, train_loss_np, val_key_np, val_loss_np,
+                             freq_index: GlobalFrequencyIndex, branch: str) -> dict:
+    """Context-matched gap statistics from precomputed keys/losses (torch-free).
+
+    Semantics identical to train.py's compute_shared_contexts: a context is
+    represented by its LAST occurrence within each probe set; shared contexts
+    are those present in both sets; per-exact-f train/val mean and gap.
+    """
+    train_key_np = np.ascontiguousarray(train_key_np).ravel()
+    train_loss_np = np.asarray(train_loss_np, dtype=np.float64).ravel()
+    val_key_np = np.ascontiguousarray(val_key_np).ravel()
+    val_loss_np = np.asarray(val_loss_np, dtype=np.float64).ravel()
+    # last occurrence per context: unique on the reversed array yields the
+    # index of the first occurrence in reversed order == last in original.
+    tu, t_last = np.unique(train_key_np[::-1], return_index=True)
+    train_last_loss = train_loss_np[::-1][t_last]
+    vu, v_last = np.unique(val_key_np[::-1], return_index=True)
+    val_last_loss = val_loss_np[::-1][v_last]
+    shared, t_idx, v_idx = np.intersect1d(tu, vu, assume_unique=True, return_indices=True)
+    per_f = {}
+    if len(shared):
+        f_arr = freq_index.hit_count_numpy(branch, shared)
+        train_shared = train_last_loss[t_idx]
+        val_shared = val_last_loss[v_idx]
+        for f in np.unique(f_arr):
+            m = f_arr == f
+            n = int(m.sum())
+            t_sum = float(train_shared[m].sum())
+            v_sum = float(val_shared[m].sum())
+            per_f[int(f)] = {
+                "f": int(f),
+                "shared_contexts": n,
+                "train_mean": t_sum / n,
+                "val_mean": v_sum / n,
+                "gap": (v_sum - t_sum) / n,
+            }
+    return {"shared_total": int(len(shared)), "per_f": per_f, "branch": branch}
+
+
 @torch.no_grad()
-def compute_per_token_loss(model, inp: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
-    """Returns (B, T) per-token cross-entropy loss (no reduction)."""
-    logits = model(inp)  # (B, T, V)
+def compute_per_token_loss(model, inp: torch.Tensor, tgt: torch.Tensor,
+                           amp_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+    """Returns (B, T) per-token cross-entropy loss (no reduction).
+
+    amp_dtype: optional autocast dtype (e.g. torch.bfloat16) for the model
+    forward — matches evaluate_val's numerics. The cross-entropy itself always
+    runs in fp32 on upcast logits, so the returned loss is fp32 either way.
+    """
+    if amp_dtype is not None and inp.is_cuda:
+        with torch.autocast("cuda", dtype=amp_dtype):
+            logits = model(inp)
+    else:
+        logits = model(inp)
     loss = F.cross_entropy(
         logits.float().view(-1, logits.size(-1)),
         tgt.view(-1), ignore_index=-1, reduction="none").view(tgt.size())
