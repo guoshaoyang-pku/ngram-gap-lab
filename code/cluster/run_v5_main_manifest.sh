@@ -46,6 +46,17 @@ case "$GROUP" in
       "nglab1x_nogram_v5_freq10|1|2,3,4,5,6,7,8,9,10,6542|2000|--enable_bigram 0 --enable_trigram 0"
     )
     ;;
+  inj_fd)
+    # fast-diag rerun of the main 4 arms: bf16 diagnostic forwards + async CPU
+    # aggregation. Training dynamics identical; diagnostics shift only at
+    # bf16-noise level. Baseline family: *_v5_128x_freq10_fixed.
+    SPECS=(
+      "nglab1x_input_v5_128x_freq10_fd|1|2,3,4,5,6,7,8,9,10,6542|2000|"
+      "nglab1x_y_v5_128x_freq10_fd|1|2,3,4,5,6,7,8,9,10,6542|2000|--injection_position y"
+      "nglab1x_v_v5_128x_freq10_fd|1|2,3,4,5,6,7,8,9,10,6542|2000|--injection_position v"
+      "nglab1x_nogram_v5_128x_freq10_fd|1|2,3,4,5,6,7,8,9,10,6542|2000|--enable_bigram 0 --enable_trigram 0"
+    )
+    ;;
   dose)
     SPECS=(
       "nglab0_25x_input_v5|62|2,3,4,5,6,7,8,9,10,6542|2000|"
