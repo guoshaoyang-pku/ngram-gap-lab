@@ -81,13 +81,13 @@ def make(version):
 
         w = 0.42
         ax.bar(xs - w / 2, np.maximum(train_counts, 0.5), width=w, color="#2d6f9f",
-               alpha=0.85, label="train tokens (full epoch)" if branch == "bigram" else None)
+               alpha=0.72, label="train tokens (full epoch)" if branch == "bigram" else None)
         ax.bar(xs + w / 2, np.maximum(val_counts, 0.5), width=w, color="#c4493d",
-               alpha=0.85,
+               alpha=0.72,
                label=("val tokens (fixed set)" if version == "raw"
                       else "val tokens x84.3 (totals matched)") if branch == "bigram" else None)
         ax.set_yscale("log")
-        ax.set_ylim(0.5, 3e8)
+        ax.set_ylim(1e4 if version == "raw" else 1e5, 10**7.5)
         ax.set_xticks(xs)
         ax.set_xticklabels(labels, rotation=55, ha="right", fontsize=7)
         ax.set_xlabel(f"{branch} context train hit-count f (log-spaced buckets)")

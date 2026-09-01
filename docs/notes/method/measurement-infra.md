@@ -14,3 +14,18 @@
 | β₂ | 所有 scaling run 显式 `--table_betas 0.0,0.99`（train.py 默认值已同步为 0.99） |
 | 分析脚本 | `docs/plot_scripts/analyze_scaling_epoch.py` / `_frequency.py` / `_table.py`；`code/cluster/run_scaling_epoch.sh` / `run_scaling_table.sh` 是 **legacy table 溯源 launcher**，新 clean-table scaling 必须在专属 launcher 中显式传 `--*_clean_table R` |
 | 结果目录 | `data/runs_scaling/`（新 namespace，不与历史 `runs_fixed/` 混用） |
+
+## fast-diag 标准测量管线（2026-09-01 拍板，commit 100619d）
+
+每 10 步的 eval block 从 ~21s 降到 ~1.5s（2000 步 run 77 min → 10–19 min）。三项改动：
+
+1. **诊断 forward bf16**：`compute_per_token_loss(amp_dtype=)` 进 autocast，与 `evaluate_val` 同口径；cross-entropy 仍在 fp32 logits 上算，返回值是 fp32。
+2. **ptl 复用**：shared-context 与 exact-freq 共用同一次 forward 的 per-token loss（原来重复 16 次 fp32 forward）。
+3. **异步 CPU 聚合**：`code/diag_worker.py` 后台进程（fork 继承 freq index）做 searchsorted 查找 + 分桶/共享聚合；主进程每 block 仅 8+4 次 bf16 forward，把 (keys, ptl) numpy 入队。`NGLAB_ASYNC_DIAG=0` 回退同步路径。
+
+| 项 | 说明 |
+|---|---|
+| 等价性 | searchsorted 与 dict.get 逐 key 全等（25 万键实测）；numpy 聚合路径与纯 dict 参考逐值相等；异步 worker 与同步计算一致。单测脚本见 `experiment-log.md` §47 |
+| 语义变更 | 诊断量（exact-freq / freq-bin val / shared）forward 由 fp32 → bf16，桶 mean 差 ~0.02–0.06（相对 0.3–0.8%）；val 主指标与训练路径不变。**此类 run_id 加 `_fd` 后缀**；诊断曲线不跨后缀混画单条 |
+| summary 字段 | `diag_forward_dtype`（"bf16"/"fp32"/null）、`diag_async`（bool） |
+| 数据完整性 | 行尾统一 `close_and_drain`，exact_freq/freq_bin 行数与 train_log eval 行数严格对齐（2000 步 → 各 200 行） |

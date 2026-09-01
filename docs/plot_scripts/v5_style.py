@@ -21,7 +21,7 @@ ARM_COLORS = {
     "v": "#c58a0b",
     "nogram": "#686d73",
 }
-BRANCH_COLORS = {"bigram": "#14736f", "trigram": "#c56c0b"}
+BRANCH_COLORS = {"bigram": "#14736f", "trigram": "#7b4fa6"}
 ERA_COLORS = {"2x": "#9aa3ad", "128x": "#2d6f9f"}
 FIT_COLOR = "#1a7f37"
 HOLDOUT_COLOR = "#c4493d"
