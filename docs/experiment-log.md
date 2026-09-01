@@ -3805,7 +3805,7 @@ val 主指标（evaluate_val 本就 bf16）与训练路径完全不变 → 新 r
 | `nglab1x_input_v5_128x_freq10_fd` | 1.271 | 6.947 | **5.676** | 5.672 | +0.004 | 18.7 min |
 | `nglab1x_y_v5_128x_freq10_fd` | 1.179 | 6.507 | **5.328** | 5.248 | +0.080 | 11.9 min |
 | `nglab1x_v_v5_128x_freq10_fd` | 0.355 | 8.161 | **7.806** | 7.648 | +0.158 | 11.5 min |
-| `nglab1x_nogram_v5_128x_freq10_fd` | 3.570 | 3.803 | **0.233** | 0.227 | +0.005 | 10.3 min |
+| `nglab1x_nogram_v5_128x_freq10_fd` | 3.108 | 3.340 | **0.233** | 0.227 | +0.005 | 10.3 min |
 
 **曲线等价性**（`docs/figs/main/fig_v5_fd_vs_old_curves.png`）：新旧 train/val/gap 曲线全程重叠；
 逐点 Δ 从 step ~300 起混沌放大（FP 噪声经训练动力学放大，GPU matmul 算法选择对内存布局敏感），
