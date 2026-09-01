@@ -3776,3 +3776,44 @@ owner token mass（行内 dominant context 持有份额）。
   `theory_hash_collision_mass.csv`。注意：freq_index.npz 的 key 是 packed context id
   （prev·V+cur 等），不是表行——必须先分解回 token id 再过 hash，直接 key%R 会低估
   occupied（错把均匀 id 分布当 hash 分布）。
+
+## §47 · fast-diag 测量管线 + 主实验四臂 fd 重刷（2026-09-01，用户拍板）
+
+**动机**：eval block 剖析发现每 10 步的评占比 ~90% wall time（2000 步 run 77 min 中训练仅 226 s/1000 步）。
+构成：36 次 fp32 诊断 forward（exact_freq 16 + shared 16 + freq_bin val 4，`compute_per_token_loss`
+从不进 autocast）+ CPU 侧 `np.vectorize` dict 查找聚合。用户拍板：诊断 forward 换 bf16（与
+evaluate_val 同口径）+ ptl 缓存复用 + 后台 CPU 进程异步聚合。
+
+**代码**（commit 100619d + manifest 2c279d92；md5 已核对 ophis-gpu）：
+- `ngram_freq.py`：`hit_count_numpy`（searchsorted，与 dict.get 逐 key 等价实测）、
+  `ExactFreqLossAccumulator.update_numpy`、`FreqBinLossAccumulator.update_numpy`、
+  `compute_shared_from_keys`（向量化，保留 last-occurrence 语义）、`compute_per_token_loss(amp_dtype=)`
+- `diag_worker.py`（新）：torch-free 后台 worker（fork 继承 freq index），主进程每 eval block
+  仅 8+4 次 bf16 forward，(keys, ptl) 入队；`NGLAB_ASYNC_DIAG=0` 回退同步路径
+- `train.py`：统一 diag block（12 次 bf16 forward/block，原 40 次 fp32）；行尾 flush；
+  summary 记录 `diag_forward_dtype`/`diag_async`
+- 等价性单测（ophis CPU）：searchsorted==dict（250k keys 全等）、exact-freq/shared/freq-bin
+  numpy 路径==纯 dict 参考、异步 worker==同步计算
+
+**语义变更**：诊断量（exact-freq / freq-bin val / shared）forward 由 fp32 → bf16；
+val 主指标（evaluate_val 本就 bf16）与训练路径完全不变 → 新 run_id 后缀 `_fd`。
+
+**四臂重刷**（全部 ✅ done，ophis-gpu gpu5，seed 42，128×，2k steps，val/freq=10）：
+
+| run_id | final train | final val | final gap @2k | 旧 fp32-diag gap | Δgap | wall time |
+|---|---|---|---|---|---|---|
+| `nglab1x_input_v5_128x_freq10_fd` | 1.271 | 6.947 | **5.676** | 5.672 | +0.004 | 18.7 min |
+| `nglab1x_y_v5_128x_freq10_fd` | 1.179 | 6.507 | **5.328** | 5.248 | +0.080 | 11.9 min |
+| `nglab1x_v_v5_128x_freq10_fd` | 0.355 | 8.161 | **7.806** | 7.648 | +0.158 | 11.5 min |
+| `nglab1x_nogram_v5_128x_freq10_fd` | 3.570 | 3.803 | **0.233** | 0.227 | +0.005 | 10.3 min |
+
+**曲线等价性**（`docs/figs/main/fig_v5_fd_vs_old_curves.png`）：新旧 train/val/gap 曲线全程重叠；
+逐点 Δ 从 step ~300 起混沌放大（FP 噪声经训练动力学放大，GPU matmul 算法选择对内存布局敏感），
+幅度始终在批间噪声尺度（±0.1–0.4）内；10 段均值 Δ≈0。最终 Δgap（最大 0.158 @v）
+在历史 seed 复现差（±0.16）之内。结论：**训练动力学等价，现象与判决不变**。
+
+**诊断量 bf16 效应**：freq-bin val trigram 各桶 mean_loss 新旧差 ~0.02–0.06（相对 ~0.3–0.8%），
+低频桶略大，符合 bf16 精度预期；旧 `_fd` 前数据仍可作 fp32 诊断参考，不建议跨后缀混画单条曲线。
+
+**提速**：eval block ~21 s → ~1.5 s（-93%）；2000 步 run 77 min → 10–19 min（4–7×）。
+后续所有 freq=10 run 默认走该管线。
