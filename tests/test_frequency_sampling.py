@@ -1,6 +1,16 @@
+import sys
 import unittest
+from pathlib import Path
 
-from train import fixed_probe_center_steps, frequency_sample_reason
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "code"))
+
+from train import (
+    fixed_gram_sample_reason,
+    fixed_probe_center_steps,
+    frequency_sample_reason,
+)
 
 
 class FrequencySamplingTests(unittest.TestCase):
@@ -30,6 +40,30 @@ class FrequencySamplingTests(unittest.TestCase):
             frequency_sample_reason(500, 337, 50, 10, 5, 1000, centers, 10, 5),
             "interval",
         )
+
+    def test_fixed_gram_epoch_relative_schedule(self):
+        offsets = (-10, -5, -1, 0, 1, 5, 10)
+        sampled = {
+            step
+            for step in range(1, 1001)
+            if fixed_gram_sample_reason(step, 337, 1000, 0, offsets) is not None
+        }
+        self.assertEqual(
+            sampled,
+            {
+                328, 333, 337, 338, 339, 343, 348,
+                665, 670, 674, 675, 676, 680, 685,
+                1000,
+            },
+        )
+
+    def test_online_epoch_window_can_sample_every_step(self):
+        sampled = {
+            step
+            for step in range(300, 370)
+            if frequency_sample_reason(step, 337, 50, 20, 1, 1000, [], 0, 1)
+        }
+        self.assertTrue(set(range(317, 358)).issubset(sampled))
 
 
 if __name__ == "__main__":

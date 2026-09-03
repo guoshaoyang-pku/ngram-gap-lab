@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
-# Baseline input-injection run with the fixed train probe centered in a replay
-# epoch.  Dense checkpoints are deliberately sparse: five points (center +/-
-# 10, spacing 5) around each epoch boundary and each probe position.
-# Usage: ./run_baseline_input_midprobe.sh [gpu_id] [steps]
+# Stage 1 RMSProp ablation. Only table beta2 and table LR scale vary.
+# Usage: ./run_rmsprop_stage1.sh GPU RUN_ID BETA2 TABLE_LR_SCALE [STEPS]
 set -euo pipefail
 
-GPU="${1:-0}"
-STEPS="${2:-1000}"
+GPU="${1:?GPU id is required}"
+RUN_ID="${2:?run id is required}"
+BETA2="${3:?table beta2 is required}"
+TABLE_LR_SCALE="${4:?table LR scale is required}"
+STEPS="${5:-1000}"
 
 ROOT=/data/home/yushanbin/ngram-gap-shaoyang-2
 PY=/usr/bin/python3
-RUN_ID="${RUN_ID:-nglab_baseline_input_midprobe_sparse_20260812}"
+OUT="$ROOT/data/runs/$RUN_ID"
+# Every Stage 1 condition uses the same deterministic fixed-gram occurrence
+# sample. Reuse the already validated baseline manifest rather than having
+# concurrent runs rescan the full shard set independently.
+MANIFEST_SOURCE="$ROOT/data/runs/nglab_baseline_input_midprobe_sparse_20260812/fixed_gram_probe_manifest.json"
 
-mkdir -p "$ROOT/data/runs/$RUN_ID"
-
+mkdir -p "$OUT"
+if [[ ! -f "$OUT/fixed_gram_probe_manifest.json" ]]; then
+  [[ -f "$MANIFEST_SOURCE" ]] || {
+    echo "missing shared fixed-gram manifest: $MANIFEST_SOURCE" >&2
+    exit 1
+  }
+  cp "$MANIFEST_SOURCE" "$OUT/fixed_gram_probe_manifest.json"
+fi
 CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --run_id "$RUN_ID" \
   --injection_position input \
@@ -29,6 +40,8 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --val_batches 4 \
   --table_norm_interval 10 \
   --lr 0.004 \
+  --table_beta2 "$BETA2" \
+  --table_lr_scale "$TABLE_LR_SCALE" \
   --enable_unigram 0 \
   --enable_bigram 1 \
   --enable_trigram 1 \
@@ -48,6 +61,6 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --online_frequency_val_batches 1 \
   --fixed_probe_batches 4 \
   --fixed_probe_train_offset_steps 168 \
-  > "$ROOT/data/runs/$RUN_ID/train.log" 2>&1
+  > "$OUT/train.log" 2>&1
 
 echo "Run data complete. Generate the consolidated report locally with docs/generate_report.py after syncing data/runs/."

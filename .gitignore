@@ -1,5 +1,5 @@
 # data directory (gitignored — large files, not tracked)
-data/
+/data/
 
 # Python
 __pycache__/
@@ -25,5 +25,5 @@ runs/
 *.pt
 *.ckpt
 
-# Plots (keep svg/html in docs/figs, ignore raw data dumps)
+# Plot inputs (the frozen docs/data JSON snapshot is intentionally tracked)
 *.npz

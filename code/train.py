@@ -20,8 +20,9 @@ Outputs JSONL logs under data/runs/<run_id>/:
   - summary.json      : final gap + config snapshot
   - table_norm.jsonl  : periodic table param RMS (every TABLE_NORM_INTERVAL steps)
   - online_loss.jsonl : actual writer-batch loss at every optimizer step
+  - online_gap.jsonl  : lightweight moving validation gap at selected steps
   - online_frequency_gap_contribution.jsonl : moving train/val bucket contribution
-  - fixed_probe_frequency_gap_contribution.jsonl : fixed train/val probe contribution
+  - fixed_probe_frequency_gap_contribution.jsonl : optional fixed train/val probe contribution
   - fixed_gram_frequency_gap_contribution.jsonl : fixed bucket-stratified occurrence gap
 
 Usage:
@@ -32,9 +33,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
+import shutil
 import sys
 import time
 import random
@@ -71,6 +74,7 @@ class Config:
     # optimizer
     nanogpt_adam_lr: float = 0.004
     ngram_table_betas: tuple = (0.0, 0.999)
+    ngram_table_lr_scale: float = 1.0
     adam_betas: tuple = (0.8, 0.95)
     weight_decay: float = 0.1
     # training
@@ -88,6 +92,8 @@ class Config:
     val_shards: list = field(default_factory=list)    # list of shard indices for val
     data_mode: str = "fixed"    # fixed = deterministic epoch replay
     data_seed: int = 42
+    order_seed: int = 42
+    train_order: str = "sequential"
     # output
     out_dir: str = ""
 
@@ -337,6 +343,32 @@ class NanoGPT(nn.Module):
                 nn.Embedding(self.trigram_table_size, config.n_embd - half_dim),
             ])
             self.trigram_hash_primes_per_layer[li] = _tp[j]
+        # Optional plain helper (not a submodule and not checkpointed).  It is
+        # configured after the model is moved to its training device.
+        self.exact_frequency_mask = None
+
+    def set_exact_frequency_mask(self, mask) -> None:
+        if mask is not None and int(mask.vocab_size) != self.config.vocab_size:
+            raise ValueError(
+                f"frequency-mask vocab {mask.vocab_size} != model vocab "
+                f"{self.config.vocab_size}"
+            )
+        self.exact_frequency_mask = mask
+
+    def _context_tokens_and_masks(self, idx):
+        prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)
+        prev2_idx = torch.cat([idx[:, :2], idx[:, :-2]], dim=1)
+        if self.exact_frequency_mask is None:
+            return prev_idx, prev2_idx, None, None
+        bigram_active, trigram_active = self.exact_frequency_mask.activity_masks(
+            idx, prev_idx, prev2_idx)
+        return prev_idx, prev2_idx, bigram_active, trigram_active
+
+    @staticmethod
+    def _apply_activity_mask(value, active):
+        if value is None or active is None:
+            return value
+        return value * active.unsqueeze(-1).to(dtype=value.dtype)
 
     @torch.no_grad()
     def init_weights(self):
@@ -365,12 +397,11 @@ class NanoGPT(nn.Module):
                 if g is not None:
                     torch.nn.init.zeros_(g.weight)
 
-    def _compute_input_ngram_residual(self, idx):
+    def _compute_input_ngram_residual(self, idx, prev_idx, prev2_idx,
+                                      bigram_active=None, trigram_active=None):
         """Over-encoding: sum all enabled layers' n-gram values, no gate."""
         _B, T = idx.size()
         residual = None
-        prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)
-        prev2_idx = torch.cat([idx[:, :2], idx[:, :-2]], dim=1)
         if self.config.enable_unigram_ve:
             for li in sorted(self.value_embeds.keys()):
                 ve = self.value_embeds[li](idx)
@@ -381,6 +412,7 @@ class NanoGPT(nn.Module):
                 primes = self.bigram_hash_primes_per_layer[li]
                 idxs = [((prev_idx * p1) ^ (idx * p2)) % self.bigram_table_size for p1, p2 in primes]
                 bgve = torch.cat([lvs[k](idxs[k]) for k in range(self.bigram_K)], dim=-1)
+                bgve = self._apply_activity_mask(bgve, bigram_active)
                 residual = bgve if residual is None else residual + bgve
         if self.config.enable_trigram_ve:
             for li in sorted(self.trigram_ve_layers):
@@ -391,6 +423,7 @@ class NanoGPT(nn.Module):
                 )
                 lvs = self.trigram_ves[str(li)]
                 tgve = torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
+                tgve = self._apply_activity_mask(tgve, trigram_active)
                 residual = tgve if residual is None else residual + tgve
         if residual is None:
             residual = torch.zeros(idx.size(0), T, self.config.n_embd,
@@ -399,14 +432,16 @@ class NanoGPT(nn.Module):
 
     def forward(self, idx, targets=None, reduction: str = "mean"):
         B, T = idx.size()
+        prev_idx, prev2_idx, bigram_active, trigram_active = (
+            self._context_tokens_and_masks(idx)
+        )
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device).unsqueeze(0)
         x = self.transformer.wte(idx)
         x = x + self.transformer.wpe(pos)
         if self.config.nanogpt_ngram_injection_position == "input":
-            x = x + self._compute_input_ngram_residual(idx)
+            x = x + self._compute_input_ngram_residual(
+                idx, prev_idx, prev2_idx, bigram_active, trigram_active)
         x = self.transformer.drop(x)
-        prev_idx = torch.cat([idx[:, :1], idx[:, :-1]], dim=1)
-        prev2_idx = torch.cat([idx[:, :2], idx[:, :-2]], dim=1)
         bigram_indices = {}
         if self.config.enable_bigram_ve:
             for li in self.bigram_ve_layers:
@@ -430,11 +465,13 @@ class NanoGPT(nn.Module):
                 lvs = self.bigram_ves[str(i)]
                 bi = bigram_indices[i]
                 bgve = torch.cat([lvs[k](bi[k]) for k in range(self.bigram_K)], dim=-1)
+                bgve = self._apply_activity_mask(bgve, bigram_active)
             tgve = None
             if self.config.enable_trigram_ve and i in self.trigram_ve_layers:
                 ti = trigram_indices[i]
                 lvs = self.trigram_ves[str(i)]
                 tgve = torch.cat([lvs[0](ti[0]), lvs[1](ti[1])], dim=-1)
+                tgve = self._apply_activity_mask(tgve, trigram_active)
             x = block(x, ve=ve, bigram_ve=bgve, trigram_ve=tgve)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
@@ -462,10 +499,11 @@ class MixedOptimizer:
     """
 
     def __init__(self, model: nn.Module, lr: float, ngram_betas, adam_betas,
-                 weight_decay: float):
+                 weight_decay: float, ngram_lr_scale: float = 1.0):
         self.model = model
         self.lr = lr
         self.ngram_beta2 = ngram_betas[1]
+        self.ngram_lr_scale = ngram_lr_scale
         self.adam_betas = adam_betas
         self.weight_decay = weight_decay
         self.adam_steps = {}
@@ -538,17 +576,67 @@ class MixedOptimizer:
 
     def step(self, lr_mult: float = 1.0):
         lr_t = self.lr * lr_mult
+        ngram_lr_t = lr_t * self.ngram_lr_scale
         with torch.no_grad():
             for name, p in self.adam_params:
                 self._adamw_step(name, p, lr_t)
             for name, p in self.ngram_params:
-                self._rmsprop_step(name, p, lr_t)
+                self._rmsprop_step(name, p, ngram_lr_t)
 
     def state_dict(self):
         return {
             "adam_steps": dict(self.adam_steps),
+            "adam_exp_avg": dict(self.adam_exp_avg),
+            "adam_exp_avg_sq": dict(self.adam_exp_avg_sq),
             "rms_steps": dict(self.rms_steps),
+            "rms_exp_avg_sq": dict(self.rms_exp_avg_sq),
+            "hyperparameters": {
+                "lr": self.lr,
+                "ngram_beta2": self.ngram_beta2,
+                "ngram_lr_scale": self.ngram_lr_scale,
+                "adam_betas": self.adam_betas,
+                "weight_decay": self.weight_decay,
+            },
         }
+
+    def load_state_dict(self, state):
+        expected = {
+            "lr": self.lr,
+            "ngram_beta2": self.ngram_beta2,
+            "ngram_lr_scale": self.ngram_lr_scale,
+            "adam_betas": self.adam_betas,
+            "weight_decay": self.weight_decay,
+        }
+        actual = state.get("hyperparameters", {})
+        if actual and actual != expected:
+            raise ValueError(
+                f"optimizer checkpoint hyperparameters differ: {actual} != {expected}"
+            )
+        adam_params = dict(self.adam_params)
+        ngram_params = dict(self.ngram_params)
+
+        def restore_tensor_map(source, parameters, label):
+            unknown = set(source) - set(parameters)
+            if unknown:
+                raise ValueError(f"unknown {label} parameters in checkpoint: {sorted(unknown)}")
+            return {
+                name: value.to(
+                    device=parameters[name].device, dtype=parameters[name].dtype
+                ).clone()
+                for name, value in source.items()
+            }
+
+        self.adam_steps = {name: int(value) for name, value in state["adam_steps"].items()}
+        self.adam_exp_avg = restore_tensor_map(
+            state["adam_exp_avg"], adam_params, "Adam exp_avg"
+        )
+        self.adam_exp_avg_sq = restore_tensor_map(
+            state["adam_exp_avg_sq"], adam_params, "Adam exp_avg_sq"
+        )
+        self.rms_steps = {name: int(value) for name, value in state["rms_steps"].items()}
+        self.rms_exp_avg_sq = restore_tensor_map(
+            state["rms_exp_avg_sq"], ngram_params, "RMSProp exp_avg_sq"
+        )
 
 
 def get_lr_multiplier(progress: float, warmdown_ratio: float = 0.65) -> float:
@@ -578,15 +666,33 @@ class TokenizedShardDataset:
     """
 
     def __init__(self, data_dir: str, shard_ids: list, sequence_len: int,
-                 device_batch_size: int, seed: int = 42):
+                 device_batch_size: int, seed: int = 42,
+                 train_order: str = "sequential",
+                 logical_batch_size: Optional[int] = None):
         self.data_dir = data_dir
         self.shard_ids = list(shard_ids)
         self.sequence_len = sequence_len
         self.chunk_size = sequence_len + 1
         self.device_batch_size = device_batch_size
         self.seed = seed
+        if train_order not in {
+            "sequential", "frozen_permutation", "epoch_reshuffle",
+            "sequential_then_reshuffle",
+        }:
+            raise ValueError(f"unknown train order: {train_order}")
+        self.train_order = train_order
+        self.logical_batch_size = logical_batch_size
+        if logical_batch_size is not None:
+            if logical_batch_size <= 0:
+                raise ValueError("logical batch size must be positive")
+            if logical_batch_size % device_batch_size != 0:
+                raise ValueError(
+                    "logical batch size must be divisible by device batch size"
+                )
         self._buffers = {}
         self._epoch = 0
+        self._current_logical_batch_id = None
+        self._chunk_refs_cache = None
         # total tokens per shard (lazy)
         self._shard_lens = {}
 
@@ -618,8 +724,77 @@ class TokenizedShardDataset:
                 tgt = torch.from_numpy(chunk[1:])
                 yield inp, tgt
 
+    def _chunk_refs(self):
+        if self._chunk_refs_cache is None:
+            refs = []
+            for sid in self.shard_ids:
+                refs.extend((sid, index) for index in range(self.shard_chunks(sid)))
+            self._chunk_refs_cache = refs
+        return self._chunk_refs_cache
+
+    def logical_batches_per_epoch(self) -> int:
+        if self.logical_batch_size is None:
+            raise ValueError("logical batch size is not configured")
+        total = self.total_chunks()
+        if total % self.logical_batch_size:
+            raise ValueError(
+                "training chunks must divide exactly into logical optimizer batches: "
+                f"chunks={total}, logical_batch_size={self.logical_batch_size}"
+            )
+        return total // self.logical_batch_size
+
+    def logical_batch_order(self, epoch: int) -> list[int]:
+        """Return the deterministic logical optimizer-batch order for an epoch."""
+        count = self.logical_batches_per_epoch()
+        if self.train_order == "sequential":
+            return list(range(count))
+        if self.train_order == "sequential_then_reshuffle" and epoch == 0:
+            return list(range(count))
+        order_epoch = 0 if self.train_order == "frozen_permutation" else epoch
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, order_epoch]))
+        return [int(value) for value in rng.permutation(count)]
+
+    def logical_batch_order_record(self, epoch: int) -> dict:
+        order = self.logical_batch_order(epoch)
+        encoded = np.asarray(order, dtype=np.int32).tobytes()
+        return {
+            "epoch": epoch + 1,
+            "order": order,
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+            "first_batch_id": order[0],
+            "last_batch_id": order[-1],
+        }
+
+    def _load_chunk_ref(self, ref):
+        sid, index = ref
+        buf = self._load_shard(sid)
+        start = index * self.chunk_size
+        chunk = np.array(buf[start:start + self.chunk_size], dtype=np.int64)
+        return torch.from_numpy(chunk[:-1]), torch.from_numpy(chunk[1:])
+
     def iter_batches(self, device: torch.device):
-        """Yield (inputs, targets) batches of shape (B, T) in fixed order, looping forever."""
+        """Yield device batches, optionally permuting hardware-independent logical batches."""
+        if self.logical_batch_size is not None:
+            refs = self._chunk_refs()
+            logical_count = self.logical_batches_per_epoch()
+            while True:
+                for logical_id in self.logical_batch_order(self._epoch):
+                    self._current_logical_batch_id = logical_id
+                    start = logical_id * self.logical_batch_size
+                    logical_refs = refs[start:start + self.logical_batch_size]
+                    for offset in range(0, self.logical_batch_size, self.device_batch_size):
+                        items = [
+                            self._load_chunk_ref(ref)
+                            for ref in logical_refs[offset:offset + self.device_batch_size]
+                        ]
+                        yield (
+                            torch.stack([item[0] for item in items]).to(device),
+                            torch.stack([item[1] for item in items]).to(device),
+                        )
+                self._epoch += 1
+                self._current_logical_batch_id = None
+            return
+
         batch_inp, batch_tgt = [], []
         while True:
             for inp, tgt in self._iter_chunks():
@@ -664,6 +839,17 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
 
 
+def file_sha256(path: str, block_size: int = 8 * 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while True:
+            block = handle.read(block_size)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def evaluate_val(model: NanoGPT, val_loader, val_batches: int) -> float:
     model.eval()
     losses = []
@@ -674,6 +860,22 @@ def evaluate_val(model: NanoGPT, val_loader, val_batches: int) -> float:
             losses.append(loss.item())
     model.train()
     return float(np.mean(losses)) if losses else float("nan")
+
+
+def loss_summary_from_batches(model: NanoGPT, batches) -> float:
+    """Mean token loss for supplied batches without advancing another iterator."""
+    was_training = model.training
+    model.eval()
+    loss_sum = 0.0
+    token_count = 0
+    with torch.no_grad():
+        for inp, tgt in batches:
+            per_token = model(inp, targets=tgt, reduction="none")
+            loss_sum += float(per_token.sum().item())
+            token_count += per_token.numel()
+    if was_training:
+        model.train()
+    return loss_sum / max(1, token_count)
 
 
 def evaluate_freq_bins(model: NanoGPT, loader, freq_index, n_batches: int,
@@ -744,6 +946,17 @@ def contribution_gap(train_frequency: dict, val_frequency: dict) -> dict:
     return out
 
 
+def model_parameter_sha256(model: nn.Module) -> str:
+    """Hash the exact parameter state used to fork paired continuations."""
+    digest = hashlib.sha256()
+    for name, value in sorted(model.state_dict().items()):
+        digest.update(name.encode("utf-8"))
+        digest.update(str(value.dtype).encode("ascii"))
+        digest.update(np.asarray(value.shape, dtype=np.int64).tobytes())
+        digest.update(value.detach().cpu().contiguous().numpy().tobytes())
+    return digest.hexdigest()
+
+
 def collect_fixed_probe(dataset: TokenizedShardDataset, device: torch.device,
                         n_batches: int, offset_batches: int = 0
                         ) -> list[tuple[torch.Tensor, torch.Tensor]]:
@@ -794,6 +1007,36 @@ def frequency_sample_reason(step: int, steps_per_epoch: int, interval: int,
     return "+".join(reasons) if reasons else None
 
 
+def online_gap_sample_reason(step: int, steps_per_epoch: int, max_steps: int,
+                             interval: int,
+                             boundary_offsets: tuple[int, ...]) -> Optional[str]:
+    """Sparse schedule for overall online val-minus-writer-train gap."""
+    if interval > 0 and step % interval == 0:
+        return "interval"
+    if steps_per_epoch <= 0:
+        return None
+    for boundary in range(steps_per_epoch, max_steps + 1, steps_per_epoch):
+        offset = step - boundary
+        if offset in boundary_offsets:
+            return f"epoch_boundary_{offset:+d}"
+    return None
+
+
+def fixed_gram_sample_reason(step: int, steps_per_epoch: int, max_steps: int,
+                             interval: int, epoch_relative_steps: tuple[int, ...]
+                             ) -> Optional[str]:
+    """Return the independent fixed-gram schedule reason for a 1-based step."""
+    if step == max_steps:
+        return "final"
+    if interval > 0 and step % interval == 0:
+        return "interval"
+    for epoch_start in range(steps_per_epoch + 1, max_steps + 1, steps_per_epoch):
+        relative = step - epoch_start
+        if relative in epoch_relative_steps:
+            return f"epoch_relative_{relative:+d}"
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_id", default="run")
@@ -801,6 +1044,30 @@ def main():
                         choices=["v", "y", "input"])
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--data_seed", type=int, default=None,
+                        help="seed for data/probe iterators; defaults to --seed")
+    parser.add_argument("--order_seed", type=int, default=None,
+                        help="independent logical training-batch order seed")
+    parser.add_argument(
+        "--train_order", default="sequential",
+        choices=[
+            "sequential", "frozen_permutation", "epoch_reshuffle",
+            "sequential_then_reshuffle",
+        ],
+        help="logical optimizer-batch order across replay epochs",
+    )
+    parser.add_argument(
+        "--stop_after_step", type=int, default=None,
+        help="stop after this global step while preserving the --steps LR schedule",
+    )
+    parser.add_argument(
+        "--save_checkpoint_step", type=int, default=None,
+        help="save a complete resumable checkpoint after this optimizer step",
+    )
+    parser.add_argument(
+        "--resume_checkpoint", default="",
+        help="resume from a checkpoint saved at an epoch boundary",
+    )
     parser.add_argument("--data_dir", default=os.environ.get("NGLAB_DATA_DIR", ""))
     parser.add_argument("--out_dir", default=os.environ.get("NGLAB_OUT_DIR", "data/runs"))
     parser.add_argument("--train_shards", default=os.environ.get("NGLAB_TRAIN_SHARDS", "1"),
@@ -813,6 +1080,10 @@ def main():
     parser.add_argument("--val_batches", type=int, default=4)
     parser.add_argument("--table_norm_interval", type=int, default=10)
     parser.add_argument("--lr", type=float, default=0.004)
+    parser.add_argument("--table_beta2", type=float, default=0.999,
+                        help="RMSProp beta2 for n-gram tables; beta1 is fixed at zero")
+    parser.add_argument("--table_lr_scale", type=float, default=1.0,
+                        help="n-gram table LR multiplier relative to --lr and its schedule")
     parser.add_argument("--enable_unigram", type=int, default=0)
     parser.add_argument("--enable_bigram", type=int, default=1)
     parser.add_argument("--enable_trigram", type=int, default=1)
@@ -823,6 +1094,14 @@ def main():
     parser.add_argument("--sequence_len", type=int, default=2048)
     parser.add_argument("--freq_index", default="",
                         help="path to freq_index.npz; if set, enables freq-bin eval")
+    parser.add_argument(
+        "--ngram_mask_index", default="",
+        help="exact train-frequency index used only for cumulative n-gram masking",
+    )
+    parser.add_argument(
+        "--ngram_mask_threshold", default="",
+        help="empty disables masking; otherwise one of none, all, or an integer x",
+    )
     parser.add_argument("--freq_eval_interval", type=int, default=50)
     parser.add_argument("--freq_eval_batches", type=int, default=4)
     parser.add_argument("--legacy_freq_eval", action="store_true",
@@ -842,11 +1121,98 @@ def main():
                         help="step spacing for fixed train-probe dense sampling")
     parser.add_argument("--online_frequency_val_batches", type=int, default=1,
                         help="fresh moving validation batches per online checkpoint")
+    parser.add_argument(
+        "--online_gap_interval", type=int, default=0,
+        help="base interval for lightweight overall online gap; zero disables it",
+    )
+    parser.add_argument(
+        "--online_gap_epoch_offsets", default="",
+        help="comma-separated offsets from each replay-epoch end, e.g. -1,0,1",
+    )
+    parser.add_argument(
+        "--online_gap_val_batches", type=int, default=1,
+        help="moving validation batches per lightweight online-gap checkpoint",
+    )
+    parser.add_argument(
+        "--fixed_gram_epoch_relative_steps", default="",
+        help=("comma-separated steps relative to the first step of each new epoch; "
+              "empty reuses the online-frequency schedule"),
+    )
+    parser.add_argument(
+        "--fixed_gram_frequency_interval", type=int, default=None,
+        help="base fixed-gram interval when an independent schedule is enabled",
+    )
     parser.add_argument("--fixed_probe_batches", type=int, default=4,
                         help="deterministic train and validation batches kept for fixed-probe checks")
     parser.add_argument("--fixed_probe_train_offset_steps", type=int, default=0,
                         help="zero-based writer-step offset of the fixed train probe in each replay epoch")
     args = parser.parse_args()
+    if not 0.0 <= args.table_beta2 < 1.0:
+        raise ValueError("--table_beta2 must be in [0, 1)")
+    if args.table_lr_scale < 0.0:
+        raise ValueError("--table_lr_scale must be non-negative")
+    if args.fixed_probe_batches < 0:
+        raise ValueError("--fixed_probe_batches must be non-negative")
+    if args.online_gap_interval < 0:
+        raise ValueError("--online_gap_interval must be non-negative")
+    if args.online_gap_val_batches <= 0:
+        raise ValueError("--online_gap_val_batches must be positive")
+    mask_requested = bool(args.ngram_mask_threshold.strip())
+    mask_label = args.ngram_mask_threshold.strip().lower()
+    if mask_requested:
+        if mask_label == "none":
+            mask_threshold = None
+        elif mask_label == "all":
+            mask_threshold = "all"
+        else:
+            try:
+                mask_threshold = int(mask_label)
+            except ValueError as exc:
+                raise ValueError(
+                    "--ngram_mask_threshold must be none, all, or a non-negative integer"
+                ) from exc
+            if mask_threshold < 0:
+                raise ValueError("--ngram_mask_threshold integer must be non-negative")
+        if not args.ngram_mask_index or not os.path.isfile(args.ngram_mask_index):
+            raise FileNotFoundError(
+                f"missing --ngram_mask_index: {args.ngram_mask_index}"
+            )
+    else:
+        mask_threshold = None
+        if args.ngram_mask_index:
+            raise ValueError(
+                "--ngram_mask_index requires an explicit --ngram_mask_threshold"
+            )
+    try:
+        online_gap_epoch_offsets = tuple(sorted({
+            int(value.strip())
+            for value in args.online_gap_epoch_offsets.split(",")
+            if value.strip()
+        }))
+    except ValueError as exc:
+        raise ValueError("invalid --online_gap_epoch_offsets") from exc
+    online_gap_enabled = bool(args.online_gap_interval or online_gap_epoch_offsets)
+    stop_after_step = args.steps if args.stop_after_step is None else args.stop_after_step
+    if not 1 <= stop_after_step <= args.steps:
+        raise ValueError("--stop_after_step must be in [1, --steps]")
+    if args.save_checkpoint_step is not None and not 1 <= args.save_checkpoint_step <= stop_after_step:
+        raise ValueError("--save_checkpoint_step must be in [1, --stop_after_step]")
+    independent_fixed_gram_schedule = bool(args.fixed_gram_epoch_relative_steps.strip())
+    try:
+        fixed_gram_epoch_relative_steps = tuple(sorted({
+            int(value.strip())
+            for value in args.fixed_gram_epoch_relative_steps.split(",")
+            if value.strip()
+        }))
+    except ValueError as exc:
+        raise ValueError("invalid --fixed_gram_epoch_relative_steps") from exc
+    fixed_gram_frequency_interval = (
+        args.online_frequency_interval
+        if args.fixed_gram_frequency_interval is None
+        else args.fixed_gram_frequency_interval
+    )
+    if fixed_gram_frequency_interval < 0:
+        raise ValueError("--fixed_gram_frequency_interval must be non-negative")
 
     cfg = Config(
         vocab_size=args.vocab_size,
@@ -866,20 +1232,53 @@ def main():
         val_batches=args.val_batches,
         table_norm_interval_steps=args.table_norm_interval,
         nanogpt_adam_lr=args.lr,
+        ngram_table_betas=(0.0, args.table_beta2),
+        ngram_table_lr_scale=args.table_lr_scale,
         data_dir=args.data_dir,
         train_shards=[int(x) for x in args.train_shards.split(",") if x.strip()],
         val_shards=[int(x) for x in args.val_shards.split(",") if x.strip()],
+        data_seed=args.seed if args.data_seed is None else args.data_seed,
+        order_seed=(
+            (args.seed if args.data_seed is None else args.data_seed)
+            if args.order_seed is None else args.order_seed
+        ),
+        train_order=args.train_order,
         out_dir=os.path.join(args.out_dir, args.run_id),
     )
 
     set_seed(cfg.seed)
     os.makedirs(cfg.out_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[nglab] device={device} injection={cfg.nanogpt_ngram_injection_position} steps={cfg.max_steps}")
+    resume_state = None
+    start_step = 0
+    if args.resume_checkpoint:
+        resume_path = os.path.abspath(args.resume_checkpoint)
+        if not os.path.isfile(resume_path):
+            raise FileNotFoundError(f"missing resume checkpoint: {resume_path}")
+        resume_state = torch.load(resume_path, map_location="cpu", weights_only=False)
+        start_step = int(resume_state.get("step", -1))
+        if not 0 < start_step < stop_after_step:
+            raise ValueError(
+                f"resume step {start_step} must be in (0, stop_after_step={stop_after_step})"
+            )
+    print(f"[nglab] device={device} injection={cfg.nanogpt_ngram_injection_position} "
+          f"steps={cfg.max_steps} execute={start_step + 1}..{stop_after_step}")
+    print(f"[nglab] table_optimizer=rmsprop beta2={cfg.ngram_table_betas[1]:.6f} "
+          f"lr_scale={cfg.ngram_table_lr_scale:.6f} "
+          f"base_lr={cfg.nanogpt_adam_lr * cfg.ngram_table_lr_scale:.6g}")
 
     # data
-    train_ds = TokenizedShardDataset(cfg.data_dir, cfg.train_shards, cfg.sequence_len,
-                                     cfg.device_batch_size, cfg.data_seed)
+    if cfg.total_batch_size % cfg.sequence_len:
+        raise ValueError("total batch size must be divisible by sequence length")
+    logical_batch_size = cfg.total_batch_size // cfg.sequence_len
+    if logical_batch_size % cfg.device_batch_size:
+        raise ValueError("logical batch size must be divisible by device batch size")
+    grad_accum = logical_batch_size // cfg.device_batch_size
+    train_ds = TokenizedShardDataset(
+        cfg.data_dir, cfg.train_shards, cfg.sequence_len,
+        cfg.device_batch_size, cfg.order_seed,
+        train_order=cfg.train_order, logical_batch_size=logical_batch_size,
+    )
     val_ds = TokenizedShardDataset(cfg.data_dir, cfg.val_shards, cfg.sequence_len,
                                    cfg.device_batch_size, cfg.data_seed)
     train_iter = train_ds.iter_batches(device)
@@ -887,35 +1286,153 @@ def main():
     online_val_ds = TokenizedShardDataset(cfg.data_dir, cfg.val_shards, cfg.sequence_len,
                                           cfg.device_batch_size, cfg.data_seed)
     online_val_iter = online_val_ds.iter_batches(device)
-    grad_accum = max(1, cfg.total_batch_size // (cfg.device_batch_size * cfg.sequence_len))
+    online_gap_val_ds = (
+        TokenizedShardDataset(
+            cfg.data_dir, cfg.val_shards, cfg.sequence_len,
+            cfg.device_batch_size, cfg.data_seed,
+        )
+        if online_gap_enabled else None
+    )
+    online_gap_val_iter = (
+        online_gap_val_ds.iter_batches(device)
+        if online_gap_val_ds is not None else None
+    )
     full_train_batches_per_epoch = train_ds.total_chunks() // cfg.device_batch_size
-    steps_per_epoch = full_train_batches_per_epoch // grad_accum
+    steps_per_epoch = train_ds.logical_batches_per_epoch()
+    if (args.save_checkpoint_step is not None
+            and args.save_checkpoint_step % steps_per_epoch):
+        raise ValueError("--save_checkpoint_step must be a replay-epoch boundary")
+    if resume_state is not None:
+        if start_step % steps_per_epoch:
+            raise ValueError("resume checkpoints must be at a replay-epoch boundary")
+        train_ds._epoch = start_step // steps_per_epoch
+    fixed_probe_enabled = args.fixed_probe_batches > 0
     fixed_probe_offset_batches = args.fixed_probe_train_offset_steps * grad_accum
-    if (fixed_probe_offset_batches + args.fixed_probe_batches
+    if (fixed_probe_enabled
+            and fixed_probe_offset_batches + args.fixed_probe_batches
             > full_train_batches_per_epoch):
         raise ValueError(
             "fixed train probe exceeds one replay epoch: "
             f"offset={fixed_probe_offset_batches}, batches={args.fixed_probe_batches}, "
             f"available={full_train_batches_per_epoch}")
-    probe_center_steps = fixed_probe_center_steps(
-        steps_per_epoch, cfg.max_steps, args.fixed_probe_train_offset_steps)
+    probe_center_steps = (
+        fixed_probe_center_steps(
+            steps_per_epoch, cfg.max_steps, args.fixed_probe_train_offset_steps
+        )
+        if fixed_probe_enabled else []
+    )
     print(f"[nglab] grad_accum={grad_accum} train_chunks={train_ds.total_chunks()} "
           f"val_chunks={val_ds.total_chunks()} estimated_epoch_steps={steps_per_epoch}")
+    epochs_needed = math.ceil(cfg.max_steps / steps_per_epoch)
+    train_batch_orders = [
+        train_ds.logical_batch_order_record(epoch)
+        for epoch in range(epochs_needed)
+    ]
+    train_order_path = os.path.join(cfg.out_dir, "train_batch_order.json")
+    with open(train_order_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "mode": cfg.train_order,
+            "seed": cfg.order_seed,
+            "logical_batch_size": logical_batch_size,
+            "batches_per_epoch": steps_per_epoch,
+            "epochs": train_batch_orders,
+        }, f, indent=2)
+    print(f"[nglab] train_order={cfg.train_order} data_seed={cfg.data_seed} "
+          f"order_seed={cfg.order_seed} "
+          f"order_file={train_order_path}")
 
     # model
     model = NanoGPT(cfg).to(device)
     model.init_weights()
+    mask_metadata = {"enabled": False}
+    if mask_requested:
+        from ngram_freq import ExactFrequencyMask
+        mask_index_sha256 = file_sha256(args.ngram_mask_index)
+        exact_frequency_mask = ExactFrequencyMask.load(
+            args.ngram_mask_index, device=device, threshold=mask_threshold)
+        model.set_exact_frequency_mask(exact_frequency_mask)
+        mask_metadata = {
+            "enabled": True,
+            "mode": "none" if mask_threshold is None else str(mask_threshold),
+            "threshold": mask_threshold,
+            "comparison": "mask exact-context train hit count <= threshold",
+            "branches": ["bigram", "trigram"],
+            "train_and_validation_forward": True,
+            "renormalize_remaining_residual": False,
+            "index_path": os.path.abspath(args.ngram_mask_index),
+            "index_sha256": mask_index_sha256,
+            "index_statistics": exact_frequency_mask.statistics(),
+        }
+        print(
+            f"[nglab] exact frequency mask={mask_metadata['mode']} "
+            f"index_sha256={mask_index_sha256[:12]}"
+        )
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[nglab] model params: {n_params/1e6:.1f}M")
     optimizer = MixedOptimizer(model, lr=cfg.nanogpt_adam_lr,
                                ngram_betas=cfg.ngram_table_betas,
                                adam_betas=cfg.adam_betas,
-                               weight_decay=cfg.weight_decay)
+                               weight_decay=cfg.weight_decay,
+                               ngram_lr_scale=cfg.ngram_table_lr_scale)
+    fixed_setting_signature = {
+        "seed": cfg.seed,
+        "data_seed": cfg.data_seed,
+        "steps": cfg.max_steps,
+        "steps_per_epoch": steps_per_epoch,
+        "logical_batch_size": logical_batch_size,
+        "train_shards": cfg.train_shards,
+        "val_shards": cfg.val_shards,
+        "injection_position": cfg.nanogpt_ngram_injection_position,
+        "table_beta2": cfg.ngram_table_betas[1],
+        "table_lr_scale": cfg.ngram_table_lr_scale,
+        "ngram_mask_mode": mask_metadata.get("mode"),
+        "ngram_mask_index_sha256": mask_metadata.get("index_sha256"),
+    }
+    if resume_state is not None:
+        signature = resume_state.get("signature", {})
+        if signature != fixed_setting_signature:
+            raise ValueError(
+                f"checkpoint fixed-setting signature differs: "
+                f"{signature} != {fixed_setting_signature}"
+            )
+        model.load_state_dict(resume_state["model"])
+        optimizer.load_state_dict(resume_state["optimizer"])
+        print(f"[nglab] resumed model/optimizer from step {start_step}: {args.resume_checkpoint}")
 
-    # logs
-    train_log = open(os.path.join(cfg.out_dir, "train_log.jsonl"), "w")
-    table_log = open(os.path.join(cfg.out_dir, "table_norm.jsonl"), "w")
-    online_loss_log = open(os.path.join(cfg.out_dir, "online_loss.jsonl"), "w")
+    # logs. A resumed branch inherits the common-prefix observables so each
+    # final run remains a complete 1..max_steps record.
+    inherited_logs = [
+        "train_log.jsonl",
+        "table_norm.jsonl",
+        "online_loss.jsonl",
+    ]
+    if online_gap_enabled:
+        inherited_logs.append("online_gap.jsonl")
+    if args.freq_index and os.path.exists(args.freq_index):
+        inherited_logs.extend([
+            "online_frequency_gap_contribution.jsonl",
+            "fixed_gram_frequency_gap_contribution.jsonl",
+        ])
+    log_mode = "w"
+    if resume_state is not None:
+        prefix_dir = os.path.dirname(os.path.abspath(args.resume_checkpoint))
+        for filename in inherited_logs:
+            source = os.path.join(prefix_dir, filename)
+            destination = os.path.join(cfg.out_dir, filename)
+            if not os.path.isfile(source):
+                raise FileNotFoundError(f"checkpoint prefix is missing {source}")
+            if os.path.exists(destination):
+                raise FileExistsError(f"refusing to overwrite branch log {destination}")
+            shutil.copyfile(source, destination)
+        log_mode = "a"
+        print(f"[nglab] inherited prefix logs through step {start_step} from {prefix_dir}")
+    train_log = open(os.path.join(cfg.out_dir, "train_log.jsonl"), log_mode)
+    table_log = open(os.path.join(cfg.out_dir, "table_norm.jsonl"), log_mode)
+    online_loss_log = open(os.path.join(cfg.out_dir, "online_loss.jsonl"), log_mode)
+    online_gap_log = (
+        open(os.path.join(cfg.out_dir, "online_gap.jsonl"), log_mode)
+        if online_gap_enabled else None
+    )
     online_frequency_log = None
     fixed_probe_frequency_log = None
     fixed_gram_frequency_log = None
@@ -939,11 +1456,12 @@ def main():
         )
         freq_index_obj = GlobalFrequencyIndex.load(args.freq_index)
         online_frequency_log = open(
-            os.path.join(cfg.out_dir, "online_frequency_gap_contribution.jsonl"), "w")
-        fixed_probe_frequency_log = open(
-            os.path.join(cfg.out_dir, "fixed_probe_frequency_gap_contribution.jsonl"), "w")
+            os.path.join(cfg.out_dir, "online_frequency_gap_contribution.jsonl"), log_mode)
+        if fixed_probe_enabled:
+            fixed_probe_frequency_log = open(
+                os.path.join(cfg.out_dir, "fixed_probe_frequency_gap_contribution.jsonl"), "w")
         fixed_gram_frequency_log = open(
-            os.path.join(cfg.out_dir, "fixed_gram_frequency_gap_contribution.jsonl"), "w")
+            os.path.join(cfg.out_dir, "fixed_gram_frequency_gap_contribution.jsonl"), log_mode)
         fixed_gram_seed = cfg.seed if args.fixed_gram_seed is None else args.fixed_gram_seed
         manifest_path = os.path.join(cfg.out_dir, "fixed_gram_probe_manifest.json")
         manifest = None
@@ -967,16 +1485,18 @@ def main():
 
         # Keep the old contiguous-batch probe and legacy diagnostic on their
         # own dataset instances so neither can advance the writer iterator.
-        fixed_train_ds = TokenizedShardDataset(
-            cfg.data_dir, cfg.train_shards, cfg.sequence_len,
-            cfg.device_batch_size, cfg.data_seed)
-        fixed_val_ds = TokenizedShardDataset(
-            cfg.data_dir, cfg.val_shards, cfg.sequence_len,
-            cfg.device_batch_size, cfg.data_seed)
-        fixed_train_probe = collect_fixed_probe(
-            fixed_train_ds, device, args.fixed_probe_batches, fixed_probe_offset_batches)
-        fixed_val_probe = collect_fixed_probe(
-            fixed_val_ds, device, args.fixed_probe_batches)
+        if fixed_probe_enabled:
+            fixed_train_ds = TokenizedShardDataset(
+                cfg.data_dir, cfg.train_shards, cfg.sequence_len,
+                cfg.device_batch_size, cfg.data_seed)
+            fixed_val_ds = TokenizedShardDataset(
+                cfg.data_dir, cfg.val_shards, cfg.sequence_len,
+                cfg.device_batch_size, cfg.data_seed)
+            fixed_train_probe = collect_fixed_probe(
+                fixed_train_ds, device, args.fixed_probe_batches,
+                fixed_probe_offset_batches)
+            fixed_val_probe = collect_fixed_probe(
+                fixed_val_ds, device, args.fixed_probe_batches)
         if args.legacy_freq_eval:
             freq_diag_train_ds = TokenizedShardDataset(
                 cfg.data_dir, cfg.train_shards, cfg.sequence_len,
@@ -996,18 +1516,48 @@ def main():
         "run_id": args.run_id,
         "parameter_states": {
             "online": "pre_optimizer_step",
-            "fixed_probe": "post_optimizer_step",
+            "fixed_probe": "post_optimizer_step" if fixed_probe_enabled else None,
             "fixed_gram": "post_optimizer_step",
         },
         "online_train": "actual writer microbatches composing this optimizer step",
         "online_val": "fresh moving validation batches from an independent iterator",
-        "fixed_probe": {
+        "optimizer": {
+            "ngram_table": {
+                "name": "bias_corrected_rmsprop_no_momentum",
+                "beta2": cfg.ngram_table_betas[1],
+                "lr_scale": cfg.ngram_table_lr_scale,
+                "weight_decay": 0.0,
+                "eps": 1e-10,
+            },
+            "backbone": {
+                "name": "adamw",
+                "betas": cfg.adam_betas,
+                "base_lr": cfg.nanogpt_adam_lr,
+                "weight_decay": cfg.weight_decay,
+            },
+        },
+        "ngram_frequency_mask": mask_metadata,
+        "train_order": {
+            "mode": cfg.train_order,
+            "seed": cfg.order_seed,
+            "logical_batch_size": logical_batch_size,
+            "batches_per_epoch": steps_per_epoch,
+            "order_file": os.path.basename(train_order_path),
+            "epoch_sha256": [row["sha256"] for row in train_batch_orders],
+        },
+        "checkpoint_resume": ({
+            "source": os.path.abspath(args.resume_checkpoint),
+            "completed_prefix_step": start_step,
+            "shared_parameter_state_sha256": resume_state.get("parameter_state_sha256"),
+        } if resume_state is not None else None),
+        "fixed_probe": ({
+            "enabled": True,
             "train_batches": args.fixed_probe_batches,
             "val_batches": args.fixed_probe_batches,
             "train_offset_batches": fixed_probe_offset_batches,
             "train_offset_optimizer_steps": args.fixed_probe_train_offset_steps,
             "selection": "deterministic batches from independent fixed-order iterators",
-        },
+        } if fixed_probe_enabled else {"enabled": False}),
         "fixed_gram_probe": ({
             "samples_per_bucket": args.fixed_gram_samples_per_bucket,
             "seed": cfg.seed if args.fixed_gram_seed is None else args.fixed_gram_seed,
@@ -1025,6 +1575,23 @@ def main():
             "probe_dense_interval": args.online_frequency_probe_dense_interval,
             "probe_center_steps": probe_center_steps,
             "estimated_steps_per_epoch": steps_per_epoch,
+            "online_gap": {
+                "enabled": online_gap_enabled,
+                "base_interval": args.online_gap_interval,
+                "epoch_end_offsets": list(online_gap_epoch_offsets),
+                "val_batches": args.online_gap_val_batches,
+                "metric": "online_val_loss - train_writer_loss",
+                "timing": "pre_optimizer_step",
+            },
+            "fixed_gram": {
+                "mode": (
+                    "epoch_relative"
+                    if independent_fixed_gram_schedule else "shared_online"
+                ),
+                "base_interval": fixed_gram_frequency_interval,
+                "epoch_relative_steps": list(fixed_gram_epoch_relative_steps),
+                "include_final": True,
+            },
         },
         "geometry": {
             "device_batch_size": cfg.device_batch_size,
@@ -1036,24 +1603,62 @@ def main():
         json.dump(measurement_meta, f, indent=2)
     last_val_loss = float("nan")
     last_train_loss = float("nan")
+    val_batches_consumed = 0
+    online_val_batches_consumed = 0
+    online_gap_val_batches_consumed = 0
+    elapsed_offset = 0.0
+    if resume_state is not None:
+        val_batches_consumed = int(resume_state["iterators"]["val_batches_consumed"])
+        online_val_batches_consumed = int(
+            resume_state["iterators"]["online_val_batches_consumed"]
+        )
+        online_gap_val_batches_consumed = int(
+            resume_state["iterators"].get("online_gap_val_batches_consumed", 0)
+        )
+        for _ in range(val_batches_consumed):
+            next(val_iter)
+        for _ in range(online_val_batches_consumed):
+            next(online_val_iter)
+        if online_gap_val_iter is not None:
+            for _ in range(online_gap_val_batches_consumed):
+                next(online_gap_val_iter)
+        elapsed_offset = float(resume_state.get("elapsed_s", 0.0))
+        random.setstate(resume_state["rng"]["python"])
+        np.random.set_state(resume_state["rng"]["numpy"])
+        torch.set_rng_state(resume_state["rng"]["torch_cpu"])
+        if device.type == "cuda" and resume_state["rng"].get("torch_cuda") is not None:
+            torch.cuda.set_rng_state_all(resume_state["rng"]["torch_cuda"])
+        print(f"[nglab] restored iterator counters: val={val_batches_consumed} "
+              f"online_val={online_val_batches_consumed} "
+              f"online_gap_val={online_gap_val_batches_consumed}")
 
     model.train()
     t0 = time.time()
-    for step in range(cfg.max_steps):
+    for step in range(start_step, stop_after_step):
         step_1based = step + 1
-        sample_reason = frequency_sample_reason(
+        online_sample_reason = frequency_sample_reason(
             step_1based, steps_per_epoch, args.online_frequency_interval,
             args.online_frequency_epoch_window, args.online_frequency_dense_interval,
             cfg.max_steps, probe_center_steps,
             args.online_frequency_probe_window,
             args.online_frequency_probe_dense_interval)
+        online_gap_reason = online_gap_sample_reason(
+            step_1based, steps_per_epoch, cfg.max_steps,
+            args.online_gap_interval, online_gap_epoch_offsets)
+        fixed_gram_reason = (
+            fixed_gram_sample_reason(
+                step_1based, steps_per_epoch, cfg.max_steps,
+                fixed_gram_frequency_interval, fixed_gram_epoch_relative_steps,
+            )
+            if independent_fixed_gram_schedule else online_sample_reason
+        )
         # gradient accumulation
         optimizer.zero_grad()
         accum_loss = 0.0
         online_train_frequency = None
         online_train_loss_sum = 0.0
         online_train_token_count = 0
-        if sample_reason is not None and freq_index_obj is not None:
+        if online_sample_reason is not None and freq_index_obj is not None:
             from ngram_freq import FreqBinLossAccumulator
             online_accs = {
                 "bigram": FreqBinLossAccumulator(freq_index_obj, cfg.vocab_size, "bigram"),
@@ -1069,7 +1674,7 @@ def main():
             loss = token_loss.mean() / grad_accum
             loss.backward()
             accum_loss += loss.item()
-            if sample_reason is not None and freq_index_obj is not None:
+            if online_sample_reason is not None and freq_index_obj is not None:
                 online_train_loss_sum += float(token_loss.detach().sum().item())
                 online_train_token_count += token_loss.numel()
                 for acc in online_accs.values():
@@ -1078,13 +1683,35 @@ def main():
         online_loss_entry = {
             "step": step_1based,
             "epoch": train_ds._epoch + 1,
+            "logical_batch_id": train_ds._current_logical_batch_id,
             "train_writer_loss": train_loss,
-            "elapsed_s": time.time() - t0,
+            "elapsed_s": elapsed_offset + time.time() - t0,
         }
         online_loss_log.write(json.dumps(online_loss_entry) + "\n")
         online_loss_log.flush()
 
-        if sample_reason is not None and freq_index_obj is not None:
+        if online_gap_reason is not None and online_gap_val_iter is not None:
+            online_gap_val_batches = [
+                next(online_gap_val_iter)
+                for _ in range(args.online_gap_val_batches)
+            ]
+            online_gap_val_batches_consumed += args.online_gap_val_batches
+            online_gap_val_loss = loss_summary_from_batches(
+                model, online_gap_val_batches)
+            online_gap_entry = {
+                "step": step_1based,
+                "epoch": train_ds._epoch + 1,
+                "logical_batch_id": train_ds._current_logical_batch_id,
+                "reason": online_gap_reason,
+                "train_writer_loss": train_loss,
+                "online_val_loss": online_gap_val_loss,
+                "gap": online_gap_val_loss - train_loss,
+                "parameter_state": "pre_optimizer_step",
+            }
+            online_gap_log.write(json.dumps(online_gap_entry) + "\n")
+            online_gap_log.flush()
+
+        if online_sample_reason is not None and freq_index_obj is not None:
             online_train_frequency = {
                 branch: acc.summary() for branch, acc in online_accs.items()
             }
@@ -1092,12 +1719,14 @@ def main():
             online_val_batches = [
                 next(online_val_iter) for _ in range(args.online_frequency_val_batches)
             ]
+            online_val_batches_consumed += args.online_frequency_val_batches
             online_val_loss, online_val_frequency = frequency_summary_from_batches(
                 model, online_val_batches, freq_index_obj, cfg.vocab_size)
             online_frequency_entry = {
                 "step": step_1based,
                 "epoch": train_ds._epoch + 1,
-                "reason": sample_reason,
+                "logical_batch_id": train_ds._current_logical_batch_id,
+                "reason": online_sample_reason,
                 "train_writer_loss": online_train_loss,
                 "online_val_loss": online_val_loss,
                 "train_writer": online_train_frequency,
@@ -1112,7 +1741,8 @@ def main():
         lr_mult = get_lr_multiplier(progress, cfg.warmdown_ratio)
         optimizer.step(lr_mult=lr_mult)
 
-        if sample_reason is not None and freq_index_obj is not None:
+        if (online_sample_reason is not None
+                and fixed_probe_frequency_log is not None):
             fixed_train_loss, fixed_train_frequency = frequency_summary_from_batches(
                 model, fixed_train_probe, freq_index_obj, cfg.vocab_size)
             fixed_val_loss, fixed_val_frequency = frequency_summary_from_batches(
@@ -1120,7 +1750,7 @@ def main():
             fixed_probe_entry = {
                 "step": step_1based,
                 "epoch": train_ds._epoch + 1,
-                "reason": sample_reason,
+                "reason": online_sample_reason,
                 "fixed_train_loss": fixed_train_loss,
                 "fixed_val_loss": fixed_val_loss,
                 "train_probe": fixed_train_frequency,
@@ -1131,11 +1761,12 @@ def main():
             fixed_probe_frequency_log.write(json.dumps(fixed_probe_entry) + "\n")
             fixed_probe_frequency_log.flush()
 
+        if fixed_gram_reason is not None and fixed_gram_probe is not None:
             fixed_gram_evaluation = fixed_gram_probe.evaluate(model)
             fixed_gram_entry = {
                 "step": step_1based,
                 "epoch": train_ds._epoch + 1,
-                "reason": sample_reason,
+                "reason": fixed_gram_reason,
                 "train_loss": fixed_gram_overall_loss(
                     fixed_gram_evaluation.get("train", {})),
                 "val_loss": fixed_gram_overall_loss(
@@ -1149,6 +1780,7 @@ def main():
         # periodic val
         if step_1based % cfg.val_interval_steps == 0 or step == cfg.max_steps - 1:
             last_val_loss = evaluate_val(model, val_iter, cfg.val_batches)
+            val_batches_consumed += cfg.val_batches
             last_train_loss = train_loss
             entry = {
                 "step": step_1based,
@@ -1157,7 +1789,7 @@ def main():
                 "gap": last_val_loss - train_loss,
                 "lr_mult": lr_mult,
                 "epoch": train_ds._epoch + 1,
-                "elapsed_s": time.time() - t0,
+                "elapsed_s": elapsed_offset + time.time() - t0,
             }
             train_log.write(json.dumps(entry) + "\n")
             train_log.flush()
@@ -1188,9 +1820,46 @@ def main():
             table_log.write(json.dumps(tn_entry) + "\n")
             table_log.flush()
 
+        if args.save_checkpoint_step == step_1based:
+            parameter_hash = model_parameter_sha256(model)
+            checkpoint = {
+                "schema_version": 1,
+                "run_id": args.run_id,
+                "step": step_1based,
+                "signature": fixed_setting_signature,
+                "parameter_state_sha256": parameter_hash,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "iterators": {
+                    "train_next_epoch": step_1based // steps_per_epoch,
+                    "val_batches_consumed": val_batches_consumed,
+                    "online_val_batches_consumed": online_val_batches_consumed,
+                    "online_gap_val_batches_consumed": online_gap_val_batches_consumed,
+                },
+                "rng": {
+                    "python": random.getstate(),
+                    "numpy": np.random.get_state(),
+                    "torch_cpu": torch.get_rng_state(),
+                    "torch_cuda": (
+                        torch.cuda.get_rng_state_all() if device.type == "cuda" else None
+                    ),
+                },
+                "elapsed_s": elapsed_offset + time.time() - t0,
+            }
+            checkpoint_path = os.path.join(
+                cfg.out_dir, f"checkpoint_step_{step_1based:06d}.pt"
+            )
+            temporary_checkpoint = checkpoint_path + ".tmp"
+            torch.save(checkpoint, temporary_checkpoint)
+            os.replace(temporary_checkpoint, checkpoint_path)
+            print(f"[nglab] saved fork checkpoint {checkpoint_path} "
+                  f"parameter_sha256={parameter_hash}")
+
     train_log.close()
     table_log.close()
     online_loss_log.close()
+    if online_gap_log is not None:
+        online_gap_log.close()
     if freq_bin_log is not None:
         freq_bin_log.close()
     if online_frequency_log is not None:
@@ -1210,11 +1879,23 @@ def main():
         "final_val_loss": last_val_loss,
         "final_gap": last_val_loss - last_train_loss,
         "n_params": n_params,
+        "training_elapsed_s": elapsed_offset + time.time() - t0,
+        "ngram_frequency_mask": mask_metadata,
         "config": cfg.__dict__,
     }
-    with open(os.path.join(cfg.out_dir, "summary.json"), "w") as f:
-        json.dump(summary, f, indent=2, default=str)
-    print(f"[nglab] DONE. final gap = {last_val_loss - last_train_loss:+.4f}")
+    if stop_after_step == cfg.max_steps:
+        with open(os.path.join(cfg.out_dir, "summary.json"), "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+        print(f"[nglab] DONE. final gap = {last_val_loss - last_train_loss:+.4f}")
+    else:
+        summary["completed_steps"] = stop_after_step
+        summary["resumable_checkpoint"] = (
+            f"checkpoint_step_{args.save_checkpoint_step:06d}.pt"
+            if args.save_checkpoint_step is not None else None
+        )
+        with open(os.path.join(cfg.out_dir, "partial_summary.json"), "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+        print(f"[nglab] PARTIAL. completed step {stop_after_step} of {cfg.max_steps}")
     print(f"[nglab] output: {cfg.out_dir}")
 
 

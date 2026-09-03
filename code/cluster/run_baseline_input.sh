@@ -47,6 +47,4 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u "$ROOT/code/train.py" \
   --fixed_probe_batches 4 \
   > "$ROOT/data/runs/$RUN_ID/train.log" 2>&1
 
-"$PY" "$ROOT/docs/generate_frequency_gap_report.py" \
-  --run-dir "$ROOT/data/runs/$RUN_ID" \
-  --out "$ROOT/docs/frequency-gap-by-hit-count.html"
+echo "Run data complete. Generate the consolidated report locally with docs/generate_report.py after syncing data/runs/."

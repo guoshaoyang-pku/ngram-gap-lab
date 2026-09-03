@@ -421,6 +421,131 @@ class GlobalFrequencyIndex:
         return torch.from_numpy(counts).to(rows.device)
 
 
+class ExactFrequencyMask:
+    """GPU-resident exact-context frequency mask used during model forward.
+
+    Unlike :class:`GlobalFrequencyIndex`, this class keeps the sorted arrays
+    from ``freq_index.npz`` directly instead of expanding roughly 20 million
+    trigram keys into a Python dictionary.  Lookup uses ``torch.searchsorted``
+    on the model device, so the same mask path is affordable on every writer
+    and validation batch.
+
+    ``threshold`` has three representations:
+
+    - ``None``: no-mask reference; lookup still runs, then every context is
+      active.  This intentionally keeps its runtime representative.
+    - non-negative integer: contexts with train hit count ``<= threshold``
+      are inactive.
+    - ``"all"``: every bigram and trigram context is inactive.
+    """
+
+    def __init__(self, bigram_keys: torch.Tensor, bigram_counts: torch.Tensor,
+                 trigram_keys: torch.Tensor, trigram_counts: torch.Tensor,
+                 vocab_size: int, threshold: int | None | str,
+                 source_path: str = ""):
+        if threshold != "all" and threshold is not None and int(threshold) < 0:
+            raise ValueError("frequency-mask threshold must be non-negative, none, or all")
+        self.vocab_size = int(vocab_size)
+        self.threshold = threshold
+        self.source_path = source_path
+        self.bigram_keys = bigram_keys.to(dtype=torch.int64)
+        self.bigram_counts = bigram_counts.to(dtype=torch.int32)
+        self.trigram_keys = trigram_keys.to(dtype=torch.int64)
+        self.trigram_counts = trigram_counts.to(dtype=torch.int32)
+        self._validate_branch("bigram", self.bigram_keys, self.bigram_counts)
+        self._validate_branch("trigram", self.trigram_keys, self.trigram_counts)
+
+    @staticmethod
+    def _validate_branch(branch: str, keys: torch.Tensor,
+                         counts: torch.Tensor) -> None:
+        if keys.ndim != 1 or counts.ndim != 1 or keys.numel() != counts.numel():
+            raise ValueError(f"invalid {branch} frequency arrays")
+        if keys.numel() > 1 and bool(torch.any(keys[1:] <= keys[:-1]).item()):
+            raise ValueError(f"{branch} frequency keys must be strictly increasing")
+        if counts.numel() and bool(torch.any(counts <= 0).item()):
+            raise ValueError(f"{branch} frequency counts must be positive")
+
+    @classmethod
+    def load(cls, path: str, device: torch.device,
+             threshold: int | None | str) -> "ExactFrequencyMask":
+        with np.load(path) as data:
+            vocab_size = int(np.asarray(data["vocab_size"]).reshape(-1)[0])
+            arrays = [
+                torch.from_numpy(np.asarray(data[name])).to(device=device)
+                for name in (
+                    "bigram_keys", "bigram_counts",
+                    "trigram_keys", "trigram_counts",
+                )
+            ]
+        return cls(*arrays, vocab_size=vocab_size, threshold=threshold,
+                   source_path=os.path.abspath(path))
+
+    @staticmethod
+    def _lookup(keys: torch.Tensor, counts: torch.Tensor,
+                raw_context_keys: torch.Tensor) -> torch.Tensor:
+        if keys.numel() == 0:
+            return torch.zeros_like(raw_context_keys, dtype=torch.int32)
+        locations = torch.searchsorted(keys, raw_context_keys)
+        in_bounds = locations < keys.numel()
+        safe_locations = locations.clamp(max=keys.numel() - 1)
+        exact = in_bounds & (keys[safe_locations] == raw_context_keys)
+        return torch.where(
+            exact,
+            counts[safe_locations],
+            torch.zeros_like(raw_context_keys, dtype=torch.int32),
+        )
+
+    def activity_masks(self, idx: torch.Tensor, prev_idx: torch.Tensor,
+                       prev2_idx: torch.Tensor
+                       ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return active bigram/trigram positions using model chunk contexts."""
+        if self.threshold == "all":
+            inactive = torch.zeros_like(idx, dtype=torch.bool)
+            return inactive, inactive
+        bigram_raw = prev_idx * self.vocab_size + idx
+        trigram_raw = (
+            prev2_idx * (self.vocab_size * self.vocab_size)
+            + prev_idx * self.vocab_size + idx
+        )
+        bigram_hits = self._lookup(
+            self.bigram_keys, self.bigram_counts, bigram_raw)
+        trigram_hits = self._lookup(
+            self.trigram_keys, self.trigram_counts, trigram_raw)
+        if self.threshold is None:
+            # The lookups above are deliberately retained for a representative
+            # no-mask runtime measurement.
+            return torch.ones_like(idx, dtype=torch.bool), torch.ones_like(
+                idx, dtype=torch.bool)
+        threshold = int(self.threshold)
+        return bigram_hits > threshold, trigram_hits > threshold
+
+    def statistics(self) -> dict:
+        """Describe train-index mass removed by this cumulative threshold."""
+        result = {}
+        for branch in ("bigram", "trigram"):
+            counts = getattr(self, f"{branch}_counts").detach().cpu().numpy()
+            total_occurrences = int(counts.astype(np.int64).sum())
+            if self.threshold is None:
+                selected = np.zeros(counts.shape, dtype=bool)
+            elif self.threshold == "all":
+                selected = np.ones(counts.shape, dtype=bool)
+            else:
+                selected = counts <= int(self.threshold)
+            masked_occurrences = int(counts[selected].astype(np.int64).sum())
+            result[branch] = {
+                "unique_contexts": int(counts.size),
+                "max_hit_count": int(counts.max()) if counts.size else 0,
+                "total_occurrences": total_occurrences,
+                "masked_unique_contexts": int(selected.sum()),
+                "masked_occurrences": masked_occurrences,
+                "masked_occurrence_fraction": (
+                    masked_occurrences / total_occurrences
+                    if total_occurrences else 0.0
+                ),
+            }
+        return result
+
+
 # ---------------------------------------------------------------------------
 # 2. Per-frequency-bin loss accumulator (online, during eval)
 # ---------------------------------------------------------------------------
