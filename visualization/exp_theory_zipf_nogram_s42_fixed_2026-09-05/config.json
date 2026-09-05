@@ -1,0 +1,35 @@
+{
+  "run_id": "theory_zipf_iid_nogram_s42_fixed_20260905",
+  "seed": 42,
+  "source_artifacts": {
+    "summary": "summary.json",
+    "training_log": "train_log.jsonl",
+    "table_norm_log": "table_norm.jsonl",
+    "frequency_bucket_log": "freq_bin_loss.jsonl",
+    "exact_frequency_log": "exact_freq_loss.jsonl",
+    "raw_training_log": "train.log"
+  },
+  "metric_definition": "online gap = fixed validation loss - current-batch online training loss",
+  "frequency_gap_definition": "shared-context validation mean loss - shared-context train mean loss at exact train hit count f",
+  "plot_outputs": [
+    "loss_gap_curve.png",
+    "gap_table_rms_curve.png",
+    "gap_vs_frequency_bigram.png",
+    "gap_vs_frequency_trigram.png"
+  ],
+  "generated_by": "plot_theory_zipf.py",
+  "generated_on": "2026-09-05",
+  "endpoint": {
+    "step": 1000,
+    "train_loss": 4.0080485343933105,
+    "validation_loss": 3.9960638284683228,
+    "online_gap": -0.011984705924987793
+  },
+  "ngram_status": {
+    "unigram": false,
+    "bigram": false,
+    "trigram": false,
+    "bigram_clean_table": 0,
+    "trigram_clean_table": 0
+  }
+}

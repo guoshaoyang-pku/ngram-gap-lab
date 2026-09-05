@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Theory-Zipf toy：ngram-on 与 no-ngram 对照实验报告</title>
+<script>
+window.MathJax = {tex: {displayMath: [['$$','$$']], inlineMath: [['$','$']]}, svg: {fontCache: 'global'}};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+:root{--ink:#1d2733;--muted:#586575;--line:#d8dee7;--blue:#1769aa;--red:#ba3f3f;--green:#26844b;--bg:#f5f7fa;--card:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,"Noto Sans SC",sans-serif;line-height:1.65}main{max-width:1120px;margin:0 auto;padding:34px 24px 70px}h1{font-size:2rem;line-height:1.25;margin:0 0 8px}h2{margin-top:42px;border-bottom:2px solid var(--line);padding-bottom:6px}h3{margin-top:28px}p{max-width:1000px}.subtitle{color:var(--muted);margin:0 0 24px}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:18px 0;box-shadow:0 2px 7px #1d27330b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}.callout{border-left:5px solid var(--blue);background:#eef6fd;padding:13px 16px;margin:18px 0}.warning{border-left-color:#b87900;background:#fff8e8}.ok{border-left-color:var(--green);background:#eef9f1}.bad{border-left-color:var(--red);background:#fff1f1}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.95rem}th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}th{background:#f0f3f7}code{background:#eef1f4;padding:1px 4px;border-radius:4px;font-size:.92em}pre{overflow:auto;background:#18212b;color:#edf2f7;padding:14px;border-radius:8px;font-size:.87rem;line-height:1.45}figure{margin:22px 0;padding:12px;background:#fff;border:1px solid var(--line);border-radius:9px}figure img{display:block;max-width:100%;height:auto;margin:auto}figcaption{color:var(--muted);font-size:.9rem;margin-top:9px}a{color:var(--blue)}.small{font-size:.9rem;color:var(--muted)}.metric{font-size:1.7rem;font-weight:700}.metric-label{font-size:.86rem;color:var(--muted)}.red{color:var(--red)}.green{color:var(--green)}.blue{color:var(--blue)}ul,ol{padding-left:1.35rem}
+</style>
+</head>
+<body><main>
+<header>
+<h1>Theory-Zipf toy：ngram-on 与 no-ngram 对照实验报告</h1>
+<p class="subtitle">固定数据、固定模型和固定训练协议下的单 seed（42）、1000-step 对照；生成日期 2026-09-05。</p>
+<div class="callout warning"><strong>报告边界：</strong>这是一组受控 toy-data 机制实验，不是自然语言模型的普遍定律检验。两组 run 都只有一个 seed、一个 endpoint；频率曲线中的拟合是描述性统计，不能单独证明第 8 节全部理论。</div>
+</header>
+
+<h2>1. 数据集如何生成</h2>
+<p>这组实验的数据由 <a href="../tasks/l7_theory_zipf/toy_theory_zipf_20260903.py"><code>toy_theory_zipf_20260903.py</code></a> 生成。它不是文本语料，也不是人工拼接的 bigram/trigram；生成器只产生一个平坦的 token ID 流。每个 token 独立抽样：</p>
+<div class="callout">$$x_t\overset{\mathrm{iid}}\sim P(x),\qquad P(x=r)=\frac{r^{-\alpha}}{\sum_{j=1}^{8192}j^{-\alpha}},\qquad \alpha=\frac43.$$</div>
+<p>这里的 rank $r=1,\ldots,8192$ 对应 token ID $r-1$。生成器先把这 8192 个权重归一化为 CDF，再用独立均匀随机数和 <code>numpy.searchsorted</code> 做 inverse-CDF 抽样；每次最多处理 1,000,000 个 token，最后以 little-endian <code>uint16</code> 二进制写出。train 使用 seed 42，validation 使用从 1,000,045 开始的独立 seed 序列。同一 token ID 可以自然地出现在 train 和 validation 中，但两套抽样彼此独立。因为每个位置独立，真实数据分布满足 $P(y\mid c)=P(y)$：数据本身没有“看到某两个词就必须接某个词”的规则。</p>
+<div class="grid">
+<div class="card"><div class="metric">8,192</div><div class="metric-label">词表 / Zipf support</div><p>文件中保存的是 little-endian <code>uint16</code> token ID；<code>n_embd=768</code> 是模型内部 embedding 宽度，不是数据文件中每个 token 的字节数。</p></div>
+<div class="card"><div class="metric">49,716,936</div><div class="metric-label">train raw tokens</div><p>生成到 <code>shard_00001.bin</code>，对应 337 个 device batches 的主线训练几何。</p></div>
+<div class="card"><div class="metric">489,350,376</div><div class="metric-label">validation raw tokens</div><p>生成到 shards 2–10 和 6542；与 train 文件不重叠。完整 validation pool/train raw-token 比为 9.8427299703:1。</p></div>
+</div>
+<p>每个 loader 样本需要 <code>sequence_len+1=2049</code> 个连续 token，前 2048 个作为 input，后移一位作为 target。生成器不写入 context 标签、转移矩阵、块结构、SEP、padding 或 context-specific continuation map；bigram/trigram 只在训练时由模型按滑动窗口从普通 token 流中读取。也就是说，ngram 结构是<strong>模型的读取方式</strong>，不是数据生成器偷偷植入的数据结构。</p>
+<p>训练程序随后从这个流中构造 context：bigram 分支把相邻的两个 token 作为一个 context key，trigram 分支把相邻的三个 token 作为一个 context key；对每个 key 统计它在 train shard 1 中出现的次数 $f$。这些 key 和计数由 <code>freq_index.npz</code> 记录，但它们是<strong>生成之后的诊断索引</strong>，不是写入 <code>.bin</code> 数据的额外字段。</p>
+<p class="small">生成器还保存 <code>marginal_oracle.npz</code>：其中包括 token probabilities、熵 3.9979072594 nats、$P_0(f)=\sum_y p(y)(1-p(y))^f$ 的 missing-mass 曲线，以及渐近指数 $1-1/\alpha=0.25$。这些 oracle 是数据分布的理论参照，不是从模型 loss 拟合出来的参数。</p>
+
+<h3>1.1 数据文件、索引和图像的关系</h3>
+<table><tr><th>层级</th><th>文件 / 对象</th><th>产生方式</th><th>报告中用途</th></tr>
+<tr><td>原始数据</td><td><code>shard_00001.bin</code>、<code>shard_00002.bin</code>–<code>shard_00010.bin</code>、<code>shard_06542.bin</code></td><td>生成器按 finite-Zipf CDF 独立抽样，顺序写入 uint16 token ID</td><td>训练和固定 validation 的唯一 token 来源</td></tr>
+<tr><td>分布 oracle</td><td><code>marginal_oracle.npz</code></td><td>由已知 Zipf 概率直接计算 $P_0(f)$、singleton mass 和 entropy</td><td>检查数据边际理论，不参与模型训练</td></tr>
+<tr><td>context index</td><td><code>freq_index.npz</code></td><td>读取 train shard 1 的普通 token 流后，滑窗统计 bigram/trigram key 的 exact hit count</td><td>把诊断 loss 按 $f$ 分组；不改变模型输入</td></tr>
+<tr><td>训练统计</td><td><code>train_log.jsonl</code></td><td><code>train.py</code> 每 10 step 写入 online train、fixed val 和 gap</td><td>图 1–2 的三条曲线</td></tr>
+<tr><td>频率统计</td><td><code>exact_freq_loss.jsonl</code></td><td>诊断 forward 保留 per-token loss，再按 exact $f$ 聚合 train/val mean</td><td>图 3–6 的灰散点与分桶点</td></tr>
+<tr><td>表诊断</td><td><code>table_norm.jsonl</code></td><td>每 10 step 记录 ngram table 行向量 RMS；no-ngram 没有 RMS 字段</td><td>图 7 的蓝/橙线；图 8 只画 gap</td></tr></table>
+
+<h2>2. 实验问题与可比性</h2>
+<p>问题是：在同一份 iid finite-Zipf 数据上，模型开启 bigram/trigram value tables 后，是否会产生训练集特有的记忆和 frequency-dependent gap；关闭 ngram 后，这些现象是否消失或显著减弱。</p>
+<table><tr><th>坐标</th><th>两组共同设置</th><th>差异</th></tr>
+<tr><td>数据</td><td>同一数据目录 <code>theory_zipf_iid_mainline_aligned_20260904</code>；train shard 1；validation shards 2–10、6542；fixed replay；相同 frequency index</td><td>无</td></tr>
+<tr><td>模型</td><td>vanilla nanoGPT，8 layers / 6 heads / 768 dim，vocab 8192，sequence length 2048，input/wte 注入位置</td><td>ngram-on 建立 bigram 与 trigram 表；no-ngram 不建立表</td></tr>
+<tr><td>优化</td><td>AdamW backbone LR 0.0006；RMSProp table β=(0,0.99)、table LR scale 128；warmup-constant 100 steps；bf16；seed 42；1000 steps</td><td>no-ngram 没有 table 参数更新</td></tr>
+<tr><td>测量</td><td>每 10 step 记录；固定 validation 4 batches；global gap = fixed validation loss − 当前 batch online train loss</td><td>频率诊断也每 10 step记录</td></tr></table>
+
+<h2>3. 两组实验结果</h2>
+<div class="grid">
+<div class="card"><div class="metric blue">+1.2445</div><div class="metric-label">ngram-on endpoint global gap</div><p><code>theory_zipf_iid_ngram_on_freq_s42_fixed_rerun_20260905</code><br>train loss 3.2353；validation loss 4.4798；参数量 1,675,181,568。</p></div>
+<div class="card"><div class="metric green">−0.0120</div><div class="metric-label">no-ngram endpoint global gap</div><p><code>theory_zipf_iid_nogram_s42_fixed_20260905</code><br>train loss 4.0080；validation loss 3.9961；参数量 64,568,832。</p></div>
+</div>
+<p>因此 ngram-on 相对 no-ngram 的 endpoint gap 增量约为 <strong>1.2565 nats/token</strong>。同时，ngram-on 的训练 loss 明显低于 no-ngram，而 validation loss 反而高约 0.484 nats/token；这符合“表记忆帮助复用训练样本、却不能同等帮助独立 validation”的实验模式。</p>
+<figure><img src="exp_theory_zipf_ngram_on_freq_lr0.0006_tlr128_bs72_steps1000_2026-09-05/loss_gap_curve.png" alt="ngram-on loss and gap"><figcaption><strong>图 1：ngram-on loss/gap 曲线。</strong>上图蓝线是当前训练 batch 在参数更新前的 online train loss；红线是同一时刻、固定的 4 个 validation batches 在参数更新后的平均 loss；下图绿线是逐点相减的 $\mathrm{gap}=\mathrm{val}-\mathrm{train}$。每条线每 10 steps 记录一个点（step 10, 20, …, 1000），不是每个 optimizer step 都写入文件。蓝线后期下降到 3.2353，红线升到 4.4798，因而绿线升到 +1.2445：表在 train context 上提供了可复用的训练集特异记忆，但独立 validation 没有得到同等收益。早期的尖锐下降是 warmup 与初始学习；后期绿线的锯齿来自 train loss 是变化 batch 的 online 统计，不能读作理论振荡。</figcaption></figure>
+<figure><img src="exp_theory_zipf_nogram_s42_fixed_2026-09-05/loss_gap_curve.png" alt="no-ngram loss and gap"><figcaption><strong>图 2：no-ngram 对照曲线。</strong>蓝、红、绿的定义与图 1 完全相同，但没有 ngram table。100 steps 后 train loss 的范围约为 3.9858–4.0197，validation loss 的范围约为 3.9960–4.0178；step 1000 为 train 4.0080、val 3.9961、gap −0.0120。绿线围绕 0 小幅波动，给出 backbone + batch sampling 的 gap floor。与图 1 对比，ngram-on 的大 gap 不是 iid Zipf 边际单独造成的。</figcaption></figure>
+<p class="small">图 1–2 的共同测量含义：validation 使用启动时捕获并反复复用的固定 4 batches，所以红线较平滑；train 是每步当前 batch 的 online loss，所以蓝线和差值绿线更容易起伏。每个 device batch 是 $72\times2048=147{,}456$ 个 loss tokens。</p>
+
+<h2>4. 频率现象：每个散点和线如何产生</h2>
+<p>两组都使用同一 frequency index，因此频率分桶本身由数据决定，而不是由模型开关决定。频率诊断在 final step 对 exact train hit count <code>f</code> 的 shared contexts 计算：</p>
+<div class="callout">$$g(f)=\text{validation mean loss}(f)-\text{train mean loss}(f).$$<br>只对 train 和 validation 都有 token 的 shared contexts 定义；<code>f=0</code> novel contexts 没有 train-side counterpart，不进入标准 gap 曲线。</div>
+<p>频率图不是把文件中的某个“context 频率列”直接画出来。训练程序从原始 token 流构造 bigram context 或 trigram context，统计 train shard 1 中每个 context 的 exact hit count $f$；然后在 final step=1000 的诊断 batch 中，把 train 和 validation 都出现过的 context 配对，计算该频率层的平均 loss 差。</p>
+<div class="callout">$$g(f)=\overline{\ell_{\mathrm{val}}}(f)-\overline{\ell_{\mathrm{train}}}(f).$$</div>
+<p>因此，log-log 图的每个灰色<strong>散点</strong>对应一个 exact $f$ 频率层（不是一个 token，也不是单个 context）：横坐标是该层 context 在 train 中的命中次数 $f$，纵坐标是该层所有 shared contexts 的平均 $g(f)$；只保留 $g(f)&gt;0$ 且 shared context 数至少 5 的点。灰色点透明度较低，是为了同时显示高频处大量频率层的离散程度。</p>
+<p>蓝色<strong>圆点/折线</strong>不是额外的模型输出，而是把 exact-$f$ 层放入固定几何区间 [1,2), [2,4), …，[8192,16384)、[16384,32768) 后，用 shared-context 数作权重，对 $\log f$ 和 $\log g$ 做加权几何平均得到的代表点。蓝线只是连接这些代表点。红色<strong>虚线</strong>是对蓝色几何桶点做 $g\propto f^{-\beta}$ 的加权 log-log 回归；$\beta$ 和 $R^2$ 只描述当前 seed、当前 final checkpoint 和当前筛选规则下的数据，并不是预先写入的理论曲线。</p>
+<div class="grid"><figure><img src="exp_theory_zipf_ngram_on_freq_lr0.0006_tlr128_bs72_steps1000_2026-09-05/gap_vs_frequency_bigram.png" alt="ngram-on bigram gap versus frequency"><figcaption><strong>图 3：ngram-on bigram。</strong>灰散点 = exact train hit-count 的 shared-context gap；蓝线 = 几何桶加权均值；红虚线 = 负幂律描述拟合，$\beta\approx0.222$、$R^2\approx0.888$。低频端的蓝色 gap 较大，说明少量训练观察下，bigram 表更容易携带训练集特异残差；但灰点仍很分散，拟合不等于精确理论。</figcaption></figure>
+<figure><img src="exp_theory_zipf_ngram_on_freq_lr0.0006_tlr128_bs72_steps1000_2026-09-05/gap_vs_frequency_trigram.png" alt="ngram-on trigram gap versus frequency"><figcaption><strong>图 4：ngram-on trigram。</strong>元素定义与图 3 相同；蓝色几何桶拟合 $\beta\approx0.239$、$R^2\approx0.628$。低频优先的方向仍可见，但散布更大、拟合解释力较弱，所以不能把这条线称为严格 trigram 幂律定律。</figcaption></figure></div>
+<div class="grid"><figure><img src="exp_theory_zipf_nogram_s42_fixed_2026-09-05/gap_vs_frequency_bigram.png" alt="no-ngram bigram diagnostic"><figcaption><strong>图 5：no-ngram bigram 诊断。</strong>散点和分桶算法仍相同，但模型没有 bigram/trigram table；图中残差来自共享 backbone、有限 batch、context 条件的随机波动，而不是“bigram table gap”。脚本形式上得到 $\beta\approx-0.313$、$R^2\approx0.605$，但这是在接近零的 baseline 上只筛选正残差后的不稳定描述，不应解释为反向幂律。它的主要用途是作为图 3 的 baseline。</figcaption></figure>
+<figure><img src="exp_theory_zipf_nogram_s42_fixed_2026-09-05/gap_vs_frequency_trigram.png" alt="no-ngram trigram diagnostic"><figcaption><strong>图 6：no-ngram trigram 诊断。</strong>与图 5 相同，只换成 trigram context 标签；形式拟合为 $\beta\approx-0.347$、$R^2\approx0.807$，同样不作机制解释。即使关闭 ngram，诊断器仍可按这些标签分组；这不表示模型使用了 trigram 信息，只表示我们用相同分组检查无表模型的背景差异。</figcaption></figure></div>
+<figure><img src="exp_theory_zipf_ngram_on_freq_lr0.0006_tlr128_bs72_steps1000_2026-09-05/gap_table_rms_curve.png" alt="ngram table RMS and gap"><figcaption><strong>图 7：ngram-on 的 gap 与 table RMS。</strong>绿线是 global online gap（左轴）；蓝线是 bigram table 的参数 RMS，橙线是 trigram table 的参数 RMS（右轴）。RMS 是表 embedding 行的整体二阶规模诊断，不是 loss，也不是频率核 $M(f)$。蓝/橙线持续增长表示表向量被写入；绿线在后半段同步增大，支持“表写入后由共享 backbone 读出并形成 train/val 分离”的机制解释，但两条线的相关性不是因果证明。</figcaption></figure>
+<figure><img src="exp_theory_zipf_nogram_s42_fixed_2026-09-05/gap_table_rms_curve.png" alt="no-ngram gap only"><figcaption><strong>图 8：no-ngram 的 gap-only 对照。</strong>绿线仍是 global gap；没有蓝/橙 RMS 线，因为 no-ngram 的 <code>table_norm.jsonl</code> 没有 ngram table 字段，模型也没有这些表。此图用于确认图 7 的 table-RMS 不是绘图脚本凭空添加的量。</figcaption></figure>
+<p>在 ngram-on 中，低频 shared context 通常有更大的正 gap，且模型的表参数量远大于 no-ngram；在 no-ngram 中 global gap 接近 0，说明主要的 train/validation 分离来自 ngram 表的训练集特异记忆，而不是 iid Zipf 边际本身。</p>
+
+<h2>5. 与博客第 8 节理论的逐项比较</h2>
+<h3>4.1 核心因子化：<code>g_e(f) ≈ a_e M(f)</code></h3>
+<p>第 8 节把局部 gap 写成频率核与训练状态的乘积：</p>
+<div class="callout">$$g_e(f)\approx a_eM(f),\qquad G_e\approx a_eQ.$$</div>
+<p>本实验<strong>部分支持、但没有完成严格检验</strong>：</p>
+<ul><li>支持的一面：ngram-on 相对 no-ngram 出现大幅正 global gap；且 exact-frequency 图显示 gap 主要集中在低频 shared contexts，这与“语料核 × 表读出强度”的方向一致。</li><li>不足的一面：当前两组只有一个 epoch 轨迹和一个 seed，没有将同一 <code>M(f)</code> 在多个 <code>e</code> 上做垂直重标度，也没有从 train count 独立计算并与实测 <code>g(f)</code> 做单幅度 <code>C·M(f)</code> 对齐。因此不能声称已经验证因子化。</li><li>no-ngram 是必要的 baseline：它估计 backbone 自身 gap floor；理论对象应是 net gap，而不是直接把 no-ngram 也归入 ngram kernel。</li></ul>
+<h3>4.2 Good–Turing 缺失质量核</h3>
+<p>博客定义 <code>M(f)=N₁(f)/(f n(f))</code>，由 train 计数得到，不含模型拟合参数。当前数据生成器的 token 边际是 iid Zipf，<code>alpha=4/3</code>，并保存了独立 oracle：</p>
+<table><tr><th>oracle</th><th>值</th><th>含义</th></tr><tr><td>Zipf α</td><td>4/3 ≈ 1.3333</td><td>toy 的单 token 边际尾部参数</td></tr><tr><td>理论渐近 β = 1 − 1/α</td><td>0.25</td><td>无限尾、积分近似下的预测</td></tr><tr><td>finite-oracle β</td><td>0.4246</td><td>有限 support 上直接由 oracle missing-mass 曲线拟合得到</td></tr><tr><td>entropy</td><td>3.9979 nats</td><td>iid 边际熵；接近 no-ngram endpoint loss 3.9961</td></tr></table>
+<p>这里有一个重要限制：第 8 节的 <code>α</code> 是<strong>单个 context 的 continuation 尾指数</strong>，而本 toy 直接控制的是全局 token marginal 的 Zipf α。由于数据是 iid，真实条件分布满足 <code>P(y|c)=P(y)</code>；这使 toy 很干净，却不等同于自然语言中的 context-conditional continuation Zipf。故 <code>α=4/3</code> 与第 8.4 节只能作机制类比，不能直接视为同一个理论参数。</p>
+<h3>4.3 指数是否吻合</h3>
+<table><tr><th>比较</th><th>观测</th><th>判定</th></tr><tr><td>理论渐近 β=0.25 vs ngram-on bigram fit</td><td>β≈0.222（单 seed、最终 step、正 gap 筛选）</td><td>数值上接近，但区间、加权和 finite-support 修正不同；弱支持</td></tr><tr><td>理论渐近 β=0.25 vs ngram-on trigram fit</td><td>β≈0.239，R²≈0.628</td><td>指数接近，但散布较大；不能作强验证</td></tr><tr><td>finite-oracle β≈0.4246 vs observed fits</td><td>0.222/0.239</td><td>不吻合；说明有限 support、context aggregation、模型读出和诊断筛选不可忽略</td></tr><tr><td>no-ngram residual curves</td><td>global gap≈−0.012</td><td>支持将大部分 ngram gap 归因于表记忆；不检验 kernel 本身</td></tr></table>
+<p>因此最稳妥的结论是：观测到的 ngram-on 频率曲线与 <code>f</code> 的负幂律形状<strong>定量上相容于 β≈0.25 的 toy 预期</strong>，但尚不能证明第 8 节给出的精确因子化或指数公式。尤其 trigram 的 R² 只有中等水平；finite-oracle 指数与实测指数的差异也提醒我们，不能把单个拟合 β 当作理论常数。</p>
+<h3>4.4 epoch 动力学 <code>a_e</code></h3>
+<p>第 8.6 节预测表快速写入、之后由 backbone 读出强度逐 pass 放大。当前 no-ngram/on 对照看到了“开表后 train 降得更多、val/train 分离变大”的整体结果，但没有设计多 epoch 截面或 freeze-table/freeze-backbone 对照，所以只能支持“存在表相关放大器”的粗粒度部分，不能检验 <code>a_e</code> 的递推形式、饱和或非对易更新。</p>
+
+<h2>6. 这反映了自然语言的什么特征？</h2>
+<p>这组 toy 实验本身不是自然语言数据，因此它不能证明自然语言一定遵守同样的指数。它更准确地隔离出一种在自然语言中很常见的<strong>长尾、非均匀可重复性</strong>：</p>
+<ul><li><strong>大量低频 context：</strong>许多 context 只在训练语料中出现很少次，模型很容易把有限样本的偶然 continuation 当成可复用规律。</li><li><strong>少数高频 context 承载大部分 token：</strong>语言的 token/context 质量高度集中，导致“context 种类多数低频”与“token 数多数来自高频”同时成立。</li><li><strong>训练集特异记忆与独立样本不对称：</strong>n-gram 表可以复用训练中写入的 context-specific residual，但 validation 的新 continuation 不共享同一 residual，于是产生 gap。</li><li><strong>上下文条件分布的异质性：</strong>自然语言的 <code>P(y|c)</code> 随 context 变化，不是本 toy 的 iid <code>P(y|c)=P(y)</code>；因此真实语言中的指数、幅度和高低频拐点应当随 order、context 类型和训练阶段变化。</li></ul>
+<div class="callout ok"><strong>一句话总结：</strong>这两组实验最可信地说明：在一个没有真实语法、只有 Zipf 长尾边际的 toy 中，bigram/trigram 表就能把“有限样本的训练集特异记忆”转化为低频优先的 train–validation gap；它与第 8 节的缺失质量核 × 读出强度框架相容，但尚不足以验证该框架的完整定量理论。</div>
+
+<h2>7. 可复现信息与文件索引</h2>
+<table><tr><th>run</th><th>本地结果目录</th><th>用途</th></tr>
+<tr><td><code>theory_zipf_iid_ngram_on_freq_s42_fixed_rerun_20260905</code></td><td><code>visualization/exp_theory_zipf_ngram_on_freq_lr0.0006_tlr128_bs72_steps1000_2026-09-05/</code></td><td>bigram+trigram 开启，含 exact frequency 诊断</td></tr>
+<tr><td><code>theory_zipf_iid_nogram_s42_fixed_20260905</code></td><td><code>visualization/exp_theory_zipf_nogram_s42_fixed_2026-09-05/</code></td><td>unigram/bigram/trigram 均关闭的 control</td></tr></table>
+<p>每个目录都包含原始 <code>summary.json</code>、<code>train_log.jsonl</code>、<code>freq_bin_loss.jsonl</code>、<code>exact_freq_loss.jsonl</code> 和 <code>train.log</code>。绘图脚本位于各自目录，可在目录内执行 <code>python3 plot_theory_zipf.py</code> 重生成 PNG。</p>
+<p class="small">报告未修改 <code>code/train.py</code>、权威博客或主线 docs；只在 visualization 下新增本报告。</p>
+</main></body></html>
