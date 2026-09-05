@@ -8,6 +8,38 @@
 bigram/trigram 标签，也不提前生成 embedding。它做的唯一理论性改变是：
 把自然语言语料换成连续的、独立同分布（iid）的有限 Zipf token 流。
 
+**函数名校对：当前版本脚本没有 `parse_frequencies` 函数。** 如果在旧笔记、旧
+回答或旧的 `.pyc` 文件中看到这个名字，它不属于当前脚本。当前脚本第 66--70
+行是 `VOCAB_SIZE`、`SUPPORT_SIZE`、`MODEL_N_LAYER`、`MODEL_N_HEAD` 和
+`MODEL_N_EMBD` 五个基本设置；当前脚本真正定义的函数从 `shard_name` 开始，
+完整函数列表和精确行号见第 6 节。
+
+## 0. 先核对代码范围
+
+当前源文件实际是 **576 行**，不是 400 多行。其结构是：
+
+| 源代码行 | 内容 |
+|---|---|
+| 1--40 | shebang 和模块说明；声明无命令行参数、iid finite-Zipf 数据、输出文件，以及不预埋 n-gram 结构 |
+| 42--49 | Python future 声明和 `hashlib`、`json`、`math`、`Path`、`numpy` 导入 |
+| 52--156 | 日期、输出目录、模型/数据几何、Zipf 参数、分片规格和派生计数常量 |
+| 159--572 | 10 个函数：生成分片、计算 oracle、写 metadata/contract、打印结果 |
+| 575--576 | `if __name__ == "__main__"` 入口保护 |
+
+因此，下面的说明对应的是当前这份 576 行源文件。此前只把 `generate()` 的前半段讲
+清楚，没有把它后面的 metadata/contract 和文件末尾入口展开，是讲解不完整；不是
+源代码只有 400 多行。
+
+### 0.1 文件头与导入（第 1--49 行）
+
+- 第 1 行 `#!/usr/bin/env python3`：在 Unix 系统中允许直接用 Python 解释器运行。
+- 第 2--40 行模块 docstring：说明脚本只生成 token ID；train/validation 是独立
+  的有限 Zipf iid 流；模型以后才从滑窗中感知 bigram/trigram；输出有哪些文件；
+  不写 context、label、padding、SEP 或 transition matrix。
+- 第 42 行 `from __future__ import annotations`：让类型注解延后求值，不改变数据。
+- 第 44--47 行：分别导入文件摘要、JSON、数学检查、路径操作所需的标准库。
+- 第 49 行：导入 `numpy`，用于概率、随机抽样、数组和 `.npz` 文件。
+
 ## 1. 与原始自然语言实验统一的基本设置
 
 这些是从 `agents.md`、`README.md`、`code/train.py` 和
@@ -260,7 +292,7 @@ $$
 nl -ba tasks/l7_theory_zipf/toy_theory_zipf_20260903.py
 ```
 
-### 6.1 常量区（第 52--154 行）
+### 6.1 常量区（第 52--156 行）
 
 - `GENERATOR_DATE`、`SETTING_REVISION_DATE`：记录脚本和 setting 的版本日期。
 - `OUTPUT_DIR`：固定输出目录，避免服务器命令行隐藏参数。
@@ -293,7 +325,7 @@ nl -ba tasks/l7_theory_zipf/toy_theory_zipf_20260903.py
 - `OVERWRITE=False`：已有产物时拒绝覆盖。
 - `ORACLE_FREQUENCIES`：计算 oracle 的频率网格 `1,2,4,...,2^20`。
 
-### 6.2 `shard_name`（第 157--159 行）
+### 6.2 `shard_name`（第 159--161 行）
 
 ```python
 shard_name(1) == "shard_00001.bin"
@@ -302,12 +334,12 @@ shard_name(1) == "shard_00001.bin"
 把整数 shard ID 格式化为 `train.py` 期望的五位文件名。命令行不会传 shard
 文件名；文件名由这个函数统一生成。
 
-### 6.3 `sha256`（第 162--171 行）
+### 6.3 `sha256`（第 164--173 行）
 
 分块读取文件并计算 SHA-256。它不把整个大文件读进内存，最后把每个 shard 的
 摘要写入 metadata，方便复制到服务器后核对数据是否改变。
 
-### 6.4 `validate_setting`（第 174--209 行）
+### 6.4 `validate_setting`（第 176--210 行）
 
 在写盘前检查：
 
@@ -319,7 +351,7 @@ shard_name(1) == "shard_00001.bin"
 6. validation shard 必须完整覆盖 `2..10,6542`；
 7. 每个文件长度必须整除 `2049`，不会在 loader 中产生半个样本。
 
-### 6.5 `zipf_probabilities`（第 211--216 行）
+### 6.5 `zipf_probabilities`（第 213--218 行）
 
 构造长度为 `8192` 的概率数组：
 
@@ -328,7 +360,7 @@ shard_name(1) == "shard_00001.bin"
 3. 除以总和使概率和为 `1`；
 4. 返回 `float64` 数组，供 CDF 抽样使用。
 
-### 6.6 `sample_zipf`（第 219--231 行）
+### 6.6 `sample_zipf`（第 221--233 行）
 
 用逆 CDF 方法抽普通 token ID：
 
@@ -338,14 +370,14 @@ shard_name(1) == "shard_00001.bin"
 
 这里没有 context 循环、Markov 转移矩阵或 label 规则。
 
-### 6.7 `write_iid_shard`（第 234--249 行）
+### 6.7 `write_iid_shard`（第 236--251 行）
 
 打开一个 `.bin` 文件，循环调用 `sample_zipf`，直到写入精确的
 `token_count`。每次最多写 `CHUNK_TOKENS=1,000,000` 个 ID，并用
 little-endian `uint16` 写盘。因此 shard 内是连续 iid 流，而不是一组人为绑定的
 二元或三元短句。
 
-### 6.8 `loglog_slope`（第 252--267 行）
+### 6.8 `loglog_slope`（第 254--269 行）
 
 对正的、有限的 $(x,y)$ 点做 log-log 一次拟合。如果
 
@@ -356,7 +388,7 @@ $$
 拟合出的直线斜率为 $-\beta$，函数返回正的 `beta`。它只用于 oracle 数值摘要，
 不把模型训练出的 gap 当作理论输入。
 
-### 6.9 `oracle_curves`（第 270--282 行）
+### 6.9 `oracle_curves`（第 272--284 行）
 
 在频率网格上计算两条理论曲线：
 
@@ -372,17 +404,17 @@ $$
 
 结果写入 `marginal_oracle.npz`，用于后续把实测 context 统计和理论核比较。
 
-### 6.10 `write_json`（第 285--287 行）
+### 6.10 `write_json`（第 287--289 行）
 
 用固定缩进、排序后的 key 和结尾换行写 JSON，使 metadata 可读、可比较、可审计。
 
-### 6.11 `shard_record`（第 290--304 行）
+### 6.11 `shard_record`（第 292--306 行）
 
 为一个 shard 生成记录：ID、文件名、角色、seed、raw token 数、loss token 数、
 字节数、loader chunks 和 device batches。这样不打开二进制文件，也能检查 split
 和 loader 几何。
 
-### 6.12 `generate`（第 307--537 行）
+### 6.12 `generate`（第 309--543 行）
 
 总编排函数，顺序如下：
 
@@ -397,23 +429,49 @@ $$
 8. 计算所有 shard 的 SHA-256；
 9. 写 `metadata.json`、兼容副本 `meta.json` 和 `run_contract.json`。
 
-metadata 中最重要的字段是：
+`generate()` 的后半段不是另一段数据生成逻辑，而是在为刚才写出的数据写审计信息：
 
-- `toy_distribution`：iid finite Zipf、train/validation 同边际、随机流独立；
-- `model_alignment`：8192 vocab、8/6/768、2048、72、uint16；
-- `split_alignment`：完整 materialized split、raw/loss token 数、`1:9.8427299703`
-  的 train:validation 比例，以及默认 fixed-val 的 4-batch 子集；
-- `scientific_invariants`：train/validation 使用不同 shard 和随机流，但共享 token
-  支撑，所以 token ID 在两边重复是正常的；context 频率在生成后、按 `train.py`
-  的 chunk 内语义统计；
-- `contains_explicit_*`：全部为 `false`，说明数据生成器没有预埋 n-gram 结构；
-- `sha256`：每个实际写出 shard 的摘要。
+- **第 373--380 行**：创建 metadata 的基本字段，包括 schema 版本、实验名、生成器
+  文件名、两个日期、输出目录和二进制格式。
+- **第 381--387 行 `toy_distribution`**：记录数据确实是有限 Zipf iid；训练和验证
+  使用同一边际分布，但使用独立随机数流。
+- **第 388--397 行 `model_alignment`**：记录模型对齐信息：8 层、6 个 heads、
+  768 维 embedding、8192 词表、2048 序列长度、72 的 device batch，以及磁盘上的
+  `uint16`。这里仍然只是记录，不会创建 embedding。
+- **第 398--432 行 `split_alignment`**：记录 train/validation 的 shard 列表、
+  raw token 数、loss token 数、完整 validation pool 与 train 的比例、fixed-val
+  每次使用的 4 个 batch、验证间隔等。这里的数值来自前面常量，不会再次生成数据。
+- **第 433--442 行 `shards` 与 `oracle`**：`shards` 保存每个文件的计数和 seed；
+  `oracle` 保存 `marginal_oracle.npz` 的文件名、频率网格、渐近/有限样本指数、
+  熵以及两条曲线的公式说明。
+- **第 443--452 行**：记录 context 频率应由生成后的 train shard 推导，并明确标记
+  没有预埋 context、bigram、trigram、block、SEP、padding、transition matrix 或
+  context-specific continuation map；同时保存每个 shard 的 SHA-256 摘要。
+- **第 454--455 行**：把同一份 metadata 写成 `metadata.json` 和兼容副本 `meta.json`。
+- **第 457--491 行 `contract.versioned_setting`**：把 vocab、模型几何、batch、
+  fixed-val、Zipf 参数、seed、token 数和比例再次写入可机器读取的实验契约，便于训练
+  或复核脚本直接检查。
+- **第 492--510 行 `scientific_invariants`**：写入不可变科学约束，例如 iid 流、
+  train/validation 随机流独立、两边 token ID 可以重复、context 在生成后统计、
+  ngram on/off 共用同一数据、完整 validation pool 已实际写出。
+- **第 511--539 行 `model_use`**：记录 `train.py` 应怎样使用这些文件：train 用 shard
+  `1`，validation pool 用 `2..10,6542`；默认 fixed-val 从 shard 2 的前缀取 4 个
+  batch，而不是把其他 validation 文件删掉。
+- **第 540--543 行**：把 shard 哈希写入 `run_contract.json`，然后返回 metadata。
 
-### 6.13 `main`（第 540--570 行）
+因此，这 235 行主要是“写 provenance/contract”，不是额外的数据结构；真正产生 token
+的调用只有第 335--351 行的 `sample_zipf()` 和 `write_iid_shard()`。
 
-不解析任何命令行参数，只调用 `generate()` 并打印：输出目录、完整 train/validation
-raw token 数、完整 validation-pool 比例、默认 fixed-val loss-token 比例、词表、
-embedding width、sequence length 和 alpha。
+### 6.13 `main`（第 546--572 行）
+
+不解析任何命令行参数。第 548--552 行调用 `generate()`，并把文件已存在、setting
+错误或系统写盘错误转换为简短的生成失败信息；第 553--567 行打印输出目录、完整
+train/validation raw token 数、完整 validation-pool 比例和默认 fixed-val loss-token
+比例；第 568--572 行打印词表、embedding width、sequence length 和 alpha，并说明
+context frequency 要在下游统计。
+
+第 575--576 行是 Python 入口保护：只有直接执行这个文件时才调用 `main()`；如果把
+它作为模块导入，则不会自动生成数据。
 
 ## 7. 运行命令
 
